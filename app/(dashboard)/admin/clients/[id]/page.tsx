@@ -1,0 +1,128 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getClient } from "@/lib/actions/clients";
+import { getWebsitesForClient } from "@/lib/actions/websites";
+import { getClientActivity } from "@/lib/actions/activity";
+import { WebsitesList } from "./websites-list";
+import { AdminNotes } from "./admin-notes";
+import { ActivityLog } from "@/components/activity-log";
+import { formatDate } from "@/lib/utils";
+
+export const metadata: Metadata = {
+  title: "Client Detail",
+};
+
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default async function ClientDetailPage({ params }: PageProps) {
+  const { id } = await params;
+  const [client, websites, activities] = await Promise.all([
+    getClient(id),
+    getWebsitesForClient(id),
+    getClientActivity(id, 20),
+  ]);
+
+  if (!client) {
+    notFound();
+  }
+
+  return (
+    <div className="p-4 md:p-6">
+      <div className="mb-6">
+        <Link
+          href="/admin/clients"
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          &larr; Back to Clients
+        </Link>
+      </div>
+
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{client.business_name}</h1>
+          <p className="text-sm text-muted-foreground">
+            Created {formatDate(client.created_at)}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <WebsitesList clientId={client.id} websites={websites} />
+        </div>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Contact Info</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {client.contact_email ? (
+                <div>
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Email
+                  </p>
+                  <a
+                    href={`mailto:${client.contact_email}`}
+                    className="text-sm hover:underline"
+                  >
+                    {client.contact_email}
+                  </a>
+                </div>
+              ) : null}
+              {client.contact_phone ? (
+                <div>
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Phone
+                  </p>
+                  <a
+                    href={`tel:${client.contact_phone}`}
+                    className="text-sm hover:underline"
+                  >
+                    {client.contact_phone}
+                  </a>
+                </div>
+              ) : null}
+              {!client.contact_email && !client.contact_phone && (
+                <p className="text-sm text-muted-foreground">
+                  No contact info added
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <AdminNotes clientId={client.id} initialNotes={client.notes} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Websites</span>
+                <span className="font-medium">{websites.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Total Leads</span>
+                <span className="font-medium">—</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Activity Log</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ActivityLog activities={activities} />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

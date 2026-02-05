@@ -52,6 +52,7 @@ create trigger profiles_updated_at
   for each row execute function public.update_updated_at();
 
 -- ==================== CLIENTS ====================
+-- TODO post-MVP: add deleted_at TIMESTAMPTZ for soft-delete
 create table public.clients (
   id uuid primary key default gen_random_uuid(),
   business_name varchar(255) not null,
@@ -71,6 +72,7 @@ create trigger clients_updated_at
 -- ==================== CLIENT_USERS ====================
 create table public.client_users (
   id uuid primary key default gen_random_uuid(),
+  -- TODO post-MVP: replace CASCADE with application-level cascade when soft-delete is added
   client_id uuid not null references public.clients(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
   access_role text not null default 'viewer' check (access_role in ('owner', 'viewer')),
@@ -81,6 +83,7 @@ create table public.client_users (
 -- ==================== WEBSITES ====================
 create table public.websites (
   id uuid primary key default gen_random_uuid(),
+  -- TODO post-MVP: replace CASCADE with application-level cascade when soft-delete is added
   client_id uuid not null references public.clients(id) on delete cascade,
   name varchar(255) not null,
   url varchar(500) not null,
@@ -99,7 +102,10 @@ create trigger websites_updated_at
 -- ==================== LEADS ====================
 create table public.leads (
   id uuid primary key default gen_random_uuid(),
+  -- TODO post-MVP: replace CASCADE with application-level cascade when soft-delete is added
   website_id uuid not null references public.websites(id) on delete cascade,
+  -- Denormalized for query performance (avoids 3-table join through websites)
+  client_id uuid not null references public.clients(id) on delete cascade,
   form_name varchar(255),
   source varchar(50) not null default 'webhook' check (source in ('webhook', 'manual', 'api')),
   name varchar(255),
@@ -113,6 +119,7 @@ create table public.leads (
 );
 
 create index leads_website_id_idx on public.leads(website_id);
+create index leads_client_id_idx on public.leads(client_id);
 create index leads_status_idx on public.leads(status);
 create index leads_submitted_at_idx on public.leads(submitted_at desc);
 
@@ -130,8 +137,9 @@ create index lead_notes_lead_id_idx on public.lead_notes(lead_id);
 -- ==================== INTEGRATIONS ====================
 create table public.integrations (
   id uuid primary key default gen_random_uuid(),
+  -- TODO post-MVP: replace CASCADE with application-level cascade when soft-delete is added
   client_id uuid not null references public.clients(id) on delete cascade,
-  type text not null check (type in ('ga4', 'gbp')),
+  type text not null check (type in ('ga4', 'gbp', 'facebook')),
   account_id varchar(255) not null,
   account_name varchar(255),
   access_token_encrypted text,
@@ -265,25 +273,16 @@ create policy "Admins can manage all leads"
   to authenticated
   using (public.is_admin());
 
+-- Uses denormalized client_id for performance (no join through websites)
 create policy "Client users can view their leads"
   on public.leads for select
   to authenticated
-  using (
-    website_id in (
-      select w.id from public.websites w
-      where w.client_id in (select public.get_user_client_ids())
-    )
-  );
+  using (client_id in (select public.get_user_client_ids()));
 
 create policy "Client users can update their lead status"
   on public.leads for update
   to authenticated
-  using (
-    website_id in (
-      select w.id from public.websites w
-      where w.client_id in (select public.get_user_client_ids())
-    )
-  );
+  using (client_id in (select public.get_user_client_ids()));
 
 -- ===== LEAD_NOTES =====
 alter table public.lead_notes enable row level security;
@@ -293,14 +292,14 @@ create policy "Admins can manage all lead_notes"
   to authenticated
   using (public.is_admin());
 
+-- Uses denormalized client_id on leads for performance (no join through websites)
 create policy "Client users can view notes on their leads"
   on public.lead_notes for select
   to authenticated
   using (
     lead_id in (
       select l.id from public.leads l
-      join public.websites w on w.id = l.website_id
-      where w.client_id in (select public.get_user_client_ids())
+      where l.client_id in (select public.get_user_client_ids())
     )
   );
 
@@ -311,8 +310,7 @@ create policy "Users can create notes on accessible leads"
     user_id = (select auth.uid())
     and lead_id in (
       select l.id from public.leads l
-      join public.websites w on w.id = l.website_id
-      where w.client_id in (select public.get_user_client_ids())
+      where l.client_id in (select public.get_user_client_ids())
     )
   );
 

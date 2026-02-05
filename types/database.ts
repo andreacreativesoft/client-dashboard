@@ -2,7 +2,7 @@ export type UserRole = "admin" | "client";
 export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
-export type IntegrationType = "ga4" | "gbp";
+export type IntegrationType = "ga4" | "gbp" | "facebook";
 
 export type Profile = {
   id: string;
@@ -51,6 +51,7 @@ export type Website = {
 export type Lead = {
   id: string;
   website_id: string;
+  client_id: string; // Denormalized for query performance
   form_name: string | null;
   source: LeadSource;
   name: string | null;
@@ -98,6 +99,57 @@ export type AnalyticsCache = {
   created_at: string;
 };
 
+export type PushSubscription = {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Report = {
+  id: string;
+  client_id: string;
+  period_start: string;
+  period_end: string;
+  file_path: string;
+  file_size: number;
+  generated_at: string;
+  sent_at: string | null;
+  created_at: string;
+};
+
+export type Invite = {
+  id: string;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  role: UserRole;
+  token: string;
+  client_ids: string[];
+  invited_by: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+};
+
+export type ActivityLog = {
+  id: string;
+  client_id: string | null;
+  user_id: string | null;
+  action_type: string;
+  description: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ActivityLogWithUser = ActivityLog & {
+  user_name: string | null;
+  user_email: string | null;
+};
+
 // Joined view types
 export type LeadFull = Lead & {
   website_name: string;
@@ -117,7 +169,7 @@ export type Database = {
       };
       clients: {
         Row: Client;
-        Insert: Omit<Client, "id" | "created_at" | "updated_at">;
+        Insert: Omit<Client, "id" | "created_at" | "updated_at" | "logo_url"> & { logo_url?: string | null };
         Update: Partial<Omit<Client, "id" | "created_at">>;
         Relationships: [];
       };
@@ -129,13 +181,32 @@ export type Database = {
       };
       websites: {
         Row: Website;
-        Insert: Omit<Website, "id" | "api_key" | "webhook_secret" | "created_at" | "updated_at">;
+        Insert: {
+          client_id: string;
+          name: string;
+          url: string;
+          api_key: string;
+          webhook_secret: string;
+          source_type: string;
+          is_active: boolean;
+        };
         Update: Partial<Omit<Website, "id" | "created_at">>;
         Relationships: [];
       };
       leads: {
         Row: Lead;
-        Insert: Omit<Lead, "id" | "submitted_at" | "created_at">;
+        Insert: {
+          website_id: string;
+          client_id: string;
+          form_name?: string | null;
+          source: LeadSource;
+          name?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          message?: string | null;
+          raw_data: Record<string, unknown>;
+          status: LeadStatus;
+        };
         Update: Partial<Omit<Lead, "id" | "created_at">>;
         Relationships: [];
       };
@@ -155,6 +226,30 @@ export type Database = {
         Row: AnalyticsCache;
         Insert: Omit<AnalyticsCache, "id" | "fetched_at" | "created_at">;
         Update: Partial<Omit<AnalyticsCache, "id" | "created_at">>;
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: PushSubscription;
+        Insert: Omit<PushSubscription, "id" | "created_at" | "updated_at">;
+        Update: Partial<Omit<PushSubscription, "id" | "created_at">>;
+        Relationships: [];
+      };
+      reports: {
+        Row: Report;
+        Insert: Omit<Report, "id" | "created_at" | "sent_at"> & { sent_at?: string | null };
+        Update: Partial<Omit<Report, "id" | "created_at">>;
+        Relationships: [];
+      };
+      invites: {
+        Row: Invite;
+        Insert: Omit<Invite, "id" | "token" | "created_at" | "accepted_at"> & { accepted_at?: string | null };
+        Update: Partial<Omit<Invite, "id" | "token" | "created_at">>;
+        Relationships: [];
+      };
+      activity_logs: {
+        Row: ActivityLog;
+        Insert: Omit<ActivityLog, "id" | "created_at">;
+        Update: never;
         Relationships: [];
       };
     };

@@ -1,10 +1,11 @@
 import { cn } from "@/lib/utils";
 import type { HTMLAttributes } from "react";
 
-type Variant = "default" | "success" | "warning" | "destructive" | "outline";
+type Variant = "default" | "secondary" | "success" | "warning" | "destructive" | "outline";
 
 const variantStyles: Record<Variant, string> = {
-  default: "bg-foreground text-background",
+  default: "bg-primary text-primary-foreground",
+  secondary: "bg-muted text-muted-foreground",
   success: "bg-success text-success-foreground",
   warning: "bg-warning text-warning-foreground",
   destructive: "bg-destructive text-destructive-foreground",

@@ -5,12 +5,12 @@ type Variant = "default" | "outline" | "ghost" | "destructive";
 type Size = "default" | "sm" | "lg" | "icon";
 
 const variantStyles: Record<Variant, string> = {
-  default: "bg-foreground text-background hover:bg-foreground/90",
+  default: "bg-primary text-primary-foreground hover:bg-primary/80 active:bg-primary/70",
   outline:
-    "border border-border bg-background hover:bg-muted text-foreground",
+    "border border-border bg-background hover:bg-muted hover:border-foreground/20 text-foreground",
   ghost: "hover:bg-muted text-foreground",
   destructive:
-    "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    "bg-destructive text-destructive-foreground hover:bg-destructive/80 active:bg-destructive/70",
 };
 
 const sizeStyles: Record<Size, string> = {
@@ -30,7 +30,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         className={cn(
-          "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
           variantStyles[variant],
           sizeStyles[size],
           className

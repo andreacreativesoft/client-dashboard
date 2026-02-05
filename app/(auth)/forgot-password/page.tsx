@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ForgotPasswordForm } from "./forgot-password-form";
 
 export const metadata: Metadata = {
   title: "Forgot Password",
@@ -13,9 +14,7 @@ export default function ForgotPasswordPage() {
           Enter your email to receive a reset link
         </p>
       </div>
-      <p className="text-center text-sm text-muted-foreground">
-        Coming in Phase 2
-      </p>
+      <ForgotPasswordForm />
     </div>
   );
 }

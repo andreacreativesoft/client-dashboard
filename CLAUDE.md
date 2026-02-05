@@ -54,4 +54,11 @@ supabase/
 8 tables with full RLS: profiles, clients, client_users, websites, leads, lead_notes, integrations, analytics_cache. See `supabase/migrations/001_initial_schema.sql`.
 
 ## Current Status
-Phase 1 complete (Foundation). Ready for Phase 2 (Authentication).
+Phase 1 complete (Foundation). Phase 2 complete (Authentication). Ready for Phase 3 (Admin Panel).
+
+## Supabase Setup (Required)
+1. Create a project at https://supabase.com
+2. Run `supabase/migrations/001_initial_schema.sql` in the SQL Editor
+3. Copy project URL + anon key + service role key into `.env.local`
+4. Create first admin user: Authentication > Users > Add User (email+password)
+5. Then in SQL Editor: `UPDATE profiles SET role = 'admin' WHERE email = 'your@email.com';`

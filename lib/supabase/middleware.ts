@@ -34,6 +34,7 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/forgot-password") ||
+    request.nextUrl.pathname.startsWith("/auth/callback") ||
     request.nextUrl.pathname.startsWith("/api/webhooks") ||
     request.nextUrl.pathname.startsWith("/api/health") ||
     request.nextUrl.pathname.startsWith("/_next") ||
@@ -47,8 +48,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from login
-  if (user && request.nextUrl.pathname.startsWith("/login")) {
+  // Redirect authenticated users away from auth pages
+  if (
+    user &&
+    (request.nextUrl.pathname.startsWith("/login") ||
+      request.nextUrl.pathname.startsWith("/forgot-password"))
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
 import { getLeads } from "@/lib/actions/leads";
 
 export const metadata: Metadata = {
@@ -8,19 +7,6 @@ export const metadata: Metadata = {
 };
 
 export default async function AnalyticsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user?.id || "")
-    .single<{ role: string }>();
-
-  const isAdmin = profile?.role === "admin";
   const leads = await getLeads();
 
   // Calculate lead stats by time period
@@ -194,29 +180,6 @@ export default async function AnalyticsPage() {
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Coming Soon */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Google Integrations</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg border border-dashed border-border p-4 text-center">
-              <p className="font-medium">Google Analytics (GA4)</p>
-              <p className="text-sm text-muted-foreground">
-                Website traffic and conversion tracking
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">Coming soon</p>
-            </div>
-            <div className="rounded-lg border border-dashed border-border p-4 text-center">
-              <p className="font-medium">Google Business Profile</p>
-              <p className="text-sm text-muted-foreground">
-                Calls, clicks, and direction requests
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">Coming soon</p>
-            </div>
           </CardContent>
         </Card>
       </div>

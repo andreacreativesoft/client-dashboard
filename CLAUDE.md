@@ -23,20 +23,22 @@ app/
   (auth)/         → Login, forgot password (no sidebar)
   (dashboard)/    → Dashboard, leads, analytics, settings (sidebar + header)
     admin/        → Admin-only pages (client/user/website management)
-  api/            → Webhook endpoint, health check
+    admin/clients/[id]/ → Client detail with websites, integrations, notes, activity
+  api/            → Webhook endpoint, health check, Google OAuth
 components/
   ui/             → Button, Card, Input, Badge, Skeleton, Modal, Label, Textarea
-  layout/         → Sidebar, Header, MobileNav
+  layout/         → Sidebar (collapsible), Header, MobileNav, SidebarContext
 lib/
   supabase/       → Browser client, server client, admin client, middleware
-  actions/        → Server actions (clients, websites, users, leads, profile)
+  actions/        → Server actions (clients, websites, users, leads, profile, integrations)
+  rate-limit.ts   → Sliding window rate limiter for webhook endpoint
   utils.ts        → cn(), formatDate(), timeAgo(), slugify(), formatNumber()
 types/
   database.ts     → All table types + Database type for Supabase
   auth.ts         → AuthUser, SessionContext
   api.ts          → API response types, webhook payload
 supabase/
-  migrations/     → SQL schema with RLS
+  migrations/     → SQL schema with RLS + performance indexes
 ```
 
 ## Conventions
@@ -50,14 +52,16 @@ supabase/
 - Webhook endpoint uses admin client (service_role) to bypass RLS
 
 ## Database
-8 tables with full RLS: profiles, clients, client_users, websites, leads, lead_notes, integrations, analytics_cache. See `supabase/migrations/001_initial_schema.sql`.
+8 tables with full RLS: profiles, clients, client_users, websites, leads, lead_notes, integrations, analytics_cache. Additional tables: invites, activity_logs, push_subscriptions, reports. See `supabase/migrations/`.
 
 ## Current Status
 - Phase 1: Foundation ✅
 - Phase 2: Authentication ✅
 - Phase 3: Admin Panel ✅ (client/website/user CRUD)
-- Phase 4: Leads ✅ (list, detail, status, notes, filters)
-- Phase 5: Analytics (partial) ✅ (lead stats, charts) — Google integrations pending
+- Phase 4: Leads ✅ (list, detail, status, notes, filters, pagination)
+- Phase 5: Analytics ✅ (lead stats, charts, top sources)
+- Phase 6: Integrations ✅ (GA4, GBP, Facebook Pixel — per-website in client detail)
+- Phase 7: Optimization ✅ (rate limiting, input sanitization, DB indexes, code deduplication)
 
 ## Webhook API
 Receives leads from any source (Elementor, Contact Form 7, WPForms, etc.)
@@ -83,14 +87,30 @@ Supports various field names: `your_name`, `your_email`, `first_name`+`last_name
 
 ## Supabase Setup (Required)
 1. Create a project at https://supabase.com
-2. Run `supabase/migrations/001_initial_schema.sql` in the SQL Editor
+2. Run ALL migrations in order in the SQL Editor: `001_initial_schema.sql`, `003_reports.sql`, `004_invites.sql`, `005_activity_logs.sql`, `007_performance_indexes.sql`
 3. Copy project URL + anon key + service role key into `.env.local`
 4. Create first admin user: Authentication > Users > Add User (email+password)
 5. Then in SQL Editor: `UPDATE profiles SET role = 'admin' WHERE email = 'your@email.com';`
 
+## Google OAuth Setup (Optional — for GA4/GBP integrations)
+1. Google Cloud Console → APIs & Services → Credentials → Create OAuth 2.0 Client ID
+2. Authorized redirect URI: `https://yourdomain.com/api/auth/google/callback`
+3. Enable APIs: Analytics Data API, Analytics Admin API, My Business Account Management, My Business Business Information
+4. Add to `.env.local`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY`
+
 ## Features
 - **Admin:** Create/edit/delete clients, websites (with API key generation), users
-- **Leads:** View all leads, filter by status, search, change status, add notes
+- **Integrations:** GA4, Google Business Profile (OAuth), Facebook Pixel (manual) — managed per-website inside each website card
+- **Leads:** View all leads, filter by status, search, change status, add notes, paginated (25/page)
 - **Analytics:** Lead trends (30-day chart), status breakdown, top sources
 - **Settings:** Update profile name/phone, change password
-- **Dashboard:** Stats overview, recent leads list
+- **Dashboard:** Stats overview, recent leads list, alerts
+- **Sidebar:** Collapsible with persistent state (localStorage)
+
+## Security & Performance
+- **Webhook rate limiting:** 30 req/min per API key, 60 req/min per IP (sliding window)
+- **Input sanitization:** Control char stripping, email/phone validation, field truncation, 50KB raw_data limit
+- **Admin role checks:** `requireAdmin()` utility for all admin-only server actions
+- **Crypto API key generation:** `crypto.randomUUID()` for API keys
+- **DB indexes:** 8 performance indexes on hot columns (see `migrations/007_performance_indexes.sql`)
+- **Dynamic email URLs:** Runtime `NEXT_PUBLIC_APP_URL` resolution for production links

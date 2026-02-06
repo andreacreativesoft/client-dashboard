@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth";
 import { sendInviteEmail } from "@/lib/email";
 import { format } from "date-fns";
 import type { Invite } from "@/types/database";
@@ -18,22 +19,16 @@ export type InviteFormData = {
 export async function createInviteAction(
   formData: InviteFormData
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
-
-  // Get current user (the inviter)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
 
   // Get inviter's name
   const { data: inviterProfile } = await supabase
     .from("profiles")
     .select("full_name")
-    .eq("id", user.id)
+    .eq("id", auth.userId)
     .single();
 
   // Check if user already exists
@@ -72,7 +67,7 @@ export async function createInviteAction(
       phone: formData.phone || null,
       role: formData.role,
       client_ids: formData.client_ids,
-      invited_by: user.id,
+      invited_by: auth.userId,
       expires_at: expiresAt.toISOString(),
     })
     .select("token, expires_at")
@@ -209,23 +204,17 @@ export async function acceptInviteAction(
 export async function resendInviteAction(
   inviteId: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
   const adminClient = createAdminClient();
-
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
 
   // Get inviter's name
   const { data: inviterProfile } = await supabase
     .from("profiles")
     .select("full_name")
-    .eq("id", user.id)
+    .eq("id", auth.userId)
     .single();
 
   // Get the invite
@@ -272,6 +261,9 @@ export async function resendInviteAction(
 export async function deleteInviteAction(
   inviteId: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const adminClient = createAdminClient();
 
   const { error } = await adminClient
@@ -289,9 +281,13 @@ export async function deleteInviteAction(
 }
 
 export async function getPendingInvites(): Promise<Invite[]> {
-  const supabase = await createClient();
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
 
-  const { data, error } = await supabase
+  // Use admin client to bypass RLS — this is already admin-only
+  const adminClient = createAdminClient();
+
+  const { data, error } = await adminClient
     .from("invites")
     .select("*")
     .is("accepted_at", null)
@@ -299,7 +295,7 @@ export async function getPendingInvites(): Promise<Invite[]> {
     .returns<Invite[]>();
 
   if (error) {
-    console.error("Error fetching invites:", error);
+    // Table may not exist if migration 004_invites.sql hasn't been run
     return [];
   }
 

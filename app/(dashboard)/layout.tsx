@@ -1,33 +1,28 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { SidebarProvider } from "@/components/layout/sidebar-context";
 import { ImpersonateBanner } from "@/components/impersonate-banner";
 import { getImpersonationStatus } from "@/lib/actions/impersonate";
-import type { Profile } from "@/types/database";
+import { getProfile } from "@/lib/actions/profile";
+import { updateLastLogin } from "@/lib/actions/alerts";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const profile = await getProfile();
 
-  if (!user) {
+  if (!profile) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single<Profile>();
+  // Update last login timestamp (fire and forget)
+  updateLastLogin().catch(() => {});
 
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile.role === "admin";
 
   // Check if admin is impersonating a client
   const impersonation = isAdmin ? await getImpersonationStatus() : null;
@@ -36,28 +31,30 @@ export default async function DashboardLayout({
   const showAsAdmin = isAdmin && !impersonation;
 
   return (
-    <div className="flex min-h-dvh">
-      {/* Desktop sidebar */}
-      <Sidebar isAdmin={showAsAdmin} className="hidden md:flex" />
+    <SidebarProvider>
+      <div className="flex min-h-dvh">
+        {/* Desktop sidebar */}
+        <Sidebar isAdmin={showAsAdmin} className="hidden md:flex" />
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col">
-        <Header
-          userName={profile?.full_name || user.email || "User"}
-          isAdmin={isAdmin}
-          avatarUrl={profile?.avatar_url}
-          showClientSwitcher={isAdmin && !impersonation}
-        />
-        <main className="flex-1 pb-20 md:pb-0">{children}</main>
+        {/* Main content */}
+        <div className="flex flex-1 flex-col">
+          <Header
+            userName={profile.full_name || profile.email || "User"}
+            isAdmin={isAdmin}
+            avatarUrl={profile.avatar_url}
+            showClientSwitcher={isAdmin && !impersonation}
+          />
+          <main className="flex-1 pb-20 md:pb-0">{children}</main>
+        </div>
+
+        {/* Mobile bottom nav */}
+        <MobileNav isAdmin={showAsAdmin} className="md:hidden" />
+
+        {/* Impersonation banner */}
+        {impersonation && (
+          <ImpersonateBanner clientName={impersonation.clientName} />
+        )}
       </div>
-
-      {/* Mobile bottom nav */}
-      <MobileNav isAdmin={showAsAdmin} className="md:hidden" />
-
-      {/* Impersonation banner */}
-      {impersonation && (
-        <ImpersonateBanner clientName={impersonation.clientName} />
-      )}
-    </div>
+    </SidebarProvider>
   );
 }

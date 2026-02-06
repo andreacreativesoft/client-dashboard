@@ -15,17 +15,24 @@ export async function GET(request: NextRequest) {
     const state = request.nextUrl.searchParams.get("state");
     const error = request.nextUrl.searchParams.get("error");
 
+    // Helper to build redirect URL back to client detail page
+    function clientUrl(clientId: string, params?: string) {
+      const base = `/admin/clients/${clientId}`;
+      return new URL(params ? `${base}?${params}` : base, request.url);
+    }
+
     // Handle OAuth errors
     if (error) {
       console.error("Google OAuth error:", error);
+      // No state to parse yet, fallback to clients list
       return NextResponse.redirect(
-        new URL("/admin/integrations?error=oauth_denied", request.url)
+        new URL("/admin/clients", request.url)
       );
     }
 
     if (!code || !state) {
       return NextResponse.redirect(
-        new URL("/admin/integrations?error=missing_params", request.url)
+        new URL("/admin/clients", request.url)
       );
     }
 
@@ -49,14 +56,14 @@ export async function GET(request: NextRequest) {
       stateData = parsed;
     } catch {
       return NextResponse.redirect(
-        new URL("/admin/integrations?error=invalid_state", request.url)
+        new URL("/admin/clients", request.url)
       );
     }
 
     // Verify user matches
     if (stateData.userId !== user.id) {
       return NextResponse.redirect(
-        new URL("/admin/integrations?error=user_mismatch", request.url)
+        clientUrl(stateData.clientId, "error=user_mismatch")
       );
     }
 
@@ -113,21 +120,18 @@ export async function GET(request: NextRequest) {
     if (upsertError) {
       console.error("Failed to save integration:", upsertError);
       return NextResponse.redirect(
-        new URL("/admin/integrations?error=save_failed", request.url)
+        clientUrl(stateData.clientId, "error=save_failed")
       );
     }
 
-    // Redirect to integrations page with success
+    // Redirect back to client detail page
     return NextResponse.redirect(
-      new URL(
-        `/admin/integrations?success=true&type=${stateData.type}&client_id=${stateData.clientId}`,
-        request.url
-      )
+      clientUrl(stateData.clientId, `success=true&type=${stateData.type}`)
     );
   } catch (err) {
     console.error("Google callback error:", err);
     return NextResponse.redirect(
-      new URL("/admin/integrations?error=callback_failed", request.url)
+      new URL("/admin/clients", request.url)
     );
   }
 }

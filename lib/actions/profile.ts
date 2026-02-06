@@ -1,5 +1,6 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/database";
@@ -9,7 +10,11 @@ export type ProfileFormData = {
   phone: string;
 };
 
-export async function getProfile(): Promise<Profile | null> {
+/**
+ * Cached profile fetch — deduplicated per server request via React.cache().
+ * Multiple pages/layouts calling this in the same render only hit the DB once.
+ */
+export const getProfile = cache(async (): Promise<Profile | null> => {
   const supabase = await createClient();
 
   const {
@@ -30,7 +35,7 @@ export async function getProfile(): Promise<Profile | null> {
   }
 
   return data;
-}
+});
 
 export async function updateProfileAction(
   formData: ProfileFormData

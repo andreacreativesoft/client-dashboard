@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { ReportDownloadButton } from "./report-download-button";
 import { GenerateReportButton } from "./generate-report-button";
+import { getProfile } from "@/lib/actions/profile";
 
 export const metadata: Metadata = {
   title: "Reports",
@@ -23,20 +24,11 @@ type ReportWithClient = {
 };
 
 export default async function ReportsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user?.id || "")
-    .single();
-
+  const profile = await getProfile();
   const isAdmin = profile?.role === "admin";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+
+  const supabase = await createClient();
 
   // Get reports based on user role
   let query = supabase

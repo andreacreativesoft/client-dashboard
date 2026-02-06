@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getClient } from "@/lib/actions/clients";
 import { getWebsitesForClient } from "@/lib/actions/websites";
 import { getClientActivity } from "@/lib/actions/activity";
+import { getIntegrationsForClient } from "@/lib/actions/integrations";
+import { getLeadCountForClient } from "@/lib/actions/leads";
 import { WebsitesList } from "./websites-list";
 import { AdminNotes } from "./admin-notes";
 import { ActivityLog } from "@/components/activity-log";
@@ -20,11 +22,17 @@ interface PageProps {
 
 export default async function ClientDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const [client, websites, activities] = await Promise.all([
+  const [client, websites, activities, integrations, leadCount] = await Promise.all([
     getClient(id),
     getWebsitesForClient(id),
     getClientActivity(id, 20),
+    getIntegrationsForClient(id),
+    getLeadCountForClient(id),
   ]);
+
+  const googleConfigured = !!(
+    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+  );
 
   if (!client) {
     notFound();
@@ -52,7 +60,12 @@ export default async function ClientDetailPage({ params }: PageProps) {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <WebsitesList clientId={client.id} websites={websites} />
+          <WebsitesList
+            clientId={client.id}
+            websites={websites}
+            integrations={integrations}
+            googleConfigured={googleConfigured}
+          />
         </div>
 
         <div className="space-y-6">
@@ -108,7 +121,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Total Leads</span>
-                <span className="font-medium">—</span>
+                <span className="font-medium">{leadCount}</span>
               </div>
             </CardContent>
           </Card>

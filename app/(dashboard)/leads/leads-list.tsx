@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,9 +15,17 @@ import {
 import { timeAgo } from "@/lib/utils";
 import type { LeadStatus } from "@/types/database";
 
+interface PaginationInfo {
+  page: number;
+  perPage: number;
+  total: number;
+  totalPages: number;
+}
+
 interface LeadsListProps {
   leads: LeadWithDetails[];
   isAdmin: boolean;
+  pagination?: PaginationInfo;
 }
 
 const STATUS_OPTIONS: { value: LeadStatus; label: string; variant: "default" | "warning" | "success" }[] = [
@@ -25,26 +34,49 @@ const STATUS_OPTIONS: { value: LeadStatus; label: string; variant: "default" | "
   { value: "done", label: "Done", variant: "success" },
 ];
 
-export function LeadsList({ leads, isAdmin }: LeadsListProps) {
+export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
   const [updating, setUpdating] = useState<string | null>(null);
 
-  const filteredLeads = leads.filter((lead) => {
-    if (statusFilter !== "all" && lead.status !== statusFilter) {
-      return false;
+  const currentStatus = searchParams.get("status") || "all";
+  const currentPage = pagination?.page ?? 1;
+
+  // Client-side search filter (filters within the current page)
+  const filteredLeads = search
+    ? leads.filter((lead) => {
+        const searchLower = search.toLowerCase();
+        return (
+          lead.name?.toLowerCase().includes(searchLower) ||
+          lead.email?.toLowerCase().includes(searchLower) ||
+          lead.phone?.toLowerCase().includes(searchLower) ||
+          lead.client_name.toLowerCase().includes(searchLower)
+        );
+      })
+    : leads;
+
+  function navigateTo(params: Record<string, string | undefined>) {
+    const newParams = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === "all" || value === "1") {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
     }
-    if (search) {
-      const searchLower = search.toLowerCase();
-      return (
-        lead.name?.toLowerCase().includes(searchLower) ||
-        lead.email?.toLowerCase().includes(searchLower) ||
-        lead.phone?.toLowerCase().includes(searchLower) ||
-        lead.client_name.toLowerCase().includes(searchLower)
-      );
-    }
-    return true;
-  });
+    const qs = newParams.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  }
+
+  function handleStatusFilter(status: string) {
+    navigateTo({ status, page: undefined });
+  }
+
+  function handlePageChange(page: number) {
+    navigateTo({ page: String(page) });
+  }
 
   async function handleStatusChange(leadId: string, newStatus: LeadStatus) {
     setUpdating(leadId);
@@ -66,7 +98,9 @@ export function LeadsList({ leads, isAdmin }: LeadsListProps) {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Leads</h1>
         <span className="text-sm text-muted-foreground">
-          {filteredLeads.length} lead{filteredLeads.length !== 1 ? "s" : ""}
+          {pagination
+            ? `${pagination.total} lead${pagination.total !== 1 ? "s" : ""}`
+            : `${filteredLeads.length} lead${filteredLeads.length !== 1 ? "s" : ""}`}
         </span>
       </div>
 
@@ -80,18 +114,18 @@ export function LeadsList({ leads, isAdmin }: LeadsListProps) {
         />
         <div className="flex gap-2">
           <Button
-            variant={statusFilter === "all" ? "default" : "outline"}
+            variant={currentStatus === "all" ? "default" : "outline"}
             size="sm"
-            onClick={() => setStatusFilter("all")}
+            onClick={() => handleStatusFilter("all")}
           >
             All
           </Button>
           {STATUS_OPTIONS.map((status) => (
             <Button
               key={status.value}
-              variant={statusFilter === status.value ? "default" : "outline"}
+              variant={currentStatus === status.value ? "default" : "outline"}
               size="sm"
-              onClick={() => setStatusFilter(status.value)}
+              onClick={() => handleStatusFilter(status.value)}
             >
               {status.label}
             </Button>
@@ -183,6 +217,59 @@ export function LeadsList({ leads, isAdmin }: LeadsListProps) {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * pagination.perPage + 1}–
+            {Math.min(currentPage * pagination.perPage, pagination.total)} of{" "}
+            {pagination.total}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage <= 1}
+              onClick={() => handlePageChange(currentPage - 1)}
+            >
+              Previous
+            </Button>
+            {/* Page numbers */}
+            {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
+              let pageNum: number;
+              if (pagination.totalPages <= 5) {
+                pageNum = i + 1;
+              } else if (currentPage <= 3) {
+                pageNum = i + 1;
+              } else if (currentPage >= pagination.totalPages - 2) {
+                pageNum = pagination.totalPages - 4 + i;
+              } else {
+                pageNum = currentPage - 2 + i;
+              }
+              return (
+                <Button
+                  key={pageNum}
+                  variant={pageNum === currentPage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handlePageChange(pageNum)}
+                  className="min-w-[36px]"
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= pagination.totalPages}
+              onClick={() => handlePageChange(currentPage + 1)}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

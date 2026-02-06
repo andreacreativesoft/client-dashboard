@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { getLeads } from "@/lib/actions/leads";
+import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import { timeAgo, formatNumber } from "@/lib/utils";
 
@@ -19,18 +20,7 @@ function getGreeting(): string {
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role")
-    .eq("id", user?.id || "")
-    .single<{ full_name: string; role: string }>();
-
+  const profile = await getProfile();
   const leads = await getLeads();
   const recentLeads = leads.slice(0, 5);
 
@@ -46,6 +36,7 @@ export default async function DashboardPage() {
 
   // Get websites for this user (or impersonated client)
   let websites: { id: string; name: string; url: string }[] = [];
+  const supabase = await createClient();
 
   if (isAdmin) {
     // Check if impersonating
@@ -58,12 +49,12 @@ export default async function DashboardPage() {
         .eq("is_active", true);
       websites = data || [];
     }
-  } else {
+  } else if (profile) {
     // For regular clients, get their websites via client_users
     const { data: clientUsers } = await supabase
       .from("client_users")
       .select("client_id")
-      .eq("user_id", user?.id || "");
+      .eq("user_id", profile.id);
 
     if (clientUsers && clientUsers.length > 0) {
       const clientIds = clientUsers.map((cu) => cu.client_id);

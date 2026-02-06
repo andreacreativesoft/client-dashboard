@@ -4,53 +4,100 @@ import { sendNewLeadNotification } from "@/lib/email";
 import { sendPushToMultiple, type PushSubscriptionData } from "@/lib/push";
 import { sendFacebookConversion, FacebookEvents } from "@/lib/facebook";
 import { decryptToken } from "@/lib/google";
+import { rateLimit } from "@/lib/rate-limit";
 import type { WebhookLeadPayload } from "@/types/api";
 import type { Website } from "@/types/database";
+
+// Rate limit: 30 requests per minute per API key, 60 per minute per IP
+const RATE_LIMIT_PER_KEY = { windowMs: 60_000, maxRequests: 30 };
+const RATE_LIMIT_PER_IP = { windowMs: 60_000, maxRequests: 60 };
+
+/** Truncate and strip control characters from a string value */
+function sanitize(value: unknown, maxLength: number): string | null {
+  if (value === null || value === undefined) return null;
+  const str = String(value).trim();
+  if (str.length === 0) return null;
+  // Strip control characters (except newlines/tabs in messages)
+  const cleaned = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  return cleaned.slice(0, maxLength) || null;
+}
+
+/** Validate email format loosely (no need to be RFC-perfect for leads) */
+function sanitizeEmail(value: unknown): string | null {
+  const email = sanitize(value, 255);
+  if (!email) return null;
+  // Basic email format check
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.toLowerCase() : null;
+}
+
+/** Strip non-phone characters, keep digits and common phone symbols */
+function sanitizePhone(value: unknown): string | null {
+  const phone = sanitize(value, 50);
+  if (!phone) return null;
+  // Keep digits, +, -, (, ), spaces, dots
+  const cleaned = phone.replace(/[^\d+\-().  ]/g, "");
+  // Must have at least 6 digits to be a phone number
+  const digitCount = cleaned.replace(/\D/g, "").length;
+  return digitCount >= 6 ? cleaned : null;
+}
 
 function normalizeLead(body: WebhookLeadPayload) {
   // Handle various form plugin formats
   const combinedName = [body.first_name, body.last_name].filter(Boolean).join(" ");
 
-  const name =
+  const name = sanitize(
     body.name ||
     body.full_name ||
     body.your_name ||
     body.fields?.name ||
     body.fields?.your_name ||
-    combinedName ||
-    null;
+    combinedName,
+    255
+  );
 
-  const email =
+  const email = sanitizeEmail(
     body.email ||
     body.your_email ||
     body.fields?.email ||
-    body.fields?.your_email ||
-    null;
+    body.fields?.your_email
+  );
 
-  const phone =
+  const phone = sanitizePhone(
     body.phone ||
     body.tel ||
     body.telephone ||
     body.your_phone ||
     body.fields?.phone ||
-    body.fields?.tel ||
-    null;
+    body.fields?.tel
+  );
 
-  const message =
+  const message = sanitize(
     body.message ||
     body.your_message ||
     body.comment ||
     body.fields?.message ||
-    body.fields?.your_message ||
-    null;
+    body.fields?.your_message,
+    5000
+  );
+
+  const form_name = sanitize(
+    body.form_name || body.form_id || body.formName,
+    255
+  );
+
+  // Sanitize raw_data: limit total size to prevent oversized payloads
+  const rawJson = JSON.stringify(body);
+  const raw_data = rawJson.length > 50_000
+    ? { _truncated: true, _original_size: rawJson.length }
+    : (body as Record<string, unknown>);
 
   return {
     name,
     email,
     phone,
     message,
-    form_name: body.form_name || body.form_id || body.formName || null,
-    raw_data: body as Record<string, unknown>,
+    form_name,
+    raw_data,
   };
 }
 
@@ -68,7 +115,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: WebhookLeadPayload = await request.json();
+    // Rate limit by IP address
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ipLimit = rateLimit(`ip:${ip}`, RATE_LIMIT_PER_IP);
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((ipLimit.resetAt - Date.now()) / 1000)),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
+    // Rate limit by API key
+    const keyLimit = rateLimit(`key:${apiKey}`, RATE_LIMIT_PER_KEY);
+    if (!keyLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests for this API key" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((keyLimit.resetAt - Date.now()) / 1000)),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
+    // Parse and validate request body
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    // Validate body is an object and not too large
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+      return NextResponse.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400 }
+      );
+    }
+
+    const body = rawBody as WebhookLeadPayload;
 
     // Use admin client (bypasses RLS) to look up website by API key
     const supabase = createAdminClient();
@@ -250,7 +347,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { success: true, lead_id: lead.id },
-      { status: 201 }
+      {
+        status: 201,
+        headers: {
+          "X-RateLimit-Remaining": String(keyLimit.remaining),
+        },
+      }
     );
   } catch (err) {
     console.error("Webhook error:", err);

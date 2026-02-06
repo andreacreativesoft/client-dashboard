@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 import type { Client } from "@/types/database";
 
 export type ClientFormData = {
@@ -46,15 +47,10 @@ export async function getClient(id: string): Promise<Client | null> {
 export async function createClientAction(
   formData: ClientFormData
 ): Promise<{ success: boolean; error?: string; client?: Client }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
 
   const { data, error } = await supabase
     .from("clients")
@@ -63,7 +59,7 @@ export async function createClientAction(
       contact_email: formData.contact_email || null,
       contact_phone: formData.contact_phone || null,
       notes: formData.notes || null,
-      created_by: user.id,
+      created_by: auth.userId,
     })
     .select()
     .single<Client>();
@@ -81,6 +77,9 @@ export async function updateClientAction(
   id: string,
   formData: ClientFormData
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -106,6 +105,9 @@ export async function updateClientAction(
 export async function deleteClientAction(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
 
   const { error } = await supabase.from("clients").delete().eq("id", id);
@@ -123,6 +125,9 @@ export async function updateClientNotesAction(
   id: string,
   notes: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
 
   const { error } = await supabase

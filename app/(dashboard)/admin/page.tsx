@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { QuickActions } from "./quick-actions";
+import { ClientAlerts } from "@/components/client-alerts";
+import { getClientAlerts } from "@/lib/actions/alerts";
 import type { Client } from "@/types/database";
 
 export const metadata: Metadata = {
@@ -12,8 +14,8 @@ export const metadata: Metadata = {
 export default async function AdminPage() {
   const supabase = await createClient();
 
-  // Fetch stats and clients for quick actions
-  const [clientsResult, websitesResult, leadsResult, usersResult, clientsData] = await Promise.all([
+  // Fetch stats, clients for quick actions, and alerts
+  const [clientsResult, websitesResult, leadsResult, usersResult, clientsData, alerts] = await Promise.all([
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("websites").select("id", { count: "exact", head: true }),
     supabase
@@ -22,6 +24,7 @@ export default async function AdminPage() {
       .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("clients").select("*").order("business_name").returns<Client[]>(),
+    getClientAlerts(),
   ]);
 
   const stats = [
@@ -71,12 +74,10 @@ export default async function AdminPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>Client Success Alerts</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Activity feed will be added in a future update.
-            </p>
+            <ClientAlerts alerts={alerts} />
           </CardContent>
         </Card>
       </div>

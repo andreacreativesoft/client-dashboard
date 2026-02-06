@@ -31,6 +31,5 @@ export const NAV_ITEMS = {
     { href: "/admin/clients", label: "Clients", icon: "Building2" },
     { href: "/admin/users", label: "Users", icon: "UserCog" },
     { href: "/admin/websites", label: "Websites", icon: "Globe" },
-    { href: "/admin/integrations", label: "Integrations", icon: "Plug" },
   ],
 } as const;

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import type { Lead, LeadStatus } from "@/types/database";
 
@@ -21,106 +22,82 @@ export type LeadFilters = {
   dateTo?: string;
 };
 
-export async function getLeads(filters?: LeadFilters): Promise<LeadWithDetails[]> {
-  const supabase = await createClient();
+export type PaginatedLeads = {
+  leads: LeadWithDetails[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+};
 
-  // First check if user is admin to determine what leads they can see
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+// Type with denormalized client_id and joined relations
+type LeadWithRelations = Lead & {
+  website: { id: string; name: string; url: string } | null;
+  client: { id: string; business_name: string } | null;
+};
 
-  if (!user) return [];
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single<{ role: string }>();
-
-  const isAdmin = profile?.role === "admin";
-
-  // Check if admin is impersonating a client
-  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
-
-  // Build query - uses denormalized client_id for filtering
-  // Still joins website for name/url, and client for business_name
-  let query = supabase
-    .from("leads")
-    .select(`
-      *,
-      website:websites(id, name, url),
-      client:clients(id, business_name)
-    `)
-    .order("created_at", { ascending: false });
-
-  // Apply filters
+/** Apply common Supabase filters to a leads query */
+function applyLeadQueryFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  filters?: LeadFilters,
+  clientId?: string | null
+) {
   if (filters?.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   }
-
   if (filters?.websiteId) {
     query = query.eq("website_id", filters.websiteId);
   }
-
+  // Push client_id filter to DB when possible (impersonation or explicit filter)
+  if (clientId) {
+    query = query.eq("client_id", clientId);
+  } else if (filters?.clientId) {
+    query = query.eq("client_id", filters.clientId);
+  }
   if (filters?.dateFrom) {
     query = query.gte("created_at", filters.dateFrom);
   }
-
   if (filters?.dateTo) {
     query = query.lte("created_at", filters.dateTo);
   }
+  return query;
+}
 
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Error fetching leads:", error);
-    return [];
+/** Transform raw Supabase rows into LeadWithDetails, applying access + search filters */
+function transformLeadRows(
+  data: LeadWithRelations[],
+  opts: {
+    isAdmin: boolean;
+    userClientIds: string[];
+    impersonatedClientId: string | null;
+    filters?: LeadFilters;
   }
-
-  // Transform and filter based on client access
+): LeadWithDetails[] {
   const leads: LeadWithDetails[] = [];
 
-  // If not admin, get user's client IDs (for additional filtering if RLS not applied)
-  let userClientIds: string[] = [];
-  if (!isAdmin) {
-    const { data: clientUsers } = await supabase
-      .from("client_users")
-      .select("client_id")
-      .eq("user_id", user.id)
-      .returns<{ client_id: string }[]>();
-
-    userClientIds = clientUsers?.map((cu) => cu.client_id) || [];
-  }
-
-  // Type with denormalized client_id and joined relations
-  type LeadWithRelations = Lead & {
-    website: { id: string; name: string; url: string } | null;
-    client: { id: string; business_name: string } | null;
-  };
-
-  for (const item of (data || []) as LeadWithRelations[]) {
+  for (const item of data) {
     const { website, client } = item;
-
     if (!website || !client) continue;
 
     // Filter by client if specified (using denormalized client_id)
-    if (filters?.clientId && item.client_id !== filters.clientId) {
+    if (opts.filters?.clientId && item.client_id !== opts.filters.clientId) {
       continue;
     }
 
     // When impersonating, only show that client's leads
-    if (impersonatedClientId && item.client_id !== impersonatedClientId) {
+    if (opts.impersonatedClientId && item.client_id !== opts.impersonatedClientId) {
       continue;
     }
 
     // Non-admins can only see their clients' leads
-    if (!isAdmin && !userClientIds.includes(item.client_id)) {
+    if (!opts.isAdmin && !opts.userClientIds.includes(item.client_id)) {
       continue;
     }
 
     // Search filter
-    if (filters?.search) {
-      const searchLower = filters.search.toLowerCase();
+    if (opts.filters?.search) {
+      const searchLower = opts.filters.search.toLowerCase();
       const matchesSearch =
         item.name?.toLowerCase().includes(searchLower) ||
         item.email?.toLowerCase().includes(searchLower) ||
@@ -135,23 +112,144 @@ export async function getLeads(filters?: LeadFilters): Promise<LeadWithDetails[]
       website_name: website.name,
       website_url: website.url,
       client_name: client.business_name,
-      client_id: item.client_id, // Use denormalized client_id
+      client_id: item.client_id,
     });
   }
 
   return leads;
 }
 
+/** Get user's accessible client IDs (for non-admin users) */
+async function getUserClientIds(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string
+): Promise<string[]> {
+  const { data: clientUsers } = await supabase
+    .from("client_users")
+    .select("client_id")
+    .eq("user_id", userId);
+
+  if (!clientUsers) return [];
+  return (clientUsers as { client_id: string }[]).map((cu) => cu.client_id);
+}
+
+export async function getLeads(filters?: LeadFilters): Promise<LeadWithDetails[]> {
+  const profile = await getProfile();
+  if (!profile) return [];
+
+  const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
+  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+
+  let query = supabase
+    .from("leads")
+    .select(`
+      *,
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
+    `)
+    .order("created_at", { ascending: false });
+
+  query = applyLeadQueryFilters(query, filters, impersonatedClientId);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Error fetching leads:", error.message, error.code, error.details, error.hint);
+    return [];
+  }
+
+  const userClientIds = !isAdmin ? await getUserClientIds(supabase, profile.id) : [];
+
+  return transformLeadRows((data || []) as LeadWithRelations[], {
+    isAdmin,
+    userClientIds,
+    impersonatedClientId,
+    filters,
+  });
+}
+
+export async function getLeadsPaginated(
+  filters?: LeadFilters,
+  page = 1,
+  perPage = 25
+): Promise<PaginatedLeads> {
+  const empty: PaginatedLeads = { leads: [], total: 0, page, perPage, totalPages: 0 };
+
+  const profile = await getProfile();
+  if (!profile) return empty;
+
+  const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
+  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+
+  // For non-admin users, get their client IDs first
+  const userClientIds = !isAdmin ? await getUserClientIds(supabase, profile.id) : [];
+
+  // Determine the effective client_id filter to push to DB
+  let effectiveClientId: string | null = impersonatedClientId;
+  if (!effectiveClientId && filters?.clientId) {
+    effectiveClientId = filters.clientId;
+  }
+  // For non-admin users with a single client, push it to DB too
+  if (!isAdmin && !effectiveClientId && userClientIds.length === 1) {
+    effectiveClientId = userClientIds[0]!;
+  }
+
+  // Count query (runs in parallel with data query)
+  let countQuery = supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true });
+  countQuery = applyLeadQueryFilters(countQuery, filters, effectiveClientId);
+
+  // Data query with pagination
+  const offset = (page - 1) * perPage;
+  let dataQuery = supabase
+    .from("leads")
+    .select(`
+      *,
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
+    `)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + perPage - 1);
+  dataQuery = applyLeadQueryFilters(dataQuery, filters, effectiveClientId);
+
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    console.error("Error fetching paginated leads:", dataResult.error.message);
+    return empty;
+  }
+
+  const total = countResult.count ?? 0;
+  const leads = transformLeadRows((dataResult.data || []) as LeadWithRelations[], {
+    isAdmin,
+    userClientIds,
+    impersonatedClientId,
+    filters,
+  });
+
+  return {
+    leads,
+    total,
+    page,
+    perPage,
+    totalPages: Math.ceil(total / perPage),
+  };
+}
+
 export async function getLead(id: string): Promise<LeadWithDetails | null> {
   const supabase = await createClient();
 
-  // Uses denormalized client_id - no 3-table join needed
+  // Uses denormalized client_id — explicit FK hints to avoid PostgREST ambiguity
   const { data, error } = await supabase
     .from("leads")
     .select(`
       *,
-      website:websites(id, name, url),
-      client:clients(id, business_name)
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
     `)
     .eq("id", id)
     .single();
@@ -290,4 +388,20 @@ export async function addLeadNoteAction(
 
   revalidatePath(`/leads/${leadId}`);
   return { success: true };
+}
+
+export async function getLeadCountForClient(clientId: string): Promise<number> {
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from("leads")
+    .select("*", { count: "exact", head: true })
+    .eq("client_id", clientId);
+
+  if (error) {
+    console.error("Error fetching lead count:", error);
+    return 0;
+  }
+
+  return count || 0;
 }

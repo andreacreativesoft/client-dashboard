@@ -4,7 +4,10 @@ const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+/** Resolve the app URL at call time (not module load time) so env vars set at runtime are picked up */
+function getAppUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+}
 
 export interface NewLeadEmailData {
   clientName: string;
@@ -153,7 +156,7 @@ export async function sendNewLeadNotification(
 export interface WelcomeEmailData {
   userName: string;
   email: string;
-  password: string;
+  resetUrl: string;
 }
 
 export async function sendWelcomeEmail(
@@ -164,8 +167,6 @@ export async function sendWelcomeEmail(
     console.warn("Resend API key not configured, skipping welcome email");
     return { success: false, error: "Email service not configured" };
   }
-
-  const loginUrl = `${APP_URL}/login`;
 
   try {
     const { error } = await resend.emails.send({
@@ -201,17 +202,15 @@ export async function sendWelcomeEmail(
                         Hi ${data.userName},
                       </p>
                       <p style="margin: 0 0 24px; color: #737373; font-size: 14px; line-height: 1.6;">
-                        Your account has been created. Here are your login credentials:
+                        Your account has been created. Click the button below to set your password and get started.
                       </p>
 
-                      <!-- Credentials Box -->
+                      <!-- Account Info -->
                       <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; border-radius: 6px; padding: 20px; margin-bottom: 24px;">
                         <tr>
                           <td>
-                            <p style="margin: 0 0 8px; color: #737373; font-size: 12px; text-transform: uppercase;">Email</p>
-                            <p style="margin: 0 0 16px; color: #0a0a0a; font-size: 14px; font-weight: 500;">${data.email}</p>
-                            <p style="margin: 0 0 8px; color: #737373; font-size: 12px; text-transform: uppercase;">Password</p>
-                            <p style="margin: 0; color: #0a0a0a; font-size: 14px; font-weight: 500; font-family: monospace;">${data.password}</p>
+                            <p style="margin: 0 0 8px; color: #737373; font-size: 12px; text-transform: uppercase;">Your login email</p>
+                            <p style="margin: 0; color: #0a0a0a; font-size: 14px; font-weight: 500;">${data.email}</p>
                           </td>
                         </tr>
                       </table>
@@ -220,15 +219,15 @@ export async function sendWelcomeEmail(
                       <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
                         <tr>
                           <td align="center">
-                            <a href="${loginUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-size: 14px; font-weight: 500;">
-                              Login Now
+                            <a href="${data.resetUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-size: 14px; font-weight: 500;">
+                              Set Your Password
                             </a>
                           </td>
                         </tr>
                       </table>
 
                       <p style="margin: 0; color: #a3a3a3; font-size: 12px;">
-                        We recommend changing your password after your first login.
+                        This link will expire in 24 hours. If it expires, you can request a new one from the login page using "Forgot password".
                       </p>
                     </td>
                   </tr>
@@ -278,7 +277,7 @@ export async function sendInviteEmail(
     return { success: false, error: "Email service not configured" };
   }
 
-  const inviteUrl = `${APP_URL}/invite/${data.token}`;
+  const inviteUrl = `${getAppUrl()}/invite/${data.token}`;
 
   try {
     const { error } = await resend.emails.send({

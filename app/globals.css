@@ -117,4 +117,8 @@ body {
   .font-medium {
     font-size: 12px !important;
   }
+
+  .text-muted-foreground {
+    font-size: 11px !important;
+  }
 }

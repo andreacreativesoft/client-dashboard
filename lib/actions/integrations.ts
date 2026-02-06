@@ -2,8 +2,31 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 import { encryptToken } from "@/lib/google";
-import type { IntegrationType } from "@/types/database";
+import type { Integration, IntegrationType } from "@/types/database";
+
+export async function getIntegrationsForClient(
+  clientId: string
+): Promise<Integration[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("integrations")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch integrations:", error);
+    return [];
+  }
+
+  return (data || []) as Integration[];
+}
 
 export async function addFacebookIntegration(
   clientId: string,
@@ -11,26 +34,10 @@ export async function addFacebookIntegration(
   accessToken: string,
   testEventCode?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
-
-  // Verify user is admin
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return { success: false, error: "Not authorized" };
-  }
 
   // Encrypt the access token
   const encryptedToken = encryptToken(accessToken);
@@ -58,33 +65,18 @@ export async function addFacebookIntegration(
     return { success: false, error: error.message };
   }
 
-  revalidatePath("/admin/integrations");
+  revalidatePath(`/admin/clients/${clientId}`);
   return { success: true };
 }
 
 export async function deleteIntegration(
-  integrationId: string
+  integrationId: string,
+  clientId?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
   const supabase = await createClient();
-
-  // Verify user is admin
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return { success: false, error: "Not authorized" };
-  }
 
   const { error } = await supabase
     .from("integrations")
@@ -96,6 +88,8 @@ export async function deleteIntegration(
     return { success: false, error: error.message };
   }
 
-  revalidatePath("/admin/integrations");
+  if (clientId) {
+    revalidatePath(`/admin/clients/${clientId}`);
+  }
   return { success: true };
 }

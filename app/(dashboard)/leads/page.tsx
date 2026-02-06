@@ -1,31 +1,44 @@
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
-import { getLeads } from "@/lib/actions/leads";
+import { getLeadsPaginated } from "@/lib/actions/leads";
+import { getProfile } from "@/lib/actions/profile";
 import { LeadsList } from "./leads-list";
 
 export const metadata: Metadata = {
   title: "Leads",
 };
 
-export default async function LeadsPage() {
-  const supabase = await createClient();
+interface LeadsPageProps {
+  searchParams: Promise<{
+    page?: string;
+    status?: string;
+  }>;
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user?.id || "")
-    .single<{ role: string }>();
-
+export default async function LeadsPage({ searchParams }: LeadsPageProps) {
+  const params = await searchParams;
+  const profile = await getProfile();
   const isAdmin = profile?.role === "admin";
-  const leads = await getLeads();
+
+  const page = Math.max(1, parseInt(params.page || "1", 10) || 1);
+  const statusFilter = params.status as "new" | "contacted" | "done" | "all" | undefined;
+
+  const result = await getLeadsPaginated(
+    { status: statusFilter || "all" },
+    page
+  );
 
   return (
     <div className="p-4 md:p-6">
-      <LeadsList leads={leads} isAdmin={isAdmin} />
+      <LeadsList
+        leads={result.leads}
+        isAdmin={isAdmin}
+        pagination={{
+          page: result.page,
+          perPage: result.perPage,
+          total: result.total,
+          totalPages: result.totalPages,
+        }}
+      />
     </div>
   );
 }

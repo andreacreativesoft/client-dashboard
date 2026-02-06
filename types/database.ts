@@ -3,6 +3,8 @@ export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
 export type IntegrationType = "ga4" | "gbp" | "facebook";
+export type CheckType = "broken_links" | "seo_audit" | "uptime";
+export type CheckStatus = "running" | "completed" | "failed";
 
 export type Profile = {
   id: string;
@@ -151,6 +153,19 @@ export type ActivityLogWithUser = ActivityLog & {
   user_email: string | null;
 };
 
+export type SiteCheck = {
+  id: string;
+  website_id: string;
+  client_id: string;
+  check_type: CheckType;
+  status: CheckStatus;
+  score: number | null;
+  summary: Record<string, unknown>;
+  results: Record<string, unknown>[];
+  duration_ms: number | null;
+  created_at: string;
+};
+
 // Joined view types
 export type LeadFull = Lead & {
   website_name: string;
@@ -251,6 +266,12 @@ export type Database = {
         Row: ActivityLog;
         Insert: Omit<ActivityLog, "id" | "created_at">;
         Update: never;
+        Relationships: [];
+      };
+      site_checks: {
+        Row: SiteCheck;
+        Insert: Omit<SiteCheck, "id" | "created_at">;
+        Update: Partial<Omit<SiteCheck, "id" | "created_at">>;
         Relationships: [];
       };
     };

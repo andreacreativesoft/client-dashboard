@@ -33,6 +33,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const googleConfigured = !!(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
   );
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://your-app.vercel.app";
 
   if (!client) {
     notFound();
@@ -65,6 +66,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
             websites={websites}
             integrations={integrations}
             googleConfigured={googleConfigured}
+            appUrl={appUrl}
           />
         </div>
 

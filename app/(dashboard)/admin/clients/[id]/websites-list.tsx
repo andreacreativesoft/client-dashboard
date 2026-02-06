@@ -17,6 +17,7 @@ interface WebsitesListProps {
   websites: Website[];
   integrations: Integration[];
   googleConfigured: boolean;
+  appUrl: string;
 }
 
 function IntegrationItem({
@@ -150,10 +151,12 @@ function WebsiteIntegrations({
   clientId,
   integrations,
   googleConfigured,
+  appUrl,
 }: {
   clientId: string;
   integrations: Integration[];
   googleConfigured: boolean;
+  appUrl: string;
 }) {
   const [showFbForm, setShowFbForm] = useState(false);
 
@@ -224,19 +227,19 @@ function WebsiteIntegrations({
             <p className="mb-1 text-xs font-medium">Google Integrations Unavailable</p>
             <p className="text-xs text-muted-foreground">
               GA4 and Google Business Profile require Google OAuth to be configured.
-              Add these to your <code className="rounded bg-background px-1 py-0.5 text-[10px]">.env.local</code> file and restart the server:
+              Add these environment variables in your <span className="font-medium text-foreground">Vercel project settings</span> (Settings &rarr; Environment Variables) and redeploy:
             </p>
             <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
               <li>1. Go to <span className="font-medium text-foreground">Google Cloud Console</span> &rarr; APIs &amp; Services &rarr; Credentials</li>
               <li>2. Create an <span className="font-medium text-foreground">OAuth 2.0 Client ID</span> (Web application)</li>
-              <li>3. Set redirect URI to <code className="rounded bg-background px-1 py-0.5 text-[10px]">{"http://localhost:3000/api/auth/google/callback"}</code></li>
+              <li>3. Set redirect URI to <code className="rounded bg-background px-1 py-0.5 text-[10px]">{`${appUrl}/api/auth/google/callback`}</code></li>
               <li>4. Enable APIs: <span className="font-medium text-foreground">Analytics Data API</span>, <span className="font-medium text-foreground">Analytics Admin API</span>, <span className="font-medium text-foreground">My Business Account Management</span>, <span className="font-medium text-foreground">My Business Business Information</span></li>
-              <li>5. Add to <code className="rounded bg-background px-1 py-0.5 text-[10px]">.env.local</code>:</li>
+              <li>5. Add these environment variables:</li>
             </ol>
             <pre className="mt-1.5 overflow-x-auto rounded bg-background p-2 text-[10px] leading-relaxed">
 {`GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+GOOGLE_REDIRECT_URI=${appUrl}/api/auth/google/callback
 TOKEN_ENCRYPTION_KEY=any-32-char-random-string`}
             </pre>
           </div>
@@ -246,7 +249,7 @@ TOKEN_ENCRYPTION_KEY=any-32-char-random-string`}
   );
 }
 
-export function WebsitesList({ clientId, websites, integrations, googleConfigured }: WebsitesListProps) {
+export function WebsitesList({ clientId, websites, integrations, googleConfigured, appUrl }: WebsitesListProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingWebsite, setEditingWebsite] = useState<Website | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -384,6 +387,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                     clientId={clientId}
                     integrations={integrations}
                     googleConfigured={googleConfigured}
+                    appUrl={appUrl}
                   />
                 </div>
               ))}

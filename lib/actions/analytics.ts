@@ -13,6 +13,8 @@ import {
   getGA4Events,
   getGA4TopPages,
   getGA4TrafficSources,
+  getGBPPerformanceMetrics,
+  getGBPSearchKeywords,
 } from "@/lib/google";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -411,5 +413,336 @@ export async function getClientsWithGA4(): Promise<
       clientId: d.client_id,
       clientName: d.client!.business_name,
       propertyName: d.account_name,
+    }));
+}
+
+// ─── GBP Types ────────────────────────────────────────────────────────
+
+export type GBPMetricTotals = {
+  directionRequests: number;
+  callClicks: number;
+  websiteClicks: number;
+  impressionsMaps: number;
+  impressionsSearch: number;
+  totalImpressions: number;
+  totalInteractions: number;
+};
+
+export type GBPDailyMetric = {
+  date: string; // YYYY-MM-DD
+  directionRequests: number;
+  callClicks: number;
+  websiteClicks: number;
+};
+
+export type GBPSearchKeyword = {
+  keyword: string;
+  impressions: number;
+};
+
+export type GBPAnalyticsData = {
+  totals: GBPMetricTotals;
+  daily: GBPDailyMetric[];
+  searchKeywords: GBPSearchKeyword[];
+  locationName: string;
+  fetchedAt: string;
+};
+
+export type GBPAnalyticsResult = {
+  success: boolean;
+  error?: string;
+  data?: GBPAnalyticsData;
+  cached?: boolean;
+};
+
+// ─── GBP Helpers ──────────────────────────────────────────────────────
+
+/** Parse GBP fetchMultiDailyMetricsTimeSeries response */
+function parseGBPMetrics(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): { totals: GBPMetricTotals; daily: GBPDailyMetric[] } {
+  const metricMap: Record<string, Record<string, number>> = {};
+  const totalsMap: Record<string, number> = {};
+
+  const series = data?.multiDailyMetricTimeSeries || [];
+  for (const multi of series) {
+    const dailySeries = multi.dailyMetricTimeSeries || [];
+    for (const ts of dailySeries) {
+      const metricName = ts.dailyMetric || "";
+      let metricTotal = 0;
+      const datedValues = ts.timeSeries?.datedValues || [];
+      for (const dv of datedValues) {
+        const val = parseInt(dv.value || "0", 10);
+        metricTotal += val;
+        if (dv.date) {
+          const dateKey = `${dv.date.year}-${String(dv.date.month).padStart(2, "0")}-${String(dv.date.day).padStart(2, "0")}`;
+          if (!metricMap[dateKey]) metricMap[dateKey] = {};
+          metricMap[dateKey]![metricName] = (metricMap[dateKey]![metricName] || 0) + val;
+        }
+      }
+      totalsMap[metricName] = (totalsMap[metricName] || 0) + metricTotal;
+    }
+  }
+
+  const impressionsMaps = (totalsMap["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"] || 0) +
+    (totalsMap["BUSINESS_IMPRESSIONS_MOBILE_MAPS"] || 0);
+  const impressionsSearch = (totalsMap["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"] || 0) +
+    (totalsMap["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"] || 0);
+
+  const totals: GBPMetricTotals = {
+    directionRequests: totalsMap["BUSINESS_DIRECTION_REQUESTS"] || 0,
+    callClicks: totalsMap["CALL_CLICKS"] || 0,
+    websiteClicks: totalsMap["WEBSITE_CLICKS"] || 0,
+    impressionsMaps,
+    impressionsSearch,
+    totalImpressions: impressionsMaps + impressionsSearch,
+    totalInteractions: (totalsMap["BUSINESS_DIRECTION_REQUESTS"] || 0) +
+      (totalsMap["CALL_CLICKS"] || 0) +
+      (totalsMap["WEBSITE_CLICKS"] || 0),
+  };
+
+  const daily: GBPDailyMetric[] = Object.entries(metricMap)
+    .map(([date, metrics]) => ({
+      date,
+      directionRequests: metrics["BUSINESS_DIRECTION_REQUESTS"] || 0,
+      callClicks: metrics["CALL_CLICKS"] || 0,
+      websiteClicks: metrics["WEBSITE_CLICKS"] || 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return { totals, daily };
+}
+
+/** Parse GBP search keywords response */
+function parseGBPKeywords(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): GBPSearchKeyword[] {
+  const results = data?.searchKeywordsCounts || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return results.map((item: any) => ({
+    keyword: item.searchKeyword || "",
+    impressions: parseInt(item.insightsValue?.value || "0", 10),
+  }));
+}
+
+// ─── GBP Cache helpers ───────────────────────────────────────────────
+
+async function getCachedGBPAnalytics(
+  clientId: string,
+  period: string
+): Promise<GBPAnalyticsData | null> {
+  const supabase = await createClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+
+  const { data } = await supabase
+    .from("analytics_cache")
+    .select("data, fetched_at")
+    .eq("client_id", clientId)
+    .eq("integration_type", "gbp")
+    .eq("metric_type", `gbp_full_${period}`)
+    .eq("period_start", periodStart)
+    .eq("period_end", periodEnd)
+    .single();
+
+  if (!data) return null;
+
+  const fetchedAt = new Date(data.fetched_at).getTime();
+  if (Date.now() - fetchedAt > CACHE_TTL_MS) return null;
+
+  return data.data as unknown as GBPAnalyticsData;
+}
+
+async function setCachedGBPAnalytics(
+  clientId: string,
+  period: string,
+  analyticsData: GBPAnalyticsData
+): Promise<void> {
+  const adminSupabase = createAdminClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+  const now = new Date().toISOString();
+
+  await adminSupabase
+    .from("analytics_cache")
+    .upsert(
+      {
+        client_id: clientId,
+        integration_type: "gbp" as const,
+        metric_type: `gbp_full_${period}`,
+        period_start: periodStart,
+        period_end: periodEnd,
+        data: analyticsData as unknown as Record<string, unknown>,
+        fetched_at: now,
+      },
+      {
+        onConflict: "client_id,integration_type,metric_type,period_start,period_end",
+      }
+    )
+    .then(({ error }) => {
+      if (error) console.error("Failed to cache GBP analytics:", error);
+    });
+}
+
+// ─── GBP Main action ─────────────────────────────────────────────────
+
+export async function fetchGBPAnalytics(
+  clientId?: string,
+  period: "7d" | "30d" = "30d",
+  forceRefresh = false
+): Promise<GBPAnalyticsResult> {
+  const profile = await getProfile();
+  if (!profile) return { success: false, error: "Not authenticated" };
+
+  const isAdmin = profile.role === "admin";
+
+  let targetClientId = clientId;
+  if (!targetClientId && isAdmin) {
+    targetClientId = await getImpersonatedClientId() || undefined;
+  }
+  if (!targetClientId && !isAdmin) {
+    const supabase = await createClient();
+    const { data: clientUsers } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1);
+    targetClientId = clientUsers?.[0]?.client_id;
+  }
+
+  if (!targetClientId) {
+    return { success: false, error: "No client selected." };
+  }
+
+  // Check cache
+  if (!forceRefresh) {
+    const cached = await getCachedGBPAnalytics(targetClientId, period);
+    if (cached) {
+      return { success: true, data: cached, cached: true };
+    }
+  }
+
+  // Find GBP integration
+  const supabase = await createClient();
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_id, account_name, access_token_encrypted, refresh_token_encrypted, token_expires_at, metadata")
+    .eq("client_id", targetClientId)
+    .eq("type", "gbp")
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) {
+    return { success: false, error: "No GBP integration found. Connect Google Business Profile in client settings." };
+  }
+
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  if (metadata.needsLocationSelection) {
+    return { success: false, error: "GBP location not selected. Go to client settings and select a location." };
+  }
+
+  const locationId = integration.account_id;
+  if (!locationId) {
+    return { success: false, error: "GBP location ID missing. Reconnect GBP in client settings." };
+  }
+
+  const accessToken = await getValidAccessToken(integration);
+  if (!accessToken) {
+    return { success: false, error: "GBP access token invalid. Reconnect GBP in client settings." };
+  }
+
+  // Build date range (GBP data has 2-3 day delay, so end 3 days ago)
+  const now = new Date();
+  const endDateObj = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const daysBack = period === "7d" ? 7 : 30;
+  const startDateObj = new Date(endDateObj.getTime() - daysBack * 24 * 60 * 60 * 1000);
+
+  const startDate = {
+    year: startDateObj.getFullYear(),
+    month: startDateObj.getMonth() + 1,
+    day: startDateObj.getDate(),
+  };
+  const endDate = {
+    year: endDateObj.getFullYear(),
+    month: endDateObj.getMonth() + 1,
+    day: endDateObj.getDate(),
+  };
+
+  // Search keywords: current month and previous month
+  const currentMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const prevMonth = now.getMonth() === 0
+    ? { year: now.getFullYear() - 1, month: 12 }
+    : { year: now.getFullYear(), month: now.getMonth() };
+
+  try {
+    const [metricsData, keywordsData] = await Promise.all([
+      getGBPPerformanceMetrics(accessToken, locationId, startDate, endDate),
+      getGBPSearchKeywords(accessToken, locationId, prevMonth, currentMonth).catch(() => null),
+    ]);
+
+    const { totals, daily } = parseGBPMetrics(metricsData);
+    const searchKeywords = keywordsData ? parseGBPKeywords(keywordsData) : [];
+
+    const analyticsData: GBPAnalyticsData = {
+      totals,
+      daily,
+      searchKeywords,
+      locationName: integration.account_name || locationId,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    setCachedGBPAnalytics(targetClientId, period, analyticsData).catch(() => {});
+
+    return { success: true, data: analyticsData };
+  } catch (err) {
+    console.error("GBP API error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    if (message.includes("403") || message.includes("Permission")) {
+      return { success: false, error: "GBP access denied. Make sure the Business Profile Performance API is enabled in Google Cloud Console." };
+    }
+    if (message.includes("401") || message.includes("invalid_grant")) {
+      return { success: false, error: "GBP authentication expired. Reconnect GBP in client settings." };
+    }
+
+    return { success: false, error: `Failed to fetch GBP data: ${message}` };
+  }
+}
+
+/**
+ * Get list of clients with GBP integrations (for admin client selector).
+ */
+export async function getClientsWithGBP(): Promise<
+  Array<{ clientId: string; clientName: string; locationName: string | null }>
+> {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "admin") return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("integrations")
+    .select(`
+      client_id,
+      account_name,
+      client:clients!client_id(business_name)
+    `)
+    .eq("type", "gbp")
+    .eq("is_active", true);
+
+  if (!data) return [];
+
+  type IntegrationWithClient = {
+    client_id: string;
+    account_name: string | null;
+    client: { business_name: string } | null;
+  };
+
+  return (data as IntegrationWithClient[])
+    .filter((d) => d.client)
+    .map((d) => ({
+      clientId: d.client_id,
+      clientName: d.client!.business_name,
+      locationName: d.account_name,
     }));
 }

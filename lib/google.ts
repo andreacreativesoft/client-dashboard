@@ -347,31 +347,65 @@ export async function getGBPLocations(accessToken: string) {
   return locations;
 }
 
-export async function getGBPInsights(
+// GBP Performance API — fetch daily metrics (direction requests, calls, website clicks, impressions)
+export async function getGBPPerformanceMetrics(
   accessToken: string,
-  locationName: string,
-  _startDate: string,
-  _endDate: string
+  locationId: string,
+  startDate: { year: number; month: number; day: number },
+  endDate: { year: number; month: number; day: number }
 ) {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
-  const businessInfo = google.mybusinessbusinessinformation({
+  const businessPerformance = google.businessprofileperformance({
     version: "v1",
     auth: oauth2Client,
   });
 
-  // Note: The actual insights API has specific requirements
-  // This is a simplified version - real implementation needs proper date handling
-  try {
-    const response = await businessInfo.locations.get({
-      name: locationName,
-      readMask: "name,title,websiteUri,phoneNumbers",
-    });
+  const response = await businessPerformance.locations.fetchMultiDailyMetricsTimeSeries({
+    location: `locations/${locationId}`,
+    dailyMetrics: [
+      "BUSINESS_DIRECTION_REQUESTS",
+      "CALL_CLICKS",
+      "WEBSITE_CLICKS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+      "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+      "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    ],
+    "dailyRange.startDate.year": startDate.year,
+    "dailyRange.startDate.month": startDate.month,
+    "dailyRange.startDate.day": startDate.day,
+    "dailyRange.endDate.year": endDate.year,
+    "dailyRange.endDate.month": endDate.month,
+    "dailyRange.endDate.day": endDate.day,
+  });
 
-    return response.data;
-  } catch (err) {
-    console.error("GBP insights error:", err);
-    throw err;
-  }
+  return response.data;
+}
+
+// GBP Search Keywords — monthly search terms used to find the business
+export async function getGBPSearchKeywords(
+  accessToken: string,
+  locationId: string,
+  startMonth: { year: number; month: number },
+  endMonth: { year: number; month: number }
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const businessPerformance = google.businessprofileperformance({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await businessPerformance.locations.searchkeywords.impressions.monthly.list({
+    parent: `locations/${locationId}`,
+    "monthlyRange.startMonth.year": startMonth.year,
+    "monthlyRange.startMonth.month": startMonth.month,
+    "monthlyRange.endMonth.year": endMonth.year,
+    "monthlyRange.endMonth.month": endMonth.month,
+  });
+
+  return response.data;
 }

@@ -444,7 +444,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { success: true, lead_id: lead.id },
       {
-        status: 201,
+        status: 200,
         headers: {
           ...CORS_HEADERS,
           "X-RateLimit-Remaining": String(keyLimit.remaining),

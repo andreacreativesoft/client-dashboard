@@ -33,6 +33,9 @@ function AccountSelectionModal({
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualLocationId, setManualLocationId] = useState("");
+  const [manualLocationName, setManualLocationName] = useState("");
 
   const metadata = integration.metadata as Record<string, unknown> | null;
   const isGA4 = integration.type === "ga4";
@@ -74,6 +77,18 @@ function AccountSelectionModal({
     }
   }
 
+  async function handleManualSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!manualLocationId.trim()) {
+      setError("Location ID is required");
+      return;
+    }
+    await handleSelect(
+      manualLocationId.trim(),
+      manualLocationName.trim() || `Location ${manualLocationId.trim()}`
+    );
+  }
+
   return (
     <Modal
       open={true}
@@ -111,11 +126,7 @@ function AccountSelectionModal({
               </div>
             ))
           )
-        ) : locations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No business locations found for this Google account. Make sure the account has a Google Business Profile.
-          </p>
-        ) : (
+        ) : locations.length > 0 ? (
           locations.map((loc) => (
             <button
               key={`${loc.accountId}-${loc.locationId}`}
@@ -127,6 +138,55 @@ function AccountSelectionModal({
               <span className="ml-2 text-xs text-muted-foreground">{loc.accountName}</span>
             </button>
           ))
+        ) : !showManualInput ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Could not auto-discover locations. This happens when the Google Business Profile API access is pending approval.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => setShowManualInput(true)}
+              className="w-full"
+            >
+              Enter Location ID Manually
+            </Button>
+          </div>
+        ) : null}
+
+        {/* Manual location ID input for GBP */}
+        {!isGA4 && (showManualInput || locations.length > 0) && (
+          <form onSubmit={handleManualSubmit} className="space-y-2 rounded border border-border p-3">
+            {locations.length > 0 && (
+              <p className="text-xs font-medium text-muted-foreground">Or enter manually:</p>
+            )}
+            <div className="space-y-1">
+              <Label htmlFor="manual_location_id" className="text-xs">Location ID</Label>
+              <Input
+                id="manual_location_id"
+                value={manualLocationId}
+                onChange={(e) => setManualLocationId(e.target.value)}
+                required
+                placeholder="e.g. 12345678901234567"
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Find it at business.google.com → select your business → the number in the URL
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="manual_location_name" className="text-xs">Business Name</Label>
+              <Input
+                id="manual_location_name"
+                value={manualLocationName}
+                onChange={(e) => setManualLocationName(e.target.value)}
+                placeholder="e.g. Healing Therapy București"
+                className="h-8 text-xs"
+              />
+            </div>
+            <Button type="submit" size="sm" disabled={saving} className="h-7 w-full text-xs">
+              {saving ? "Saving..." : "Save Location"}
+            </Button>
+          </form>
         )}
 
         <div className="flex justify-end pt-2">

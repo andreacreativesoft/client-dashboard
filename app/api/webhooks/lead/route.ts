@@ -101,6 +101,16 @@ function normalizeLead(body: WebhookLeadPayload) {
   };
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-api-key",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get API key from header OR query param (support both for flexibility)
@@ -111,7 +121,7 @@ export async function POST(request: NextRequest) {
     if (!apiKey) {
       return NextResponse.json(
         { error: "Missing API key. Provide x-api-key header or ?key= query param" },
-        { status: 401 }
+        { status: 401, headers: CORS_HEADERS }
       );
     }
 
@@ -124,6 +134,7 @@ export async function POST(request: NextRequest) {
         {
           status: 429,
           headers: {
+            ...CORS_HEADERS,
             "Retry-After": String(Math.ceil((ipLimit.resetAt - Date.now()) / 1000)),
             "X-RateLimit-Remaining": "0",
           },
@@ -139,6 +150,7 @@ export async function POST(request: NextRequest) {
         {
           status: 429,
           headers: {
+            ...CORS_HEADERS,
             "Retry-After": String(Math.ceil((keyLimit.resetAt - Date.now()) / 1000)),
             "X-RateLimit-Remaining": "0",
           },
@@ -153,7 +165,7 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json(
         { error: "Invalid JSON body" },
-        { status: 400 }
+        { status: 400, headers: CORS_HEADERS }
       );
     }
 
@@ -161,7 +173,7 @@ export async function POST(request: NextRequest) {
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
       return NextResponse.json(
         { error: "Request body must be a JSON object" },
-        { status: 400 }
+        { status: 400, headers: CORS_HEADERS }
       );
     }
 
@@ -179,14 +191,14 @@ export async function POST(request: NextRequest) {
     if (websiteError || !website) {
       return NextResponse.json(
         { error: "Invalid API key" },
-        { status: 401 }
+        { status: 401, headers: CORS_HEADERS }
       );
     }
 
     if (!website.is_active) {
       return NextResponse.json(
         { error: "Website is inactive" },
-        { status: 403 }
+        { status: 403, headers: CORS_HEADERS }
       );
     }
 
@@ -224,7 +236,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to insert lead:", leadError);
       return NextResponse.json(
         { error: "Failed to create lead" },
-        { status: 500 }
+        { status: 500, headers: CORS_HEADERS }
       );
     }
 
@@ -350,6 +362,7 @@ export async function POST(request: NextRequest) {
       {
         status: 201,
         headers: {
+          ...CORS_HEADERS,
           "X-RateLimit-Remaining": String(keyLimit.remaining),
         },
       }
@@ -358,7 +371,7 @@ export async function POST(request: NextRequest) {
     console.error("Webhook error:", err);
     return NextResponse.json(
       { error: "Invalid request body" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 }

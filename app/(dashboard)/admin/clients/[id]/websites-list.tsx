@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WebsiteForm } from "./website-form";
+import { Modal } from "@/components/ui/modal";
 import { deleteWebsiteAction, regenerateApiKeyAction } from "@/lib/actions/websites";
-import { addFacebookIntegration, deleteIntegration } from "@/lib/actions/integrations";
+import { addFacebookIntegration, deleteIntegration, selectIntegrationAccount } from "@/lib/actions/integrations";
 import type { Website, Integration } from "@/types/database";
 
 interface WebsitesListProps {
@@ -18,6 +19,124 @@ interface WebsitesListProps {
   integrations: Integration[];
   googleConfigured: boolean;
   appUrl: string;
+}
+
+function AccountSelectionModal({
+  integration,
+  clientId,
+  onClose,
+}: {
+  integration: Integration;
+  clientId: string;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const metadata = integration.metadata as Record<string, unknown> | null;
+  const isGA4 = integration.type === "ga4";
+
+  // GA4 properties from metadata
+  const properties = (metadata?.properties as Array<{
+    account?: string;
+    displayName?: string;
+    propertySummaries?: Array<{
+      property?: string;
+      displayName?: string;
+    }>;
+  }>) || [];
+
+  // GBP locations from metadata
+  const locations = (metadata?.locations as Array<{
+    accountId: string;
+    accountName: string;
+    locationId: string;
+    locationName: string;
+  }>) || [];
+
+  async function handleSelect(accountId: string, accountName: string) {
+    setSaving(true);
+    setError(null);
+    const result = await selectIntegrationAccount(
+      integration.id,
+      accountId,
+      accountName,
+      clientId
+    );
+    setSaving(false);
+
+    if (result.success) {
+      router.refresh();
+      onClose();
+    } else {
+      setError(result.error || "Failed to save selection");
+    }
+  }
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={isGA4 ? "Select GA4 Property" : "Select Business Location"}
+    >
+      <div className="space-y-2">
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        {isGA4 ? (
+          properties.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No GA4 properties found for this Google account. Make sure the account has access to Google Analytics.
+            </p>
+          ) : (
+            properties.map((account) => (
+              <div key={account.account || account.displayName} className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {account.displayName || account.account}
+                </p>
+                {(account.propertySummaries || []).map((prop) => {
+                  const propertyId = prop.property?.replace("properties/", "") || "";
+                  return (
+                    <button
+                      key={prop.property}
+                      onClick={() => handleSelect(propertyId, prop.displayName || propertyId)}
+                      disabled={saving}
+                      className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
+                    >
+                      <span className="font-medium">{prop.displayName}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{propertyId}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))
+          )
+        ) : locations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No business locations found for this Google account. Make sure the account has a Google Business Profile.
+          </p>
+        ) : (
+          locations.map((loc) => (
+            <button
+              key={`${loc.accountId}-${loc.locationId}`}
+              onClick={() => handleSelect(loc.locationId, loc.locationName)}
+              disabled={saving}
+              className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <span className="font-medium">{loc.locationName}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{loc.accountName}</span>
+            </button>
+          ))
+        )}
+
+        <div className="flex justify-end pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function IntegrationItem({
@@ -29,6 +148,7 @@ function IntegrationItem({
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [showSelection, setShowSelection] = useState(false);
 
   const needsSelection =
     integration.metadata?.needsPropertySelection ||
@@ -49,35 +169,50 @@ function IntegrationItem({
   }
 
   return (
-    <div className="flex items-center justify-between rounded border p-2">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium">
-          {typeLabel}:{" "}
-          {needsSelection
-            ? "Setup required"
-            : integration.account_name || integration.account_id}
-        </p>
+    <>
+      <div className="flex items-center justify-between rounded border p-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium">
+            {typeLabel}:{" "}
+            {needsSelection
+              ? "Setup required"
+              : integration.account_name || integration.account_id}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {needsSelection ? (
+            <button
+              onClick={() => setShowSelection(true)}
+              className="cursor-pointer"
+            >
+              <Badge variant="secondary" className="cursor-pointer text-[10px] hover:bg-muted-foreground/20">Setup</Badge>
+            </button>
+          ) : integration.is_active ? (
+            <Badge variant="default" className="text-[10px]">Active</Badge>
+          ) : (
+            <Badge variant="secondary" className="text-[10px]">Inactive</Badge>
+          )}
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
+            title="Remove"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-1.5">
-        {needsSelection ? (
-          <Badge variant="secondary" className="text-[10px]">Setup</Badge>
-        ) : integration.is_active ? (
-          <Badge variant="default" className="text-[10px]">Active</Badge>
-        ) : (
-          <Badge variant="secondary" className="text-[10px]">Inactive</Badge>
-        )}
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
-          title="Remove"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    </div>
+
+      {showSelection && (
+        <AccountSelectionModal
+          integration={integration}
+          clientId={clientId}
+          onClose={() => setShowSelection(false)}
+        />
+      )}
+    </>
   );
 }
 

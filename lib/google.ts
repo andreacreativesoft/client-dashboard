@@ -305,6 +305,7 @@ export async function getGBPLocations(accessToken: string) {
 
   const accountsResponse = await mybusiness.accounts.list();
   const accounts = accountsResponse.data.accounts || [];
+  console.log(`GBP: Found ${accounts.length} accounts`, accounts.map(a => ({ name: a.name, accountName: a.accountName })));
 
   const locations: Array<{
     accountId: string;
@@ -338,8 +339,8 @@ export async function getGBPLocations(accessToken: string) {
           });
         }
       }
-    } catch {
-      // Account may not have business profile access
+    } catch (err) {
+      console.error(`Failed to list locations for account ${account.name}:`, err instanceof Error ? err.message : err);
       continue;
     }
   }

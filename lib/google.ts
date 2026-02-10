@@ -111,7 +111,7 @@ export function decryptToken(encryptedToken: string): string {
   return decrypted;
 }
 
-// GA4 Data API
+// GA4 Data API — overview metrics by day
 export async function getGA4Data(
   accessToken: string,
   propertyId: string,
@@ -138,6 +138,141 @@ export async function getGA4Data(
         { name: "averageSessionDuration" },
       ],
       dimensions: [{ name: "date" }],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — overview totals (no dimension breakdown)
+export async function getGA4Totals(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+        { name: "screenPageViews" },
+        { name: "bounceRate" },
+        { name: "averageSessionDuration" },
+      ],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — custom events (CTA clicks, conversions, etc.)
+export async function getGA4Events(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  // Get all events grouped by event name
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "eventCount" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "eventName" }],
+      orderBys: [
+        { metric: { metricName: "eventCount" }, desc: true },
+      ],
+      limit: "50",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — top pages by views
+export async function getGA4TopPages(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "screenPageViews" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "pagePath" }],
+      orderBys: [
+        { metric: { metricName: "screenPageViews" }, desc: true },
+      ],
+      limit: "10",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — traffic sources
+export async function getGA4TrafficSources(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "sessionDefaultChannelGroup" }],
+      orderBys: [
+        { metric: { metricName: "sessions" }, desc: true },
+      ],
+      limit: "10",
     },
   });
 

@@ -1,13 +1,24 @@
 import type { Metadata } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLeads } from "@/lib/actions/leads";
+import { getProfile } from "@/lib/actions/profile";
+import { getClientsWithGA4 } from "@/lib/actions/analytics";
+import { getImpersonatedClientId } from "@/lib/impersonate";
+import { GA4Analytics } from "@/components/analytics/ga4-analytics";
 
 export const metadata: Metadata = {
   title: "Analytics",
 };
 
 export default async function AnalyticsPage() {
-  const leads = await getLeads();
+  const [leads, profile, clientsWithGA4] = await Promise.all([
+    getLeads(),
+    getProfile(),
+    getClientsWithGA4(),
+  ]);
+
+  const isAdmin = profile?.role === "admin";
+  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
 
   // Calculate lead stats by time period
   const now = new Date();
@@ -51,6 +62,20 @@ export default async function AnalyticsPage() {
   return (
     <div className="p-4 md:p-6">
       <h1 className="mb-6 text-2xl font-bold">Analytics</h1>
+
+      {/* ─── GA4 Website Analytics ─────────────────────────────────── */}
+      <div className="mb-8">
+        <GA4Analytics
+          clientsWithGA4={clientsWithGA4}
+          isAdmin={isAdmin}
+          initialClientId={impersonatedClientId || undefined}
+        />
+      </div>
+
+      {/* ─── Lead Analytics ────────────────────────────────────────── */}
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Lead Analytics</h2>
+      </div>
 
       {/* Stats Overview */}
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">

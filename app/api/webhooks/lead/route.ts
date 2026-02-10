@@ -42,10 +42,10 @@ function sanitizePhone(value: unknown): string | null {
 }
 
 // Known field name patterns for multi-language support
-const NAME_KEYS = /^(name|full_name|first_name|last_name|your_name|nume|nom|nombre|nome|имя|vorname|nachname)$/i;
-const EMAIL_KEYS = /^(email|your_email|e-?mail|correo|courriel|почта)$/i;
-const PHONE_KEYS = /^(phone|tel|telephone|your_phone|telefon|telefono|téléphone|телефон|mobil|celular)$/i;
-const MESSAGE_KEYS = /^(message|your_message|comment|mesaj|mensaje|messaggio|сообщение|nachricht|comentario)$/i;
+const NAME_KEYS = /^(name|full_name|first_name|last_name|your_name|nume|nom|nombre|nome|naam|имя|vorname|nachname|prenume|nume_complet)$/i;
+const EMAIL_KEYS = /^(email|your_email|e-?mail|correo|courriel|почта|adresa_email|email_adres)$/i;
+const PHONE_KEYS = /^(phone|tel|telephone|your_phone|telefon|telefono|téléphone|телефон|mobil|celular|telefoon|numar_telefon|gsm)$/i;
+const MESSAGE_KEYS = /^(message|your_message|comment|mesaj|mensaje|messaggio|сообщение|nachricht|comentario|bericht|mesajul)$/i;
 const FORM_NAME_KEYS = /^(form_name|form_id|formName|form_title)$/i;
 // Keys to skip when auto-detecting fields
 const SKIP_KEYS = /^(key|api_key|action|referrer|referer|_wp_nonce|nonce|timestamp|token|source|fields|post_id|form_fields|queried_id)$/i;

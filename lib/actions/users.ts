@@ -244,6 +244,31 @@ export async function removeUserFromClientAction(
   return { success: true };
 }
 
+export async function adminChangePasswordAction(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  if (newPassword.length < 6) {
+    return { success: false, error: "Password must be at least 6 characters" };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { error } = await adminClient.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (error) {
+    console.error("Error changing user password:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
 export async function deleteUserAction(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {

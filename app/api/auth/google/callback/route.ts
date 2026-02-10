@@ -6,6 +6,7 @@ import {
   encryptToken,
   listGA4Properties,
   getGBPLocations,
+  listGSCSites,
 } from "@/lib/google";
 import type { IntegrationType } from "@/types/database";
 
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
     let stateData: { clientId: string; userId: string; type: IntegrationType };
     try {
       const parsed = JSON.parse(Buffer.from(state, "base64").toString());
-      if (parsed.type !== "ga4" && parsed.type !== "gbp") {
+      if (parsed.type !== "ga4" && parsed.type !== "gbp" && parsed.type !== "gsc") {
         throw new Error("Invalid integration type");
       }
       stateData = parsed;
@@ -107,6 +108,24 @@ export async function GET(request: NextRequest) {
         metadata = { locations, needsLocationSelection: true };
         accountId = "pending_selection";
         accountName = "Google Business Profile";
+      }
+    } else if (stateData.type === "gsc") {
+      // Get Search Console sites
+      let sites: Awaited<ReturnType<typeof listGSCSites>> = [];
+      try {
+        sites = await listGSCSites(tokens.access_token);
+      } catch (err) {
+        console.error("Failed to fetch GSC sites:", err);
+      }
+
+      if (sites.length === 1) {
+        accountId = sites[0]!.siteUrl;
+        accountName = sites[0]!.siteUrl;
+        metadata = { sites };
+      } else {
+        metadata = { sites, needsSiteSelection: true };
+        accountId = "pending_selection";
+        accountName = "Google Search Console";
       }
     }
 

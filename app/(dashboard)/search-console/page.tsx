@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import { getProfile } from "@/lib/actions/profile";
-import { getClientsWithGBP } from "@/lib/actions/analytics";
+import { getClientsWithGSC } from "@/lib/actions/analytics";
 import { getImpersonatedClientId } from "@/lib/impersonate";
-import { GBPAnalytics } from "@/components/analytics/gbp-analytics";
+import { GSCAnalytics } from "@/components/analytics/gsc-analytics";
 
 export const metadata: Metadata = {
-  title: "Google Business Profile",
+  title: "Google Search Console",
 };
 
-export default async function BusinessProfilePage() {
-  const [profile, clientsWithGBP] = await Promise.all([
+export default async function SearchConsolePage() {
+  const [profile, clientsWithGSC] = await Promise.all([
     getProfile(),
-    getClientsWithGBP(),
+    getClientsWithGSC(),
   ]);
 
   const isAdmin = profile?.role === "admin";
@@ -19,10 +19,10 @@ export default async function BusinessProfilePage() {
 
   return (
     <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">Google Business Profile</h1>
+      <h1 className="mb-6 text-2xl font-bold">Google Search Console</h1>
 
-      <GBPAnalytics
-        clientsWithGBP={clientsWithGBP}
+      <GSCAnalytics
+        clientsWithGSC={clientsWithGSC}
         isAdmin={isAdmin}
         initialClientId={impersonatedClientId || undefined}
       />

@@ -108,7 +108,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
       {/* Header with controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Website Analytics</h2>
+          <h2 className="text-lg font-semibold">Google Analytics</h2>
           {data && (
             <Badge variant="outline" className="text-xs">
               {data.propertyName}

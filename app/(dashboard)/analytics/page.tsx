@@ -7,7 +7,7 @@ import { getImpersonatedClientId } from "@/lib/impersonate";
 import { GA4Analytics } from "@/components/analytics/ga4-analytics";
 
 export const metadata: Metadata = {
-  title: "Analytics",
+  title: "Google Analytics",
 };
 
 export default async function AnalyticsPage() {
@@ -61,7 +61,7 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">Analytics</h1>
+      <h1 className="mb-6 text-2xl font-bold">Google Analytics</h1>
 
       {/* ─── GA4 Website Analytics ─────────────────────────────────── */}
       <div className="mb-8">

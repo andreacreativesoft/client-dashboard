@@ -9,10 +9,11 @@ const GOOGLE_REDIRECT_URI =
 
 const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY;
 
-// Scopes required for GA4 and Google Business Profile
+// Scopes required for GA4, Google Business Profile, and Search Console
 const SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/business.manage",
+  "https://www.googleapis.com/auth/webmasters.readonly",
 ];
 
 export function getOAuth2Client() {
@@ -380,6 +381,141 @@ export async function getGBPPerformanceMetrics(
     "dailyRange.endDate.year": endDate.year,
     "dailyRange.endDate.month": endDate.month,
     "dailyRange.endDate.day": endDate.day,
+  });
+
+  return response.data;
+}
+
+// ─── Google Search Console API ─────────────────────────────────────────
+
+// List all verified sites in Search Console
+export async function listGSCSites(accessToken: string) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.sites.list();
+  const sites = response.data.siteEntry || [];
+
+  return sites
+    .filter((site) => site.siteUrl && site.permissionLevel !== "siteUnverifiedUser")
+    .map((site) => ({
+      siteUrl: site.siteUrl!,
+      permissionLevel: site.permissionLevel || "unknown",
+    }));
+}
+
+// GSC Search Analytics — overall performance metrics
+export async function getGSCSearchAnalytics(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["date"],
+      rowLimit: 500,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top queries (keywords)
+export async function getGSCTopQueries(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["query"],
+      rowLimit: 20,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top pages
+export async function getGSCTopPages(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["page"],
+      rowLimit: 10,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — performance by device
+export async function getGSCDeviceBreakdown(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["device"],
+      rowLimit: 10,
+    },
   });
 
   return response.data;

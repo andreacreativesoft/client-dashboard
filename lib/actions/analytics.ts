@@ -15,6 +15,10 @@ import {
   getGA4TrafficSources,
   getGBPPerformanceMetrics,
   getGBPSearchKeywords,
+  getGSCSearchAnalytics,
+  getGSCTopQueries,
+  getGSCTopPages as getGSCTopPagesAPI,
+  getGSCDeviceBreakdown,
 } from "@/lib/google";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -744,5 +748,349 @@ export async function getClientsWithGBP(): Promise<
       clientId: d.client_id,
       clientName: d.client!.business_name,
       locationName: d.account_name,
+    }));
+}
+
+// ─── GSC Types ────────────────────────────────────────────────────────
+
+export type GSCOverview = {
+  totalClicks: number;
+  totalImpressions: number;
+  averageCTR: number;
+  averagePosition: number;
+};
+
+export type GSCDailyRow = {
+  date: string; // YYYY-MM-DD
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCQueryRow = {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCPageRow = {
+  page: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCDeviceRow = {
+  device: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCAnalyticsData = {
+  overview: GSCOverview;
+  daily: GSCDailyRow[];
+  topQueries: GSCQueryRow[];
+  topPages: GSCPageRow[];
+  deviceBreakdown: GSCDeviceRow[];
+  siteUrl: string;
+  fetchedAt: string;
+};
+
+export type GSCAnalyticsResult = {
+  success: boolean;
+  error?: string;
+  data?: GSCAnalyticsData;
+  cached?: boolean;
+};
+
+// ─── GSC Helpers ──────────────────────────────────────────────────────
+
+function parseGSCDailyRows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): GSCDailyRow[] {
+  if (!data?.rows) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.rows.map((row: any) => ({
+    date: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCQueryRows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): GSCQueryRow[] {
+  if (!data?.rows) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.rows.map((row: any) => ({
+    query: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCPageRows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): GSCPageRow[] {
+  if (!data?.rows) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.rows.map((row: any) => ({
+    page: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCDeviceRows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+): GSCDeviceRow[] {
+  if (!data?.rows) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.rows.map((row: any) => ({
+    device: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+// ─── GSC Cache helpers ───────────────────────────────────────────────
+
+async function getCachedGSCAnalytics(
+  clientId: string,
+  period: string
+): Promise<GSCAnalyticsData | null> {
+  const supabase = await createClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+
+  const { data } = await supabase
+    .from("analytics_cache")
+    .select("data, fetched_at")
+    .eq("client_id", clientId)
+    .eq("integration_type", "gsc")
+    .eq("metric_type", `gsc_full_${period}`)
+    .eq("period_start", periodStart)
+    .eq("period_end", periodEnd)
+    .single();
+
+  if (!data) return null;
+
+  const fetchedAt = new Date(data.fetched_at).getTime();
+  if (Date.now() - fetchedAt > CACHE_TTL_MS) return null;
+
+  return data.data as unknown as GSCAnalyticsData;
+}
+
+async function setCachedGSCAnalytics(
+  clientId: string,
+  period: string,
+  analyticsData: GSCAnalyticsData
+): Promise<void> {
+  const adminSupabase = createAdminClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+  const now = new Date().toISOString();
+
+  await adminSupabase
+    .from("analytics_cache")
+    .upsert(
+      {
+        client_id: clientId,
+        integration_type: "gsc" as const,
+        metric_type: `gsc_full_${period}`,
+        period_start: periodStart,
+        period_end: periodEnd,
+        data: analyticsData as unknown as Record<string, unknown>,
+        fetched_at: now,
+      },
+      {
+        onConflict: "client_id,integration_type,metric_type,period_start,period_end",
+      }
+    )
+    .then(({ error }) => {
+      if (error) console.error("Failed to cache GSC analytics:", error);
+    });
+}
+
+// ─── GSC Main action ─────────────────────────────────────────────────
+
+export async function fetchGSCAnalytics(
+  clientId?: string,
+  period: "7d" | "30d" = "30d",
+  forceRefresh = false
+): Promise<GSCAnalyticsResult> {
+  const profile = await getProfile();
+  if (!profile) return { success: false, error: "Not authenticated" };
+
+  const isAdmin = profile.role === "admin";
+
+  let targetClientId = clientId;
+  if (!targetClientId && isAdmin) {
+    targetClientId = await getImpersonatedClientId() || undefined;
+  }
+  if (!targetClientId && !isAdmin) {
+    const supabase = await createClient();
+    const { data: clientUsers } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1);
+    targetClientId = clientUsers?.[0]?.client_id;
+  }
+
+  if (!targetClientId) {
+    return { success: false, error: "No client selected." };
+  }
+
+  // Check cache
+  if (!forceRefresh) {
+    const cached = await getCachedGSCAnalytics(targetClientId, period);
+    if (cached) {
+      return { success: true, data: cached, cached: true };
+    }
+  }
+
+  // Find GSC integration
+  const supabase = await createClient();
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_id, account_name, access_token_encrypted, refresh_token_encrypted, token_expires_at, metadata")
+    .eq("client_id", targetClientId)
+    .eq("type", "gsc")
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) {
+    return { success: false, error: "No Search Console integration found. Connect Google Search Console in client settings." };
+  }
+
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  if (metadata.needsSiteSelection) {
+    return { success: false, error: "Search Console site not selected. Go to client settings and select a site." };
+  }
+
+  const siteUrl = integration.account_id;
+  if (!siteUrl) {
+    return { success: false, error: "Search Console site URL missing. Reconnect GSC in client settings." };
+  }
+
+  const accessToken = await getValidAccessToken(integration);
+  if (!accessToken) {
+    return { success: false, error: "Search Console access token invalid. Reconnect GSC in client settings." };
+  }
+
+  // Build date range (GSC data has ~2 day delay)
+  const now = new Date();
+  const endDateObj = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const daysBack = period === "7d" ? 7 : 30;
+  const startDateObj = new Date(endDateObj.getTime() - daysBack * 24 * 60 * 60 * 1000);
+
+  const startDate = startDateObj.toISOString().split("T")[0]!;
+  const endDate = endDateObj.toISOString().split("T")[0]!;
+
+  try {
+    const [dailyData, queriesData, pagesData, deviceData] = await Promise.all([
+      getGSCSearchAnalytics(accessToken, siteUrl, startDate, endDate),
+      getGSCTopQueries(accessToken, siteUrl, startDate, endDate),
+      getGSCTopPagesAPI(accessToken, siteUrl, startDate, endDate),
+      getGSCDeviceBreakdown(accessToken, siteUrl, startDate, endDate),
+    ]);
+
+    const daily = parseGSCDailyRows(dailyData).sort((a, b) => a.date.localeCompare(b.date));
+    const topQueries = parseGSCQueryRows(queriesData);
+    const topPages = parseGSCPageRows(pagesData);
+    const deviceBreakdown = parseGSCDeviceRows(deviceData);
+
+    // Calculate overview totals from daily data
+    const overview: GSCOverview = {
+      totalClicks: daily.reduce((sum, d) => sum + d.clicks, 0),
+      totalImpressions: daily.reduce((sum, d) => sum + d.impressions, 0),
+      averageCTR: daily.length > 0
+        ? daily.reduce((sum, d) => sum + d.ctr, 0) / daily.length
+        : 0,
+      averagePosition: daily.length > 0
+        ? daily.reduce((sum, d) => sum + d.position, 0) / daily.length
+        : 0,
+    };
+
+    const analyticsData: GSCAnalyticsData = {
+      overview,
+      daily,
+      topQueries,
+      topPages,
+      deviceBreakdown,
+      siteUrl: integration.account_name || siteUrl,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    setCachedGSCAnalytics(targetClientId, period, analyticsData).catch(() => {});
+
+    return { success: true, data: analyticsData };
+  } catch (err) {
+    console.error("GSC API error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    if (message.includes("403") || message.includes("Permission")) {
+      return { success: false, error: "Search Console access denied. The connected Google account may not have access to this site." };
+    }
+    if (message.includes("401") || message.includes("invalid_grant")) {
+      return { success: false, error: "Search Console authentication expired. Reconnect GSC in client settings." };
+    }
+
+    return { success: false, error: `Failed to fetch Search Console data: ${message}` };
+  }
+}
+
+/**
+ * Get list of clients with GSC integrations (for admin client selector).
+ */
+export async function getClientsWithGSC(): Promise<
+  Array<{ clientId: string; clientName: string; siteUrl: string | null }>
+> {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "admin") return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("integrations")
+    .select(`
+      client_id,
+      account_name,
+      client:clients!client_id(business_name)
+    `)
+    .eq("type", "gsc")
+    .eq("is_active", true);
+
+  if (!data) return [];
+
+  type IntegrationWithClient = {
+    client_id: string;
+    account_name: string | null;
+    client: { business_name: string } | null;
+  };
+
+  return (data as IntegrationWithClient[])
+    .filter((d) => d.client)
+    .map((d) => ({
+      clientId: d.client_id,
+      clientName: d.client!.business_name,
+      siteUrl: d.account_name,
     }));
 }

@@ -2,7 +2,7 @@ export type UserRole = "admin" | "client";
 export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
-export type IntegrationType = "ga4" | "gbp" | "facebook";
+export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook";
 export type CheckType = "broken_links" | "seo_audit" | "uptime";
 export type CheckStatus = "running" | "completed" | "failed";
 

@@ -39,6 +39,7 @@ function AccountSelectionModal({
 
   const metadata = integration.metadata as Record<string, unknown> | null;
   const isGA4 = integration.type === "ga4";
+  const isGSC = integration.type === "gsc";
 
   // GA4 properties from metadata
   const properties = (metadata?.properties as Array<{
@@ -56,6 +57,12 @@ function AccountSelectionModal({
     accountName: string;
     locationId: string;
     locationName: string;
+  }>) || [];
+
+  // GSC sites from metadata
+  const sites = (metadata?.sites as Array<{
+    siteUrl: string;
+    permissionLevel: string;
   }>) || [];
 
   async function handleSelect(accountId: string, accountName: string) {
@@ -93,7 +100,7 @@ function AccountSelectionModal({
     <Modal
       open={true}
       onClose={onClose}
-      title={isGA4 ? "Select GA4 Property" : "Select Business Location"}
+      title={isGA4 ? "Select GA4 Property" : isGSC ? "Select Search Console Site" : "Select Business Location"}
     >
       <div className="space-y-2">
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -124,6 +131,24 @@ function AccountSelectionModal({
                   );
                 })}
               </div>
+            ))
+          )
+        ) : isGSC ? (
+          sites.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No verified sites found in Search Console. Make sure the Google account has verified sites in Google Search Console.
+            </p>
+          ) : (
+            sites.map((site) => (
+              <button
+                key={site.siteUrl}
+                onClick={() => handleSelect(site.siteUrl, site.siteUrl)}
+                disabled={saving}
+                className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                <span className="font-medium">{site.siteUrl}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{site.permissionLevel}</span>
+              </button>
             ))
           )
         ) : locations.length > 0 ? (
@@ -212,14 +237,17 @@ function IntegrationItem({
 
   const needsSelection =
     integration.metadata?.needsPropertySelection ||
-    integration.metadata?.needsLocationSelection;
+    integration.metadata?.needsLocationSelection ||
+    integration.metadata?.needsSiteSelection;
 
   const typeLabel =
     integration.type === "facebook"
       ? "Facebook Pixel"
       : integration.type === "ga4"
         ? "GA4"
-        : "GBP";
+        : integration.type === "gsc"
+          ? "GSC"
+          : "GBP";
 
   async function handleDelete() {
     if (!confirm(`Remove this ${typeLabel} integration?`)) return;
@@ -357,6 +385,7 @@ function WebsiteIntegrations({
 
   const ga4 = integrations.filter((i) => i.type === "ga4");
   const gbp = integrations.filter((i) => i.type === "gbp");
+  const gsc = integrations.filter((i) => i.type === "gsc");
   const fb = integrations.filter((i) => i.type === "facebook");
 
   return (
@@ -367,7 +396,7 @@ function WebsiteIntegrations({
 
       <div className="space-y-1.5">
         {/* Existing integrations */}
-        {[...ga4, ...gbp, ...fb].map((i) => (
+        {[...ga4, ...gbp, ...gsc, ...fb].map((i) => (
           <IntegrationItem key={i.id} integration={i} clientId={clientId} />
         ))}
 
@@ -396,6 +425,17 @@ function WebsiteIntegrations({
               Connect GBP
             </a>
           )}
+          {gsc.length === 0 && googleConfigured && (
+            <a
+              href={`/api/auth/google?client_id=${clientId}&type=gsc`}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 0 0 1.48-5.34c-.47-2.78-2.79-5-5.59-5.34a6.505 6.505 0 0 0-7.27 7.27c.34 2.8 2.56 5.12 5.34 5.59a6.5 6.5 0 0 0 5.34-1.48l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0 .41-.41.41-1.08 0-1.49L15.5 14zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+              </svg>
+              Connect GSC
+            </a>
+          )}
           {!showFbForm && (
             <button
               onClick={() => setShowFbForm(true)}
@@ -417,7 +457,7 @@ function WebsiteIntegrations({
         )}
 
         {/* Show setup guidance when Google OAuth is not configured */}
-        {!googleConfigured && ga4.length === 0 && gbp.length === 0 && (
+        {!googleConfigured && ga4.length === 0 && gbp.length === 0 && gsc.length === 0 && (
           <div className="mt-2 rounded border border-dashed border-border bg-muted/50 p-3">
             <p className="mb-1 text-xs font-medium">Google Integrations Unavailable</p>
             <p className="text-xs text-muted-foreground">
@@ -428,7 +468,7 @@ function WebsiteIntegrations({
               <li>1. Go to <span className="font-medium text-foreground">Google Cloud Console</span> &rarr; APIs &amp; Services &rarr; Credentials</li>
               <li>2. Create an <span className="font-medium text-foreground">OAuth 2.0 Client ID</span> (Web application)</li>
               <li>3. Set redirect URI to <code className="rounded bg-background px-1 py-0.5 text-[10px]">{`${appUrl}/api/auth/google/callback`}</code></li>
-              <li>4. Enable APIs: <span className="font-medium text-foreground">Analytics Data API</span>, <span className="font-medium text-foreground">Analytics Admin API</span>, <span className="font-medium text-foreground">My Business Account Management</span>, <span className="font-medium text-foreground">My Business Business Information</span></li>
+              <li>4. Enable APIs: <span className="font-medium text-foreground">Analytics Data API</span>, <span className="font-medium text-foreground">Analytics Admin API</span>, <span className="font-medium text-foreground">Search Console API</span>, <span className="font-medium text-foreground">My Business Account Management</span>, <span className="font-medium text-foreground">My Business Business Information</span></li>
               <li>5. Add these environment variables:</li>
             </ol>
             <pre className="mt-1.5 overflow-x-auto rounded bg-background p-2 text-[10px] leading-relaxed">

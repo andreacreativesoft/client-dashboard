@@ -95,6 +95,7 @@ export async function selectIntegrationAccount(
   const metadata = (integration.metadata || {}) as Record<string, unknown>;
   delete metadata.needsPropertySelection;
   delete metadata.needsLocationSelection;
+  delete metadata.needsSiteSelection;
 
   const { error } = await supabase
     .from("integrations")

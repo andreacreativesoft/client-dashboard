@@ -49,11 +49,11 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
     >
       <div
         className={cn(
-          "w-full max-w-lg rounded-xl bg-card p-6 shadow-lg",
+          "flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-card p-6 shadow-lg",
           className
         )}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="text-xl font-semibold">{title}</h2>
           <button
             onClick={onClose}
@@ -74,7 +74,9 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
             </svg>
           </button>
         </div>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </div>
       </div>
     </div>
   );

@@ -13,7 +13,7 @@ Source-agnostic — receives data from any website via webhooks and API keys.
 - **PDF:** PDFKit
 - **Push:** web-push (VAPID)
 - **Google APIs:** googleapis (GA4, GBP)
-- **Hosting:** Vercel (planned)
+- **Hosting:** Vercel
 - **PWA:** Installable, mobile-first (375px base)
 
 ## Commands
@@ -34,9 +34,10 @@ app/
       clients/[id]/      → Client detail (websites, integrations, notes, activity)
       users/             → User management
       websites/          → Website overview
+      tools/             → Admin tools (broken links, SEO audit, uptime)
     leads/               → Lead list (paginated, filterable)
     leads/[id]/          → Lead detail with notes
-    analytics/           → Charts & analytics
+    analytics/           → Lead analytics + GA4 website analytics (CTA events, traffic)
     reports/             → PDF report generation & downloads
     settings/            → User profile settings
     dashboard/           → Overview page (stats, recent leads)
@@ -47,11 +48,16 @@ app/
     push/subscribe/      → Push notification subscription
     reports/generate/    → PDF generation
     reports/[id]/        → Report download
+    tools/broken-links/  → Broken link checker API
+    tools/seo-audit/     → SEO audit API
+    tools/uptime/        → Uptime monitor API
   auth/callback/         → Supabase auth callback
   invite/[token]/        → Invite acceptance
 
 components/
   ui/                    → Button, Card, Input, Badge, Skeleton, Modal, Label, Textarea
+  analytics/
+    ga4-analytics.tsx    → GA4 dashboard (sessions, events, CTA tracking, top pages, traffic sources)
   layout/                → Sidebar (collapsible), Header, MobileNav, SidebarContext
   activity-log.tsx       → Activity timeline display
   client-alerts.tsx      → Push/email alert notifications
@@ -75,6 +81,7 @@ lib/
     lead-notes.ts        → Note CRUD
     users.ts             → User CRUD + invite
     integrations.ts      → GA4/GBP/Facebook integration management
+    analytics.ts         → fetchGA4Analytics(), getClientsWithGA4() — on-demand GA4 data with caching
     invites.ts           → sendInviteAction(), acceptInviteAction()
     activity.ts          → logActivityAction(), getActivityLogs()
     alerts.ts            → updateLastLogin()
@@ -91,7 +98,7 @@ lib/
   utils.ts               → cn(), formatDate(), timeAgo(), slugify(), formatNumber()
   rate-limit.ts          → Sliding window rate limiter (in-memory)
   email.ts               → Resend templates (new lead, welcome, invite)
-  google.ts              → OAuth2, token encrypt/decrypt, GA4/GBP API calls
+  google.ts              → OAuth2, token encrypt/decrypt, GA4 (data, events, pages, sources), GBP API
   facebook.ts            → Conversion tracking (SHA256 hashed data)
   push.ts                → Web push send (single + batch)
   impersonate.ts         → Impersonation helpers
@@ -103,7 +110,7 @@ types/
   api.ts                 → ApiResponse<T>, PaginatedResponse<T>, WebhookLeadPayload
 
 supabase/
-  migrations/            → 7 SQL files (run in order)
+  migrations/            → 8 SQL files (run in order)
     001_initial_schema.sql      → 8 core tables + RLS + triggers
     002_push_subscriptions.sql  → Push notification subscriptions
     003_reports.sql             → PDF reports table + storage bucket
@@ -111,6 +118,7 @@ supabase/
     005_activity_logs.sql       → Immutable activity log
     006_client_alerts.sql       → last_login_at column on profiles
     007_performance_indexes.sql → 8 indexes on hot columns
+    008_site_checks.sql         → Admin tools (broken links, SEO, uptime) table
 
 public/
   sw.js                  → Service worker (network-first, cache fallback)
@@ -153,9 +161,9 @@ public/
 
 ## Database
 
-### Tables (13 total)
+### Tables (14 total)
 **Core (8):** profiles, clients, client_users, websites, leads, lead_notes, integrations, analytics_cache
-**System (5):** push_subscriptions, reports, invites, activity_logs (+ last_login_at on profiles)
+**System (6):** push_subscriptions, reports, invites, activity_logs, site_checks (+ last_login_at on profiles)
 
 ### Key Types
 - `UserRole`: `"admin" | "client"`
@@ -163,6 +171,8 @@ public/
 - Lead status: `"new" | "contacted" | "done"`
 - Integration type: `"ga4" | "gbp" | "facebook"`
 - Lead source: `"webhook" | "manual" | "api"`
+- Check type: `"broken_links" | "seo_audit" | "uptime"`
+- Check status: `"running" | "completed" | "failed"`
 
 ### RLS Rules
 - `is_admin()` function checks profile role — admins can access all rows
@@ -171,7 +181,7 @@ public/
 - activity_logs is insert-only (immutable)
 
 ### Migrations
-Run all 7 migrations in order (001 through 007) in Supabase SQL Editor. See `supabase/migrations/`.
+Run all 8 migrations in order (001 through 008) in Supabase SQL Editor. See `supabase/migrations/`.
 
 ## Environment Variables
 
@@ -212,6 +222,8 @@ See `.env.example` for the full template.
 **Endpoint:** `POST /api/webhooks/lead`
 **Auth:** API key via `x-api-key` header OR `?key=` query param
 **Rate limits:** 30 req/min per API key, 60 req/min per IP
+**CORS:** Enabled (Access-Control-Allow-Origin: *)
+**Content types:** `application/json` and `application/x-www-form-urlencoded`
 
 **Request Body (JSON):**
 ```json
@@ -224,10 +236,15 @@ See `.env.example` for the full template.
 }
 ```
 
-Supports field name variations: `your_name`, `your_email`, `first_name`+`last_name`, `fields.name`, etc. (Elementor, Contact Form 7, WPForms compatible).
+**Multi-language field detection:** Supports English, Romanian, French, Dutch, Spanish, German, Russian field names (e.g. `Nume`, `Telefon`, `Mesaj`, `nom`, `nombre`). Auto-detects email by `@` pattern, phone by digit count, name/message by length. Compatible with Elementor, Contact Form 7, WPForms, Gravity Forms.
 
-**Response:** `{ "success": true, "lead_id": "uuid" }`
+**Response:** `{ "success": true, "lead_id": "uuid" }` (status 200)
 **Test:** `GET /api/webhooks/lead?key=<api_key>` returns webhook status.
+
+**Side effects on lead creation:**
+- Email notification to all users linked to the client
+- Push notification to subscribed users
+- Facebook Conversion API event (if Facebook Pixel integration is active)
 
 ## Security & Performance
 - **RLS everywhere** — enforced at database level, never bypassed from frontend
@@ -249,7 +266,7 @@ Supports field name variations: `your_name`, `your_email`, `first_name`+`last_na
 
 ## Supabase Setup
 1. Create project at https://supabase.com
-2. Run ALL migrations in order in SQL Editor (001 through 007)
+2. Run ALL migrations in order in SQL Editor (001 through 008)
 3. Copy project URL + anon key + service role key into `.env.local`
 4. Create first admin: Authentication > Users > Add User (email+password)
 5. Promote to admin: `UPDATE profiles SET role = 'admin' WHERE email = 'your@email.com';`
@@ -265,9 +282,12 @@ Supports field name variations: `your_name`, `your_email`, `first_name`+`last_na
 - Phase 2: Authentication ✅
 - Phase 3: Admin Panel ✅ (client/website/user CRUD)
 - Phase 4: Leads ✅ (list, detail, status, notes, filters, pagination)
-- Phase 5: Analytics ✅ (lead stats, charts, top sources)
+- Phase 5: Analytics ✅ (lead stats + GA4 website analytics with CTA event tracking)
 - Phase 6: Integrations ✅ (GA4, GBP, Facebook Pixel — per-website in client detail)
 - Phase 7: Optimization ✅ (rate limiting, input sanitization, DB indexes, code deduplication)
 - Phase 8: Reports ✅ (PDF generation, per-client, date range)
 - Phase 9: Notifications ✅ (push notifications, email alerts, activity logs)
 - Phase 10: Invites & Impersonation ✅ (token-based invites, admin impersonation)
+- Phase 11: Admin Tools ✅ (broken link checker, SEO auditor, uptime monitor)
+- Phase 12: GA4 Analytics ✅ (sessions, users, pageviews, bounce rate, CTA events, top pages, traffic sources, 30-min caching, auto token refresh)
+- Phase 13: Webhook Enhancements ✅ (CORS, form-urlencoded, multi-language field detection, auto-detect by value pattern)

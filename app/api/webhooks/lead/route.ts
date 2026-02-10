@@ -41,11 +41,74 @@ function sanitizePhone(value: unknown): string | null {
   return digitCount >= 6 ? cleaned : null;
 }
 
+// Known field name patterns for multi-language support
+const NAME_KEYS = /^(name|full_name|first_name|last_name|your_name|nume|nom|nombre|nome|имя|vorname|nachname)$/i;
+const EMAIL_KEYS = /^(email|your_email|e-?mail|correo|courriel|почта)$/i;
+const PHONE_KEYS = /^(phone|tel|telephone|your_phone|telefon|telefono|téléphone|телефон|mobil|celular)$/i;
+const MESSAGE_KEYS = /^(message|your_message|comment|mesaj|mensaje|messaggio|сообщение|nachricht|comentario)$/i;
+const FORM_NAME_KEYS = /^(form_name|form_id|formName|form_title)$/i;
+// Keys to skip when auto-detecting fields
+const SKIP_KEYS = /^(key|api_key|action|referrer|referer|_wp_nonce|nonce|timestamp|token|source|fields|post_id|form_fields|queried_id)$/i;
+
+/** Auto-detect field type by scanning all keys and values */
+function autoDetectFields(body: Record<string, unknown>) {
+  let name: string | null = null;
+  let email: string | null = null;
+  let phone: string | null = null;
+  let message: string | null = null;
+  let form_name: string | null = null;
+
+  for (const [key, value] of Object.entries(body)) {
+    if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+    const strVal = String(value).trim();
+    if (!strVal) continue;
+
+    // Match by key name first
+    if (!name && NAME_KEYS.test(key)) { name = strVal; continue; }
+    if (!email && EMAIL_KEYS.test(key)) { email = strVal; continue; }
+    if (!phone && PHONE_KEYS.test(key)) { phone = strVal; continue; }
+    if (!message && MESSAGE_KEYS.test(key)) { message = strVal; continue; }
+    if (!form_name && FORM_NAME_KEYS.test(key)) { form_name = strVal; continue; }
+
+    // If key didn't match, try detecting by value pattern
+    if (!email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)) { email = strVal; continue; }
+    if (!phone && /^\+?[\d\s\-().]{6,}$/.test(strVal) && strVal.replace(/\D/g, "").length >= 6) { phone = strVal; continue; }
+  }
+
+  // If we still don't have a name, grab the first unmatched short text value
+  if (!name) {
+    for (const [key, value] of Object.entries(body)) {
+      if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+      const strVal = String(value).trim();
+      if (!strVal || strVal === email || strVal === phone || strVal === message || strVal === form_name) continue;
+      if (strVal.length <= 100 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal) && !/^\+?[\d\s\-().]{6,}$/.test(strVal)) {
+        name = strVal;
+        break;
+      }
+    }
+  }
+
+  // If we still don't have a message, grab the longest remaining text value
+  if (!message) {
+    let longest = "";
+    for (const [key, value] of Object.entries(body)) {
+      if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+      const strVal = String(value).trim();
+      if (!strVal || strVal === email || strVal === phone || strVal === name || strVal === form_name) continue;
+      if (strVal.length > longest.length) longest = strVal;
+    }
+    if (longest.length > 0) message = longest;
+  }
+
+  return { name, email, phone, message, form_name };
+}
+
 function normalizeLead(body: WebhookLeadPayload) {
   // Handle various form plugin formats
   const combinedName = [body.first_name, body.last_name].filter(Boolean).join(" ");
 
-  const name = sanitize(
+  // Try known field names first
+  let name = sanitize(
     body.name ||
     body.full_name ||
     body.your_name ||
@@ -55,14 +118,14 @@ function normalizeLead(body: WebhookLeadPayload) {
     255
   );
 
-  const email = sanitizeEmail(
+  let email = sanitizeEmail(
     body.email ||
     body.your_email ||
     body.fields?.email ||
     body.fields?.your_email
   );
 
-  const phone = sanitizePhone(
+  let phone = sanitizePhone(
     body.phone ||
     body.tel ||
     body.telephone ||
@@ -71,7 +134,7 @@ function normalizeLead(body: WebhookLeadPayload) {
     body.fields?.tel
   );
 
-  const message = sanitize(
+  let message = sanitize(
     body.message ||
     body.your_message ||
     body.comment ||
@@ -80,10 +143,20 @@ function normalizeLead(body: WebhookLeadPayload) {
     5000
   );
 
-  const form_name = sanitize(
+  let form_name = sanitize(
     body.form_name || body.form_id || body.formName,
     255
   );
+
+  // If standard field names didn't match, try auto-detection (handles any language)
+  if (!name && !email && !phone && !message) {
+    const detected = autoDetectFields(body as Record<string, unknown>);
+    name = sanitize(detected.name, 255);
+    email = sanitizeEmail(detected.email);
+    phone = sanitizePhone(detected.phone);
+    message = sanitize(detected.message, 5000);
+    form_name = form_name || sanitize(detected.form_name, 255);
+  }
 
   // Sanitize raw_data: limit total size to prevent oversized payloads
   const rawJson = JSON.stringify(body);
@@ -158,13 +231,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse and validate request body
+    // Parse request body (supports JSON and form-urlencoded)
     let rawBody: unknown;
+    const contentType = request.headers.get("content-type") || "";
     try {
-      rawBody = await request.json();
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        const text = await request.text();
+        const params = new URLSearchParams(text);
+        const obj: Record<string, string> = {};
+        for (const [key, value] of params.entries()) {
+          obj[key] = value;
+        }
+        rawBody = obj;
+      } else {
+        rawBody = await request.json();
+      }
     } catch {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
+        { error: "Invalid request body" },
         { status: 400, headers: CORS_HEADERS }
       );
     }

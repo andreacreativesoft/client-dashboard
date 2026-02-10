@@ -2,21 +2,19 @@ import type { Metadata } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
-import { getClientsWithGA4, getClientsWithGBP } from "@/lib/actions/analytics";
+import { getClientsWithGA4 } from "@/lib/actions/analytics";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import { GA4Analytics } from "@/components/analytics/ga4-analytics";
-import { GBPAnalytics } from "@/components/analytics/gbp-analytics";
 
 export const metadata: Metadata = {
   title: "Analytics",
 };
 
 export default async function AnalyticsPage() {
-  const [leads, profile, clientsWithGA4, clientsWithGBP] = await Promise.all([
+  const [leads, profile, clientsWithGA4] = await Promise.all([
     getLeads(),
     getProfile(),
     getClientsWithGA4(),
-    getClientsWithGBP(),
   ]);
 
   const isAdmin = profile?.role === "admin";
@@ -69,15 +67,6 @@ export default async function AnalyticsPage() {
       <div className="mb-8">
         <GA4Analytics
           clientsWithGA4={clientsWithGA4}
-          isAdmin={isAdmin}
-          initialClientId={impersonatedClientId || undefined}
-        />
-      </div>
-
-      {/* ─── GBP Analytics ──────────────────────────────────────────── */}
-      <div className="mb-8">
-        <GBPAnalytics
-          clientsWithGBP={clientsWithGBP}
           isAdmin={isAdmin}
           initialClientId={impersonatedClientId || undefined}
         />

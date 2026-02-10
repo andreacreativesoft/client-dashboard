@@ -30,13 +30,18 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
 
   const fetchData = useCallback(
     async (forceRefresh = false) => {
-      if (!selectedClientId) return;
+      // For admins, need a selected client; for clients, server action auto-detects
+      if (isAdmin && !selectedClientId) return;
       setLoading(true);
       setError(null);
 
       try {
         const { fetchGBPAnalytics } = await import("@/lib/actions/analytics");
-        const result = await fetchGBPAnalytics(selectedClientId, period, forceRefresh);
+        const result = await fetchGBPAnalytics(
+          isAdmin ? selectedClientId : undefined,
+          period,
+          forceRefresh
+        );
 
         if (result.success && result.data) {
           setData(result.data);
@@ -52,16 +57,16 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
         setLoading(false);
       }
     },
-    [selectedClientId, period]
+    [selectedClientId, period, isAdmin]
   );
 
   useEffect(() => {
-    if (selectedClientId) {
-      fetchData();
-    }
-  }, [selectedClientId, period, fetchData]);
+    if (isAdmin && !selectedClientId) return;
+    fetchData();
+  }, [selectedClientId, period, fetchData, isAdmin]);
 
-  if (clientsWithGBP.length === 0) {
+  // Only show empty state for admins with no GBP clients
+  if (isAdmin && clientsWithGBP.length === 0) {
     return (
       <Card>
         <CardContent className="p-6">

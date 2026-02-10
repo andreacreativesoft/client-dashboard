@@ -89,12 +89,25 @@ export async function GET(request: NextRequest) {
       accountId = "pending_selection";
       accountName = "Google Analytics";
     } else if (stateData.type === "gbp") {
-      // Get GBP locations
-      const locations = await getGBPLocations(tokens.access_token);
+      // Get GBP locations (gracefully handle API errors)
+      let locations: Awaited<ReturnType<typeof getGBPLocations>> = [];
+      try {
+        locations = await getGBPLocations(tokens.access_token);
+      } catch (err) {
+        console.error("Failed to fetch GBP locations:", err);
+        // Still save integration — user can retry location fetch from settings
+      }
 
-      metadata = { locations, needsLocationSelection: true };
-      accountId = "pending_selection";
-      accountName = "Google Business Profile";
+      if (locations.length === 1) {
+        // Auto-select if only one location
+        accountId = locations[0]!.locationId;
+        accountName = locations[0]!.locationName;
+        metadata = { locations };
+      } else {
+        metadata = { locations, needsLocationSelection: true };
+        accountId = "pending_selection";
+        accountName = "Google Business Profile";
+      }
     }
 
     // Upsert integration record

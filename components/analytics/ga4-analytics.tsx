@@ -47,14 +47,19 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
 
   const fetchData = useCallback(
     async (forceRefresh = false) => {
-      if (!selectedClientId) return;
+      // For admins, need a selected client; for clients, server action auto-detects
+      if (isAdmin && !selectedClientId) return;
       setLoading(true);
       setError(null);
 
       try {
         // Dynamic import to avoid bundling server action in client
         const { fetchGA4Analytics } = await import("@/lib/actions/analytics");
-        const result = await fetchGA4Analytics(selectedClientId, period, forceRefresh);
+        const result = await fetchGA4Analytics(
+          isAdmin ? selectedClientId : undefined,
+          period,
+          forceRefresh
+        );
 
         if (result.success && result.data) {
           setData(result.data);
@@ -70,16 +75,16 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
         setLoading(false);
       }
     },
-    [selectedClientId, period]
+    [selectedClientId, period, isAdmin]
   );
 
   useEffect(() => {
-    if (selectedClientId) {
-      fetchData();
-    }
-  }, [selectedClientId, period, fetchData]);
+    if (isAdmin && !selectedClientId) return;
+    fetchData();
+  }, [selectedClientId, period, fetchData, isAdmin]);
 
-  if (clientsWithGA4.length === 0) {
+  // Only show empty state for admins with no GA4 clients
+  if (isAdmin && clientsWithGA4.length === 0) {
     return (
       <Card>
         <CardContent className="p-6">

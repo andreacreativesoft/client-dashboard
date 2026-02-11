@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useRecaptcha } from "@/components/recaptcha-provider";
+import { forgotPasswordAction } from "@/lib/actions/auth";
 
 export function ForgotPasswordForm() {
+  const { executeRecaptcha } = useRecaptcha();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -18,16 +20,14 @@ export function ForgotPasswordForm() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email,
-        {
-          redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
-        }
-      );
+      // Execute reCAPTCHA (returns undefined if not configured)
+      const recaptchaToken = await executeRecaptcha("forgot_password");
 
-      if (resetError) {
-        setError(resetError.message);
+      const redirectUrl = `${window.location.origin}/auth/callback?next=/settings`;
+      const result = await forgotPasswordAction(email, recaptchaToken, redirectUrl);
+
+      if (!result.success) {
+        setError(result.error || "Something went wrong");
         return;
       }
 
@@ -45,6 +45,9 @@ export function ForgotPasswordForm() {
         <div className="rounded-lg bg-success/10 p-3 text-sm text-success">
           Check your email for a password reset link.
         </div>
+        <p className="text-xs text-muted-foreground">
+          Don&apos;t see it? Check your spam or junk folder.
+        </p>
         <Link
           href="/login"
           className="inline-block text-sm text-muted-foreground hover:text-foreground"

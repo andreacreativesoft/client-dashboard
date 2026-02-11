@@ -14,6 +14,7 @@ export type Profile = {
   phone: string | null;
   avatar_url: string | null;
   last_login_at: string | null;
+  is_blocked: boolean;
   created_at: string;
   updated_at: string;
 };

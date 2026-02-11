@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import { sendWelcomeEmail, sendAccountCreatedEmail } from "@/lib/email";
+import { unblockAccount, clearLoginAttempts } from "@/lib/login-security";
 import type { Profile, Client, ClientUser } from "@/types/database";
 
 export type UserWithClients = Profile & {
@@ -281,6 +282,35 @@ export async function adminChangePasswordAction(
     return { success: false, error: error.message };
   }
 
+  return { success: true };
+}
+
+export async function unblockUserAction(
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const adminClient = createAdminClient();
+
+  // Get user email
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("email")
+    .eq("id", userId)
+    .single();
+
+  if (!profile) {
+    return { success: false, error: "User not found" };
+  }
+
+  // Unblock account and clear login attempts
+  const result = await unblockAccount(profile.email);
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  revalidatePath("/admin/users");
   return { success: true };
 }
 

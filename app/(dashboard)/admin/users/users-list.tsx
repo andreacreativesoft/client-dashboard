@@ -13,6 +13,7 @@ import {
   deleteUserAction,
   updateUserRoleAction,
   adminChangePasswordAction,
+  unblockUserAction,
   type UserWithClients,
 } from "@/lib/actions/users";
 import { resendInviteAction, deleteInviteAction } from "@/lib/actions/invites";
@@ -127,6 +128,25 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
 
     if (!result.success) {
       alert(result.error || "Failed to update role");
+    }
+  }
+
+  async function handleUnblock(user: UserWithClients) {
+    if (
+      !confirm(
+        `Unblock user "${user.full_name || user.email}"? They will be able to log in again.`
+      )
+    ) {
+      return;
+    }
+
+    setLoading(user.id);
+    const result = await unblockUserAction(user.id);
+    setLoading(null);
+    router.refresh();
+
+    if (!result.success) {
+      alert(result.error || "Failed to unblock user");
     }
   }
 
@@ -280,6 +300,9 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
                       {user.id === currentUserId && (
                         <Badge variant="outline">You</Badge>
                       )}
+                      {user.is_blocked && (
+                        <Badge variant="destructive">Blocked</Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">{user.email}</p>
                     {user.phone && (
@@ -325,6 +348,16 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
                         >
                           {user.role === "admin" ? "Make Client" : "Make Admin"}
                         </Button>
+                        {user.is_blocked && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUnblock(user)}
+                            disabled={loading === user.id}
+                          >
+                            Unblock
+                          </Button>
+                        )}
                         <Button
                           variant="destructive"
                           size="sm"

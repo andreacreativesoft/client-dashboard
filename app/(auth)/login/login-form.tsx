@@ -3,31 +3,40 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useRecaptcha } from "@/components/recaptcha-provider";
+import { loginAction } from "@/lib/actions/auth";
 
 export function LoginForm() {
   const router = useRouter();
+  const { executeRecaptcha } = useRecaptcha();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (blocked) return;
+
     setError(null);
     setLoading(true);
 
     try {
-      const supabase = createClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // Execute reCAPTCHA (returns undefined if not configured)
+      const recaptchaToken = await executeRecaptcha("login");
 
-      if (authError) {
-        setError(authError.message);
+      // Call server action
+      const result = await loginAction(email, password, recaptchaToken);
+
+      if (!result.success) {
+        setError(result.error || "Invalid email or password");
+        if (result.blocked) {
+          setBlocked(true);
+        }
         return;
       }
 
@@ -43,7 +52,11 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <div className={`rounded-lg p-3 text-sm ${
+          blocked
+            ? "border border-destructive/30 bg-destructive/10 text-destructive"
+            : "bg-destructive/10 text-destructive"
+        }`}>
           {error}
         </div>
       )}
@@ -60,7 +73,7 @@ export function LoginForm() {
           onChange={(e) => setEmail(e.target.value)}
           required
           autoComplete="email"
-          disabled={loading}
+          disabled={loading || blocked}
         />
       </div>
 
@@ -84,12 +97,12 @@ export function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           required
           autoComplete="current-password"
-          disabled={loading}
+          disabled={loading || blocked}
         />
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Signing in..." : "Sign in"}
+      <Button type="submit" className="w-full" disabled={loading || blocked}>
+        {loading ? "Signing in..." : blocked ? "Account blocked" : "Sign in"}
       </Button>
     </form>
   );

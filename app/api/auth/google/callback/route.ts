@@ -8,10 +8,17 @@ import {
   getGBPLocations,
   listGSCSites,
 } from "@/lib/google";
+import { rateLimit } from "@/lib/rate-limit";
 import type { IntegrationType } from "@/types/database";
 
 export async function GET(request: NextRequest) {
   try {
+    // Rate limit: 10 OAuth callbacks per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = rateLimit(`oauth-callback:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
     const error = request.nextUrl.searchParams.get("error");
@@ -172,7 +179,9 @@ export async function GET(request: NextRequest) {
     );
   } catch (err) {
     console.error("Google callback error:", err instanceof Error ? err.message : err);
-    console.error("Google callback error stack:", err instanceof Error ? err.stack : "no stack");
+    if (process.env.NODE_ENV === "development") {
+      console.error("Stack:", err instanceof Error ? err.stack : "no stack");
+    }
     return NextResponse.redirect(
       new URL("/admin/clients?error=callback_failed", request.url)
     );

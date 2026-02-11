@@ -75,21 +75,23 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   };
 }
 
-// Token encryption for secure storage
+// Token encryption for secure storage (random salt per token)
 export function encryptToken(token: string): string {
   if (!TOKEN_ENCRYPTION_KEY) {
     console.warn("TOKEN_ENCRYPTION_KEY not set, storing token in plain text");
     return token;
   }
 
+  const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(16);
-  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
+  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
   const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
 
   let encrypted = cipher.update(token, "utf8", "hex");
   encrypted += cipher.final("hex");
 
-  return iv.toString("hex") + ":" + encrypted;
+  // Format: salt:iv:encrypted (3 parts)
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
 }
 
 export function decryptToken(encryptedToken: string): string {
@@ -97,19 +99,36 @@ export function decryptToken(encryptedToken: string): string {
     return encryptedToken;
   }
 
-  const [ivHex, encrypted] = encryptedToken.split(":");
-  if (!ivHex || !encrypted) {
-    return encryptedToken; // Not encrypted
+  const parts = encryptedToken.split(":");
+
+  if (parts.length === 3) {
+    // New format: salt:iv:encrypted
+    const [saltHex, ivHex, encrypted] = parts;
+    if (!saltHex || !ivHex || !encrypted) return encryptedToken;
+
+    const salt = Buffer.from(saltHex, "hex");
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } else if (parts.length === 2) {
+    // Legacy format: iv:encrypted (fixed salt)
+    const [ivHex, encrypted] = parts;
+    if (!ivHex || !encrypted) return encryptedToken;
+
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
   }
 
-  const iv = Buffer.from(ivHex, "hex");
-  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
-  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-
-  return decrypted;
+  return encryptedToken; // Not encrypted
 }
 
 // GA4 Data API — overview metrics by day

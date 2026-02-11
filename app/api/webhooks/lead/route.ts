@@ -452,7 +452,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (err) {
-    console.error("Webhook error:", err);
+    console.error("Webhook error:", err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: "Invalid request body" },
       { status: 400, headers: CORS_HEADERS }

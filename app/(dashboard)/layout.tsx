@@ -42,7 +42,8 @@ export default async function DashboardLayout({
             userName={profile.full_name || profile.email || "User"}
             isAdmin={isAdmin}
             avatarUrl={profile.avatar_url}
-            showClientSwitcher={isAdmin && !impersonation}
+            showClientSwitcher={isAdmin}
+            impersonatingClientName={impersonation?.clientName || null}
           />
           <main className="flex-1 pb-20 md:pb-0">{children}</main>
         </div>

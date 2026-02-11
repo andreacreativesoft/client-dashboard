@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { cn } from "@/lib/utils";
 import { startImpersonation } from "@/lib/actions/impersonate";
 
 interface Client {
@@ -13,9 +14,10 @@ interface Client {
 
 interface ClientSwitcherProps {
   clients: Client[];
+  impersonatingClientName?: string | null;
 }
 
-export function ClientSwitcher({ clients }: ClientSwitcherProps) {
+export function ClientSwitcher({ clients, impersonatingClientName }: ClientSwitcherProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
@@ -37,19 +39,32 @@ export function ClientSwitcher({ clients }: ClientSwitcherProps) {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-        title="View as Client"
+        className={cn(
+          "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
+          impersonatingClientName
+            ? "border-primary bg-primary/10 text-primary"
+            : "border-border bg-card text-foreground"
+        )}
+        title={impersonatingClientName ? `Viewing as: ${impersonatingClientName}` : "Select Client"}
       >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7Z" />
         </svg>
-        <span className="hidden sm:inline">View as Client</span>
+        <span className="hidden sm:inline max-w-[200px] truncate">
+          {impersonatingClientName || "Select Client"}
+        </span>
+        <svg className="h-3 w-3 shrink-0 hidden sm:block" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
       </button>
 
-      <Modal open={isOpen} onClose={() => setIsOpen(false)} title="View as Client">
+      <Modal open={isOpen} onClose={() => setIsOpen(false)} title="Select Client">
         <p className="mb-4 text-sm text-muted-foreground">
-          Select a client to view the dashboard as they would see it. Admin-only sections will be hidden.
+          Select a client to view their leads, analytics, and reports.
+          {impersonatingClientName && (
+            <> Currently viewing: <strong>{impersonatingClientName}</strong></>
+          )}
         </p>
 
         <div className="max-h-64 space-y-2 overflow-y-auto">

@@ -13,6 +13,7 @@ interface HeaderProps {
   isAdmin: boolean;
   avatarUrl?: string | null;
   showClientSwitcher?: boolean;
+  impersonatingClientName?: string | null;
 }
 
 interface Client {
@@ -20,7 +21,7 @@ interface Client {
   business_name: string;
 }
 
-export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher }: HeaderProps) {
+export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, impersonatingClientName }: HeaderProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -58,12 +59,12 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher }: Hea
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 md:px-6">
       <div className="flex items-center gap-3">
         <span className="text-lg font-bold md:hidden">Dashboard</span>
+        {showClientSwitcher && clients.length > 0 && (
+          <ClientSwitcher clients={clients} impersonatingClientName={impersonatingClientName} />
+        )}
       </div>
 
       <div className="flex items-center gap-3">
-        {showClientSwitcher && clients.length > 0 && (
-          <ClientSwitcher clients={clients} />
-        )}
 
         <div className="text-right hidden sm:block">
           <p className="text-sm font-medium leading-none">{userName}</p>

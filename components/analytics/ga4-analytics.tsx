@@ -40,6 +40,13 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
     initialClientId || clientsWithGA4[0]?.clientId || ""
   );
   const [period, setPeriod] = useState<"7d" | "30d">("30d");
+
+  // Sync with header client selector
+  useEffect(() => {
+    if (initialClientId) {
+      setSelectedClientId(initialClientId);
+    }
+  }, [initialClientId]);
   const [data, setData] = useState<GA4AnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,21 +129,6 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Client selector (admin only, multiple clients) */}
-          {isAdmin && clientsWithGA4.length > 1 && (
-            <select
-              value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {clientsWithGA4.map((c) => (
-                <option key={c.clientId} value={c.clientId}>
-                  {c.clientName}
-                </option>
-              ))}
-            </select>
-          )}
-
           {/* Period selector */}
           <div className="flex rounded-md border border-input">
             <button

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
+import { setSelectedClientId } from "@/lib/selected-client";
 import type { Client } from "@/types/database";
 
 export type ClientFormData = {
@@ -118,6 +119,17 @@ export async function deleteClientAction(
   }
 
   revalidatePath("/admin/clients");
+  return { success: true };
+}
+
+export async function selectClientAction(
+  clientId: string | null
+): Promise<{ success: boolean }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false };
+
+  await setSelectedClientId(clientId);
+  revalidatePath("/", "layout");
   return { success: true };
 }
 

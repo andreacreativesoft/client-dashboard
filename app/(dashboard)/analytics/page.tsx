@@ -4,6 +4,7 @@ import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
 import { getClientsWithGA4 } from "@/lib/actions/analytics";
 import { getImpersonatedClientId } from "@/lib/impersonate";
+import { getSelectedClientId } from "@/lib/selected-client";
 import { GA4Analytics } from "@/components/analytics/ga4-analytics";
 
 export const metadata: Metadata = {
@@ -19,6 +20,9 @@ export default async function AnalyticsPage() {
 
   const isAdmin = profile?.role === "admin";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+  const selectedClientId = isAdmin ? await getSelectedClientId() : null;
+  // Use selected client from header dropdown, fall back to impersonated client
+  const activeClientId = selectedClientId || impersonatedClientId;
 
   // Calculate lead stats by time period
   const now = new Date();
@@ -68,7 +72,7 @@ export default async function AnalyticsPage() {
         <GA4Analytics
           clientsWithGA4={clientsWithGA4}
           isAdmin={isAdmin}
-          initialClientId={impersonatedClientId || undefined}
+          initialClientId={activeClientId || undefined}
         />
       </div>
 

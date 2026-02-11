@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { ClientSelect } from "@/components/client-select";
 import { ClientSwitcher } from "@/components/client-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -13,8 +14,7 @@ interface HeaderProps {
   isAdmin: boolean;
   avatarUrl?: string | null;
   showClientSwitcher?: boolean;
-  impersonatingClientId?: string | null;
-  impersonatingClientName?: string | null;
+  selectedClientId?: string | null;
 }
 
 interface Client {
@@ -22,7 +22,7 @@ interface Client {
   business_name: string;
 }
 
-export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, impersonatingClientId, impersonatingClientName }: HeaderProps) {
+export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selectedClientId }: HeaderProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -61,7 +61,10 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, imper
       <div className="flex items-center gap-3">
         <span className="text-lg font-bold md:hidden">Dashboard</span>
         {showClientSwitcher && clients.length > 0 && (
-          <ClientSwitcher clients={clients} impersonatingClientId={impersonatingClientId} impersonatingClientName={impersonatingClientName} />
+          <>
+            <ClientSelect clients={clients} selectedClientId={selectedClientId} />
+            <ClientSwitcher clients={clients} />
+          </>
         )}
       </div>
 

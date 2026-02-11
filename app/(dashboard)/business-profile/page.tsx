@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getProfile } from "@/lib/actions/profile";
 import { getClientsWithGBP } from "@/lib/actions/analytics";
 import { getImpersonatedClientId } from "@/lib/impersonate";
+import { getSelectedClientId } from "@/lib/selected-client";
 import { GBPAnalytics } from "@/components/analytics/gbp-analytics";
 
 export const metadata: Metadata = {
@@ -16,6 +17,8 @@ export default async function BusinessProfilePage() {
 
   const isAdmin = profile?.role === "admin";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+  const selectedClientId = isAdmin ? await getSelectedClientId() : null;
+  const activeClientId = selectedClientId || impersonatedClientId;
 
   return (
     <div className="p-4 md:p-6">
@@ -24,7 +27,7 @@ export default async function BusinessProfilePage() {
       <GBPAnalytics
         clientsWithGBP={clientsWithGBP}
         isAdmin={isAdmin}
-        initialClientId={impersonatedClientId || undefined}
+        initialClientId={activeClientId || undefined}
       />
     </div>
   );

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { startImpersonation, stopImpersonation } from "@/lib/actions/impersonate";
+import { startImpersonation } from "@/lib/actions/impersonate";
 
 interface Client {
   id: string;
@@ -13,66 +13,30 @@ interface Client {
 
 interface ClientSwitcherProps {
   clients: Client[];
-  impersonatingClientId?: string | null;
-  impersonatingClientName?: string | null;
 }
 
-export function ClientSwitcher({ clients, impersonatingClientId, impersonatingClientName }: ClientSwitcherProps) {
+export function ClientSwitcher({ clients }: ClientSwitcherProps) {
   const router = useRouter();
-  const [switching, setSwitching] = useState(false);
-  const [viewAsOpen, setViewAsOpen] = useState(false);
-  const [viewAsLoading, setViewAsLoading] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
 
-  async function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const clientId = e.target.value;
-    if (!clientId) {
-      // "All Clients" selected — stop impersonation
-      setSwitching(true);
-      await stopImpersonation();
-      router.refresh();
-      setSwitching(false);
-      return;
-    }
-    setSwitching(true);
+  async function handleSelect(clientId: string) {
+    setLoading(clientId);
     const result = await startImpersonation(clientId);
-    if (result.success) {
-      router.refresh();
-    }
-    setSwitching(false);
-  }
 
-  async function handleViewAs(clientId: string) {
-    setViewAsLoading(clientId);
-    const result = await startImpersonation(clientId);
     if (result.success) {
-      setViewAsOpen(false);
+      setIsOpen(false);
       router.refresh();
     }
-    setViewAsLoading(null);
+    setLoading(null);
   }
 
   if (clients.length === 0) return null;
 
   return (
     <>
-      {/* Client selector dropdown */}
-      <select
-        value={impersonatingClientId || ""}
-        onChange={handleSelectChange}
-        disabled={switching}
-        className="h-9 max-w-[200px] truncate rounded-lg border border-border bg-card px-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
-      >
-        <option value="">All Clients</option>
-        {clients.map((client) => (
-          <option key={client.id} value={client.id}>
-            {client.business_name}
-          </option>
-        ))}
-      </select>
-
-      {/* View as Client button */}
       <button
-        onClick={() => setViewAsOpen(true)}
+        onClick={() => setIsOpen(true)}
         className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
         title="View as Client"
       >
@@ -83,8 +47,7 @@ export function ClientSwitcher({ clients, impersonatingClientId, impersonatingCl
         <span className="hidden sm:inline">View as Client</span>
       </button>
 
-      {/* View as Client modal */}
-      <Modal open={viewAsOpen} onClose={() => setViewAsOpen(false)} title="View as Client">
+      <Modal open={isOpen} onClose={() => setIsOpen(false)} title="View as Client">
         <p className="mb-4 text-sm text-muted-foreground">
           Select a client to view the dashboard as they would see it. Admin-only sections will be hidden.
         </p>
@@ -93,12 +56,12 @@ export function ClientSwitcher({ clients, impersonatingClientId, impersonatingCl
           {clients.map((client) => (
             <button
               key={client.id}
-              onClick={() => handleViewAs(client.id)}
-              disabled={viewAsLoading !== null}
+              onClick={() => handleSelect(client.id)}
+              disabled={loading !== null}
               className="flex w-full items-center justify-between rounded-lg border border-border p-3 text-left hover:bg-muted disabled:opacity-50"
             >
               <span className="font-medium">{client.business_name}</span>
-              {viewAsLoading === client.id ? (
+              {loading === client.id ? (
                 <span className="text-sm text-muted-foreground">Switching...</span>
               ) : (
                 <svg className="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -110,7 +73,7 @@ export function ClientSwitcher({ clients, impersonatingClientId, impersonatingCl
         </div>
 
         <div className="mt-4 flex justify-end">
-          <Button variant="outline" onClick={() => setViewAsOpen(false)}>
+          <Button variant="outline" onClick={() => setIsOpen(false)}>
             Cancel
           </Button>
         </div>

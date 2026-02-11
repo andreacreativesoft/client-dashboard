@@ -23,6 +23,13 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
     initialClientId || clientsWithGBP[0]?.clientId || ""
   );
   const [period, setPeriod] = useState<"7d" | "30d">("30d");
+
+  // Sync with header client selector
+  useEffect(() => {
+    if (initialClientId) {
+      setSelectedClientId(initialClientId);
+    }
+  }, [initialClientId]);
   const [data, setData] = useState<GBPAnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,20 +107,6 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin && clientsWithGBP.length > 1 && (
-            <select
-              value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {clientsWithGBP.map((c) => (
-                <option key={c.clientId} value={c.clientId}>
-                  {c.clientName}
-                </option>
-              ))}
-            </select>
-          )}
-
           <div className="flex rounded-md border border-input">
             <button
               onClick={() => setPeriod("7d")}

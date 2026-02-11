@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendNewLeadNotification } from "@/lib/email";
-import { sendPushToMultiple, type PushSubscriptionData } from "@/lib/push";
-import { sendFacebookConversion, FacebookEvents } from "@/lib/facebook";
-import { decryptToken } from "@/lib/google";
+import { sendNewLeadNotifications } from "@/lib/notifications/lead-notifications";
 import { rateLimit } from "@/lib/rate-limit";
 import type { WebhookLeadPayload } from "@/types/api";
 import type { Website } from "@/types/database";
@@ -200,7 +197,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit by IP address
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const ipLimit = rateLimit(`ip:${ip}`, RATE_LIMIT_PER_IP);
+    const ipLimit = await rateLimit(`ip:${ip}`, RATE_LIMIT_PER_IP);
     if (!ipLimit.allowed) {
       return NextResponse.json(
         { error: "Too many requests" },
@@ -216,7 +213,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Rate limit by API key
-    const keyLimit = rateLimit(`key:${apiKey}`, RATE_LIMIT_PER_KEY);
+    const keyLimit = await rateLimit(`key:${apiKey}`, RATE_LIMIT_PER_KEY);
     if (!keyLimit.allowed) {
       return NextResponse.json(
         { error: "Too many requests for this API key" },
@@ -309,12 +306,11 @@ export async function POST(request: NextRequest) {
       status: "new" as const,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: lead, error: leadError } = await (supabase as any)
+    const { data: lead, error: leadError } = await supabase
       .from("leads")
       .insert(leadInsert)
       .select("id")
-      .single();
+      .single<{ id: string }>();
 
     if (leadError) {
       console.error("Failed to insert lead:", leadError);
@@ -324,122 +320,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send email notifications (non-blocking)
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    // Get users associated with this client who have email notifications enabled
-    const { data: clientUsers } = await supabase
-      .from("client_users")
-      .select("user_id")
-      .eq("client_id", website.client_id);
-
-    if (clientUsers && clientUsers.length > 0) {
-      const userIds = clientUsers.map((cu) => cu.user_id);
-
-      // Get emails for these users
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("email")
-        .in("id", userIds);
-
-      if (profiles) {
-        const emailPromises = profiles
-          .filter((p) => p.email)
-          .map((p) =>
-            sendNewLeadNotification(p.email, {
-              clientName: client?.name || "Client",
-              websiteName: website.name,
-              leadName: normalized.name || "Unknown",
-              leadEmail: normalized.email || "No email provided",
-              leadPhone: normalized.phone,
-              formName: normalized.form_name,
-              message: normalized.message,
-              submittedAt: new Date().toLocaleString(),
-              dashboardUrl: `${baseUrl}/leads/${lead.id}`,
-            })
-          );
-
-        // Send all emails in parallel (don't await to avoid slowing response)
-        Promise.all(emailPromises).catch((err) => {
-          console.error("Error sending notification emails:", err);
-        });
-      }
-
-      // Send push notifications
-      const { data: pushSubscriptions } = await supabase
-        .from("push_subscriptions")
-        .select("endpoint, p256dh, auth")
-        .in("user_id", userIds);
-
-      if (pushSubscriptions && pushSubscriptions.length > 0) {
-        const subscriptions: PushSubscriptionData[] = pushSubscriptions.map((sub) => ({
-          endpoint: sub.endpoint,
-          keys: {
-            p256dh: sub.p256dh,
-            auth: sub.auth,
-          },
-        }));
-
-        sendPushToMultiple(subscriptions, {
-          title: `New Lead: ${normalized.name || "Unknown"}`,
-          body: `${website.name} - ${normalized.email || normalized.phone || "No contact info"}`,
-          url: `${baseUrl}/leads/${lead.id}`,
-          leadId: lead.id,
-          tag: `lead-${lead.id}`,
-        }).catch((err) => {
-          console.error("Error sending push notifications:", err);
-        });
-      }
-    }
-
-    // Send Facebook Conversion if configured
-    const { data: fbIntegration } = await supabase
-      .from("integrations")
-      .select("account_id, access_token_encrypted, metadata")
-      .eq("client_id", website.client_id)
-      .eq("type", "facebook")
-      .eq("is_active", true)
-      .single<{
-        account_id: string;
-        access_token_encrypted: string | null;
-        metadata: Record<string, unknown> | null;
-      }>();
-
-    if (fbIntegration?.access_token_encrypted) {
-      const accessToken = decryptToken(fbIntegration.access_token_encrypted);
-      const testEventCode = fbIntegration.metadata?.test_event_code as string | undefined;
-
-      // Parse name into first/last
-      const nameParts = (normalized.name || "").split(" ");
-      const firstName = nameParts[0] || undefined;
-      const lastName = nameParts.slice(1).join(" ") || undefined;
-
-      sendFacebookConversion(
-        {
-          pixelId: fbIntegration.account_id,
-          accessToken,
-          testEventCode,
-        },
-        {
-          eventName: FacebookEvents.LEAD,
-          actionSource: "website",
-          eventSourceUrl: website.url,
-          userData: {
-            email: normalized.email || undefined,
-            phone: normalized.phone || undefined,
-            firstName,
-            lastName,
-          },
-          customData: {
-            lead_id: lead.id,
-            form_name: normalized.form_name,
-            website_name: website.name,
-          },
-        }
-      ).catch((err) => {
-        console.error("Error sending Facebook conversion:", err);
-      });
-    }
+    // Send all notifications (email, push, Facebook) — non-blocking
+    sendNewLeadNotifications({
+      leadId: lead.id,
+      clientId: website.client_id,
+      clientName: client?.name || "Client",
+      websiteName: website.name,
+      websiteUrl: website.url,
+      name: normalized.name,
+      email: normalized.email,
+      phone: normalized.phone,
+      message: normalized.message,
+      formName: normalized.form_name,
+    }).catch((err) => {
+      console.error("Error dispatching lead notifications:", err);
+    });
 
     return NextResponse.json(
       { success: true, lead_id: lead.id },

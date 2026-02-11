@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     // Rate limit: 10 OAuth callbacks per minute per IP
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const limit = rateLimit(`oauth-callback:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    const limit = await rateLimit(`oauth-callback:${ip}`, { windowMs: 60_000, maxRequests: 10 });
     if (!limit.allowed) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }

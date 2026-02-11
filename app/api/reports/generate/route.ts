@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   try {
     // Rate limit: 5 report generations per minute per IP
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const limit = rateLimit(`reports:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+    const limit = await rateLimit(`reports:${ip}`, { windowMs: 60_000, maxRequests: 5 });
     if (!limit.allowed) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }

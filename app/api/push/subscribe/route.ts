@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     // Rate limit: 10 subscription changes per minute per IP
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const limit = rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    const limit = await rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
     if (!limit.allowed) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -65,7 +65,7 @@ export async function DELETE(request: NextRequest) {
   try {
     // Rate limit: 10 per minute per IP (shared with POST)
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const limit = rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    const limit = await rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
     if (!limit.allowed) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }

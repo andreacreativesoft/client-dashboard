@@ -1,5 +1,16 @@
 import { google } from "googleapis";
+import type { analyticsdata_v1beta } from "googleapis";
+import type { searchconsole_v1 } from "googleapis";
+import type { businessprofileperformance_v1 } from "googleapis";
 import crypto from "crypto";
+
+// ─── Google API response types (re-exported for consumers) ─────────
+export type GA4ReportResponse = analyticsdata_v1beta.Schema$RunReportResponse;
+export type GA4Row = analyticsdata_v1beta.Schema$Row;
+export type GSCQueryResponse = searchconsole_v1.Schema$SearchAnalyticsQueryResponse;
+export type GSCRow = searchconsole_v1.Schema$ApiDataRow;
+export type GBPMetricsResponse = businessprofileperformance_v1.Schema$FetchMultiDailyMetricsTimeSeriesResponse;
+export type GBPKeywordsResponse = businessprofileperformance_v1.Schema$ListSearchKeywordImpressionsMonthlyResponse;
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -137,7 +148,7 @@ export async function getGA4Data(
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -170,7 +181,7 @@ export async function getGA4Totals(
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -202,7 +213,7 @@ export async function getGA4Events(
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -237,7 +248,7 @@ export async function getGA4TopPages(
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -271,7 +282,7 @@ export async function getGA4TrafficSources(
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -374,7 +385,7 @@ export async function getGBPPerformanceMetrics(
   locationId: string,
   startDate: { year: number; month: number; day: number },
   endDate: { year: number; month: number; day: number }
-) {
+): Promise<GBPMetricsResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -434,7 +445,7 @@ export async function getGSCSearchAnalytics(
   siteUrl: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GSCQueryResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -462,7 +473,7 @@ export async function getGSCTopQueries(
   siteUrl: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GSCQueryResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -490,7 +501,7 @@ export async function getGSCTopPages(
   siteUrl: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GSCQueryResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -518,7 +529,7 @@ export async function getGSCDeviceBreakdown(
   siteUrl: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GSCQueryResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -546,7 +557,7 @@ export async function getGBPSearchKeywords(
   locationId: string,
   startMonth: { year: number; month: number },
   endMonth: { year: number; month: number }
-) {
+): Promise<GBPKeywordsResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 

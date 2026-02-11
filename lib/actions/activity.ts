@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityLog, ActivityLogWithUser } from "@/types/database";
 import { type ActivityType } from "@/lib/constants/activity";
 
@@ -34,8 +35,7 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
 }
 
 /** Enrich activity logs with user names/emails via batch profile lookup */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function enrichLogsWithUsers(supabase: any, logs: ActivityLog[]): Promise<ActivityLogWithUser[]> {
+async function enrichLogsWithUsers(supabase: SupabaseClient, logs: ActivityLog[]): Promise<ActivityLogWithUser[]> {
   const userIds = [...new Set(logs.map((log) => log.user_id).filter(Boolean))] as string[];
 
   const userMap: Record<string, { full_name: string; email: string }> = {};

@@ -184,7 +184,7 @@ function analyzeHtml(html: string, url: string): SeoItem[] {
 export async function POST(request: NextRequest) {
   // Rate limit
   const ip = request.headers.get("x-forwarded-for") || "unknown";
-  const limit = rateLimit(`tools:seo:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+  const limit = await rateLimit(`tools:seo:${ip}`, { windowMs: 60_000, maxRequests: 5 });
   if (!limit.allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Lead, LeadStatus } from "@/types/database";
 
 export type LeadWithDetails = Lead & {
@@ -37,12 +38,11 @@ type LeadWithRelations = Lead & {
 };
 
 /** Apply common Supabase filters to a leads query */
-function applyLeadQueryFilters(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: any,
+function applyLeadQueryFilters<T extends { eq: (col: string, val: string) => T; gte: (col: string, val: string) => T; lte: (col: string, val: string) => T }>(
+  query: T,
   filters?: LeadFilters,
   clientId?: string | null
-) {
+): T {
   if (filters?.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   }
@@ -121,8 +121,7 @@ function transformLeadRows(
 
 /** Get user's accessible client IDs (for non-admin users) */
 async function getUserClientIds(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string
 ): Promise<string[]> {
   const { data: clientUsers } = await supabase

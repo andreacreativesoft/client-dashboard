@@ -19,6 +19,12 @@ import {
   getGSCTopQueries,
   getGSCTopPages as getGSCTopPagesAPI,
   getGSCDeviceBreakdown,
+  type GA4ReportResponse,
+  type GA4Row,
+  type GSCQueryResponse,
+  type GSCRow,
+  type GBPMetricsResponse,
+  type GBPKeywordsResponse,
 } from "@/lib/google";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -76,10 +82,7 @@ export type AnalyticsResult = {
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 /** Parse GA4 API response rows into typed arrays */
-function parseOverview(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GA4Overview {
+function parseOverview(data: GA4ReportResponse): GA4Overview {
   const row = data?.rows?.[0];
   if (!row) {
     return { sessions: 0, totalUsers: 0, pageViews: 0, bounceRate: 0, avgSessionDuration: 0 };
@@ -94,13 +97,9 @@ function parseOverview(
   };
 }
 
-function parseDailyRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GA4DailyRow[] {
+function parseDailyRows(data: GA4ReportResponse): GA4DailyRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GA4Row) => ({
     date: row.dimensionValues?.[0]?.value || "",
     sessions: parseInt(row.metricValues?.[0]?.value || "0", 10),
     users: parseInt(row.metricValues?.[1]?.value || "0", 10),
@@ -108,39 +107,27 @@ function parseDailyRows(
   }));
 }
 
-function parseEventRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GA4EventRow[] {
+function parseEventRows(data: GA4ReportResponse): GA4EventRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GA4Row) => ({
     eventName: row.dimensionValues?.[0]?.value || "",
     eventCount: parseInt(row.metricValues?.[0]?.value || "0", 10),
     users: parseInt(row.metricValues?.[1]?.value || "0", 10),
   }));
 }
 
-function parsePageRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GA4PageRow[] {
+function parsePageRows(data: GA4ReportResponse): GA4PageRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GA4Row) => ({
     pagePath: row.dimensionValues?.[0]?.value || "",
     pageViews: parseInt(row.metricValues?.[0]?.value || "0", 10),
     users: parseInt(row.metricValues?.[1]?.value || "0", 10),
   }));
 }
 
-function parseSourceRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GA4SourceRow[] {
+function parseSourceRows(data: GA4ReportResponse): GA4SourceRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GA4Row) => ({
     channel: row.dimensionValues?.[0]?.value || "",
     sessions: parseInt(row.metricValues?.[0]?.value || "0", 10),
     users: parseInt(row.metricValues?.[1]?.value || "0", 10),
@@ -463,8 +450,7 @@ export type GBPAnalyticsResult = {
 
 /** Parse GBP fetchMultiDailyMetricsTimeSeries response */
 function parseGBPMetrics(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
+  data: GBPMetricsResponse
 ): { totals: GBPMetricTotals; daily: GBPDailyMetric[] } {
   const metricMap: Record<string, Record<string, number>> = {};
   const totalsMap: Record<string, number> = {};
@@ -519,13 +505,9 @@ function parseGBPMetrics(
 }
 
 /** Parse GBP search keywords response */
-function parseGBPKeywords(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GBPSearchKeyword[] {
+function parseGBPKeywords(data: GBPKeywordsResponse): GBPSearchKeyword[] {
   const results = data?.searchKeywordsCounts || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return results.map((item: any) => ({
+  return results.map((item) => ({
     keyword: item.searchKeyword || "",
     impressions: parseInt(item.insightsValue?.value || "0", 10),
   }));
@@ -811,13 +793,9 @@ export type GSCAnalyticsResult = {
 
 // ─── GSC Helpers ──────────────────────────────────────────────────────
 
-function parseGSCDailyRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GSCDailyRow[] {
+function parseGSCDailyRows(data: GSCQueryResponse): GSCDailyRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GSCRow) => ({
     date: row.keys?.[0] || "",
     clicks: row.clicks || 0,
     impressions: row.impressions || 0,
@@ -826,13 +804,9 @@ function parseGSCDailyRows(
   }));
 }
 
-function parseGSCQueryRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GSCQueryRow[] {
+function parseGSCQueryRows(data: GSCQueryResponse): GSCQueryRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GSCRow) => ({
     query: row.keys?.[0] || "",
     clicks: row.clicks || 0,
     impressions: row.impressions || 0,
@@ -841,13 +815,9 @@ function parseGSCQueryRows(
   }));
 }
 
-function parseGSCPageRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GSCPageRow[] {
+function parseGSCPageRows(data: GSCQueryResponse): GSCPageRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GSCRow) => ({
     page: row.keys?.[0] || "",
     clicks: row.clicks || 0,
     impressions: row.impressions || 0,
@@ -856,13 +826,9 @@ function parseGSCPageRows(
   }));
 }
 
-function parseGSCDeviceRows(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: any
-): GSCDeviceRow[] {
+function parseGSCDeviceRows(data: GSCQueryResponse): GSCDeviceRow[] {
   if (!data?.rows) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.rows.map((row: any) => ({
+  return data.rows.map((row: GSCRow) => ({
     device: row.keys?.[0] || "",
     clicks: row.clicks || 0,
     impressions: row.impressions || 0,

@@ -43,6 +43,7 @@ export default async function DashboardLayout({
             isAdmin={isAdmin}
             avatarUrl={profile.avatar_url}
             showClientSwitcher={isAdmin}
+            impersonatingClientId={impersonation?.clientId || null}
             impersonatingClientName={impersonation?.clientName || null}
           />
           <main className="flex-1 pb-20 md:pb-0">{children}</main>

@@ -13,6 +13,7 @@ interface HeaderProps {
   isAdmin: boolean;
   avatarUrl?: string | null;
   showClientSwitcher?: boolean;
+  impersonatingClientId?: string | null;
   impersonatingClientName?: string | null;
 }
 
@@ -21,7 +22,7 @@ interface Client {
   business_name: string;
 }
 
-export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, impersonatingClientName }: HeaderProps) {
+export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, impersonatingClientId, impersonatingClientName }: HeaderProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -60,7 +61,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, imper
       <div className="flex items-center gap-3">
         <span className="text-lg font-bold md:hidden">Dashboard</span>
         {showClientSwitcher && clients.length > 0 && (
-          <ClientSwitcher clients={clients} impersonatingClientName={impersonatingClientName} />
+          <ClientSwitcher clients={clients} impersonatingClientId={impersonatingClientId} impersonatingClientName={impersonatingClientName} />
         )}
       </div>
 

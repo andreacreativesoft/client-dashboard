@@ -112,45 +112,55 @@ export async function GET(request: NextRequest) {
     } else if (stateData.type === "gsc") {
       // Get Search Console sites
       let sites: Awaited<ReturnType<typeof listGSCSites>> = [];
+      let gscError: string | null = null;
       try {
         sites = await listGSCSites(tokens.access_token);
       } catch (err) {
-        console.error("Failed to fetch GSC sites:", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("Failed to fetch GSC sites:", errMsg);
+        gscError = errMsg;
       }
 
       if (sites.length === 1) {
         accountId = sites[0]!.siteUrl;
         accountName = sites[0]!.siteUrl;
         metadata = { sites };
-      } else {
+      } else if (sites.length > 1) {
         metadata = { sites, needsSiteSelection: true };
+        accountId = "pending_selection";
+        accountName = "Google Search Console";
+      } else {
+        // No sites found or API error — still save tokens so user can retry
+        metadata = { sites: [], needsSiteSelection: true, error: gscError || "No verified sites found" };
         accountId = "pending_selection";
         accountName = "Google Search Console";
       }
     }
 
-    // Upsert integration record
-    const { error: upsertError } = await adminClient
+    // Delete existing integration of this type for this client (to avoid unique constraint issues on reconnect)
+    await adminClient
       .from("integrations")
-      .upsert(
-        {
-          client_id: stateData.clientId,
-          type: stateData.type,
-          account_id: accountId,
-          account_name: accountName,
-          access_token_encrypted: encryptedAccessToken,
-          refresh_token_encrypted: encryptedRefreshToken,
-          token_expires_at: new Date(tokens.expiry_date).toISOString(),
-          metadata,
-          is_active: true,
-        },
-        {
-          onConflict: "client_id,type,account_id",
-        }
-      );
+      .delete()
+      .eq("client_id", stateData.clientId)
+      .eq("type", stateData.type);
 
-    if (upsertError) {
-      console.error("Failed to save integration:", upsertError);
+    // Insert new integration record
+    const { error: insertError } = await adminClient
+      .from("integrations")
+      .insert({
+        client_id: stateData.clientId,
+        type: stateData.type,
+        account_id: accountId,
+        account_name: accountName,
+        access_token_encrypted: encryptedAccessToken,
+        refresh_token_encrypted: encryptedRefreshToken,
+        token_expires_at: new Date(tokens.expiry_date).toISOString(),
+        metadata,
+        is_active: true,
+      });
+
+    if (insertError) {
+      console.error("Failed to save integration:", insertError);
       return NextResponse.redirect(
         clientUrl(stateData.clientId, "error=save_failed")
       );
@@ -161,9 +171,10 @@ export async function GET(request: NextRequest) {
       clientUrl(stateData.clientId, `success=true&type=${stateData.type}`)
     );
   } catch (err) {
-    console.error("Google callback error:", err);
+    console.error("Google callback error:", err instanceof Error ? err.message : err);
+    console.error("Google callback error stack:", err instanceof Error ? err.stack : "no stack");
     return NextResponse.redirect(
-      new URL("/admin/clients", request.url)
+      new URL("/admin/clients?error=callback_failed", request.url)
     );
   }
 }

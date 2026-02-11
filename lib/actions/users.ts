@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
-import { sendWelcomeEmail } from "@/lib/email";
+import { sendWelcomeEmail, sendAccountCreatedEmail } from "@/lib/email";
 import type { Profile, Client, ClientUser } from "@/types/database";
 
 export type UserWithClients = Profile & {
@@ -18,6 +18,8 @@ export type UserFormData = {
   phone: string;
   role: "admin" | "client";
   client_ids: string[];
+  password?: string;
+  sendEmail?: boolean;
 };
 
 export async function getUsers(): Promise<UserWithClients[]> {
@@ -87,13 +89,16 @@ export async function createUserAction(
 
   const adminClient = createAdminClient();
 
-  // Generate a secure random temp password — never emailed or exposed
-  const tempPassword = randomBytes(32).toString("base64url");
+  // Use provided password or generate a random one
+  const hasPassword = !!formData.password && formData.password.length >= 6;
+  const password = hasPassword
+    ? formData.password!
+    : randomBytes(32).toString("base64url");
 
-  // Create auth user with temp password
+  // Create auth user
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email: formData.email,
-    password: tempPassword,
+    password,
     email_confirm: true,
     user_metadata: {
       full_name: formData.full_name,
@@ -117,7 +122,6 @@ export async function createUserAction(
 
   if (profileError) {
     console.error("Error updating profile:", profileError);
-    // Q1 Fix: Clean up orphaned auth user and return failure
     await adminClient.auth.admin.deleteUser(authData.user.id);
     return { success: false, error: "Failed to set up user profile. Please try again." };
   }
@@ -133,28 +137,39 @@ export async function createUserAction(
     }
   }
 
-  // Generate a password reset link so the user can set their own password
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-    type: "recovery",
-    email: formData.email,
-    options: {
-      redirectTo: `${appUrl}/auth/callback?next=/settings`,
-    },
-  });
+  // Send email if requested
+  if (formData.sendEmail !== false) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // Build the reset URL from the generated token
-  let resetUrl = `${appUrl}/settings`; // Fallback
-  if (!linkError && linkData?.properties?.hashed_token) {
-    resetUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${linkData.properties.hashed_token}&type=recovery&redirect_to=${encodeURIComponent(`${appUrl}/auth/callback?next=/settings`)}`;
+    if (hasPassword) {
+      // Password was set by admin — send account info email (login URL, no password in email)
+      await sendAccountCreatedEmail(formData.email, {
+        userName: formData.full_name,
+        email: formData.email,
+        loginUrl: `${appUrl}/login`,
+      });
+    } else {
+      // No password — send "set your password" link
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: "recovery",
+        email: formData.email,
+        options: {
+          redirectTo: `${appUrl}/auth/callback?next=/settings`,
+        },
+      });
+
+      let resetUrl = `${appUrl}/settings`;
+      if (!linkError && linkData?.properties?.hashed_token) {
+        resetUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${linkData.properties.hashed_token}&type=recovery&redirect_to=${encodeURIComponent(`${appUrl}/auth/callback?next=/settings`)}`;
+      }
+
+      await sendWelcomeEmail(formData.email, {
+        userName: formData.full_name,
+        email: formData.email,
+        resetUrl,
+      });
+    }
   }
-
-  // Send welcome email with password reset link (never send the password)
-  await sendWelcomeEmail(formData.email, {
-    userName: formData.full_name,
-    email: formData.email,
-    resetUrl,
-  });
 
   revalidatePath("/admin/users");
   return { success: true };

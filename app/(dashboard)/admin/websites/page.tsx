@@ -95,6 +95,13 @@ export default async function WebsitesPage() {
                       WP Admin
                     </a>
                     <Link
+                      href={`/admin/websites/${website.id}`}
+                      className="rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+                      title="AI Analysis"
+                    >
+                      AI Analysis
+                    </Link>
+                    <Link
                       href={`/admin/clients/${website.client_id}`}
                       className="rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
                     >

@@ -8,7 +8,7 @@
  */
 
 import { readFile, access, stat } from "fs/promises";
-import { join, extname } from "path";
+import { join, extname, resolve } from "path";
 import mysql from "mysql2/promise";
 import * as cheerio from "cheerio";
 import type {
@@ -36,7 +36,9 @@ interface WPDBConfig {
  * Parse wp-config.php to extract database credentials.
  */
 export async function parseWPConfig(localPath: string): Promise<WPDBConfig> {
-  const configPath = join(localPath, "wp-config.php");
+  // Normalize path for Windows (resolve handles mixed separators)
+  const normalizedPath = resolve(localPath);
+  const configPath = join(normalizedPath, "wp-config.php");
 
   // Verify file exists
   try {
@@ -202,7 +204,10 @@ async function estimateImageSize(localPath: string, src: string): Promise<number
 /**
  * Crawl a local WordPress installation and extract SEO/performance data.
  */
-export async function crawlWordPressSite(localPath: string): Promise<WPCrawlResult> {
+export async function crawlWordPressSite(rawPath: string): Promise<WPCrawlResult> {
+  // Normalize path for Windows (handles mixed separators, trailing slashes)
+  const localPath = resolve(rawPath);
+
   // 1. Parse wp-config.php
   const dbConfig = await parseWPConfig(localPath);
 

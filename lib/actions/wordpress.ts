@@ -445,6 +445,14 @@ export async function analyzeWebsite(
     };
   }
 
+  // Detect Vercel/serverless environment — local file access is not available
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return {
+      success: false,
+      error: "AI Analysis requires access to the local WordPress filesystem. Please run this from your local development server (localhost:3000), not from the deployed Vercel instance.",
+    };
+  }
+
   // 2. Create analysis record (status: running)
   const { data: analysis, error: insertError } = await supabase
     .from("wp_analyses")

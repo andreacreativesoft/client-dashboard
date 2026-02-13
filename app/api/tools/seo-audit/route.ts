@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
 
 const FETCH_TIMEOUT = 10000;
+const MAX_PAGES = 20;
 
 type SeoItem = {
   name: string;
@@ -12,6 +13,18 @@ type SeoItem = {
   details: string;
   weight: number;
 };
+
+type PageAudit = {
+  url: string;
+  path: string;
+  items: SeoItem[];
+  score: number;
+  passed: number;
+  warnings: number;
+  failed: number;
+};
+
+// ─── HTML analyzer (works on any page) ──────────────────────────────
 
 function analyzeHtml(html: string, url: string): SeoItem[] {
   const items: SeoItem[] = [];
@@ -181,6 +194,87 @@ function analyzeHtml(html: string, url: string): SeoItem[] {
   return items;
 }
 
+// ─── Fetch a page with timeout ──────────────────────────────────────
+
+async function fetchPage(url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+// ─── Get URLs from sitemap ──────────────────────────────────────────
+
+async function getUrlsFromSitemap(baseUrl: string): Promise<string[]> {
+  const urls: string[] = [];
+
+  try {
+    // Try sitemap.xml
+    const sitemapUrl = new URL("/sitemap.xml", baseUrl).href;
+    const html = await fetchPage(sitemapUrl);
+    if (!html) return urls;
+
+    // Check if this is a sitemap index (contains other sitemaps)
+    const sitemapIndexMatches = html.match(/<sitemap>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/sitemap>/gi);
+
+    if (sitemapIndexMatches && sitemapIndexMatches.length > 0) {
+      // It's a sitemap index — fetch child sitemaps
+      for (const match of sitemapIndexMatches) {
+        const locMatch = match.match(/<loc>([^<]+)<\/loc>/i);
+        if (!locMatch?.[1]) continue;
+        const childUrl = locMatch[1].trim();
+
+        const childHtml = await fetchPage(childUrl);
+        if (!childHtml) continue;
+
+        // Extract URLs from child sitemap
+        const locMatches = childHtml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+        for (const m of locMatches) {
+          if (m[1]) urls.push(m[1].trim());
+          if (urls.length >= MAX_PAGES) break;
+        }
+
+        if (urls.length >= MAX_PAGES) break;
+      }
+    } else {
+      // Regular sitemap — extract URLs directly
+      const locMatches = html.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+      for (const m of locMatches) {
+        if (m[1]) urls.push(m[1].trim());
+        if (urls.length >= MAX_PAGES) break;
+      }
+    }
+  } catch {
+    // Sitemap parsing failed — we'll just use the homepage
+  }
+
+  return urls;
+}
+
+// ─── Calculate score for a set of items ─────────────────────────────
+
+function calcScore(items: SeoItem[]): number {
+  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight === 0) return 0;
+  const earnedWeight = items.reduce((sum, item) => {
+    if (item.status === "pass") return sum + item.weight;
+    if (item.status === "warning") return sum + item.weight * 0.5;
+    return sum;
+  }, 0);
+  return Math.round((earnedWeight / totalWeight) * 100);
+}
+
+// ─── Route handler ──────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
   // Rate limit
   const ip = request.headers.get("x-forwarded-for") || "unknown";
@@ -251,23 +345,49 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Fetch homepage
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-    const pageRes = await fetch(website.url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
-    });
-    clearTimeout(timeout);
+    // 1. Get all page URLs from sitemap
+    let pageUrls = await getUrlsFromSitemap(website.url);
 
-    if (!pageRes.ok) {
-      throw new Error(`Failed to fetch page: HTTP ${pageRes.status}`);
+    // Always ensure homepage is included and first
+    const normalizedBase = website.url.replace(/\/$/, "");
+    pageUrls = pageUrls.filter(
+      (u) => u.replace(/\/$/, "") !== normalizedBase
+    );
+    pageUrls.unshift(website.url);
+
+    // Cap at MAX_PAGES
+    pageUrls = pageUrls.slice(0, MAX_PAGES);
+
+    // 2. Audit each page
+    const pageAudits: PageAudit[] = [];
+
+    for (const pageUrl of pageUrls) {
+      const html = await fetchPage(pageUrl);
+      if (!html) continue;
+
+      const items = analyzeHtml(html, pageUrl);
+      const score = calcScore(items);
+
+      let path: string;
+      try {
+        path = new URL(pageUrl).pathname || "/";
+      } catch {
+        path = pageUrl;
+      }
+
+      pageAudits.push({
+        url: pageUrl,
+        path,
+        items,
+        score,
+        passed: items.filter((i) => i.status === "pass").length,
+        warnings: items.filter((i) => i.status === "warning").length,
+        failed: items.filter((i) => i.status === "fail").length,
+      });
     }
 
-    const html = await pageRes.text();
-
-    // Analyze HTML
-    const seoItems = analyzeHtml(html, website.url);
+    // 3. Site-wide checks (only once, not per page)
+    const siteWideItems: SeoItem[] = [];
 
     // Check sitemap.xml
     try {
@@ -277,7 +397,7 @@ export async function POST(request: NextRequest) {
         signal: AbortSignal.timeout(5000),
         headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
       });
-      seoItems.push({
+      siteWideItems.push({
         name: "Sitemap.xml",
         status: sitemapRes.ok ? "pass" : "warning",
         value: sitemapRes.ok ? sitemapUrl : null,
@@ -285,7 +405,7 @@ export async function POST(request: NextRequest) {
         weight: 10,
       });
     } catch {
-      seoItems.push({
+      siteWideItems.push({
         name: "Sitemap.xml",
         status: "warning",
         value: null,
@@ -302,7 +422,7 @@ export async function POST(request: NextRequest) {
         signal: AbortSignal.timeout(5000),
         headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
       });
-      seoItems.push({
+      siteWideItems.push({
         name: "Robots.txt",
         status: robotsRes.ok ? "pass" : "warning",
         value: robotsRes.ok ? robotsUrl : null,
@@ -310,7 +430,7 @@ export async function POST(request: NextRequest) {
         weight: 5,
       });
     } catch {
-      seoItems.push({
+      siteWideItems.push({
         name: "Robots.txt",
         status: "warning",
         value: null,
@@ -319,47 +439,65 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Calculate overall score
-    const totalWeight = seoItems.reduce((sum, item) => sum + item.weight, 0);
-    const earnedWeight = seoItems.reduce((sum, item) => {
-      if (item.status === "pass") return sum + item.weight;
-      if (item.status === "warning") return sum + item.weight * 0.5;
-      return sum;
-    }, 0);
-    const score = Math.round((earnedWeight / totalWeight) * 100);
+    // 4. Calculate overall score (average of all page scores + site-wide)
+    const siteWideScore = calcScore(siteWideItems);
+    const allPageScores = pageAudits.map((p) => p.score);
+    const avgPageScore = allPageScores.length > 0
+      ? Math.round(allPageScores.reduce((a, b) => a + b, 0) / allPageScores.length)
+      : 0;
+
+    // Weight: 80% page average, 20% site-wide
+    const overallScore = Math.round(avgPageScore * 0.8 + siteWideScore * 0.2);
+
+    const totalPassed = pageAudits.reduce((s, p) => s + p.passed, 0) + siteWideItems.filter((i) => i.status === "pass").length;
+    const totalWarnings = pageAudits.reduce((s, p) => s + p.warnings, 0) + siteWideItems.filter((i) => i.status === "warning").length;
+    const totalFailed = pageAudits.reduce((s, p) => s + p.failed, 0) + siteWideItems.filter((i) => i.status === "fail").length;
+    const totalChecks = totalPassed + totalWarnings + totalFailed;
 
     const duration = Date.now() - startTime;
 
-    const passCount = seoItems.filter((i) => i.status === "pass").length;
-    const warnCount = seoItems.filter((i) => i.status === "warning").length;
-    const failCount = seoItems.filter((i) => i.status === "fail").length;
-
     const summary = {
-      score,
-      totalChecks: seoItems.length,
-      passed: passCount,
-      warnings: warnCount,
-      failed: failCount,
+      score: overallScore,
+      totalChecks,
+      passed: totalPassed,
+      warnings: totalWarnings,
+      failed: totalFailed,
+      pagesAudited: pageAudits.length,
+      pagesFound: pageUrls.length,
     };
+
+    // Build flat results for storage (for backward compatibility with DB schema)
+    // Include page path in item name for multi-page results
+    const flatResults: (SeoItem & { page?: string })[] = [];
+    for (const page of pageAudits) {
+      for (const item of page.items) {
+        flatResults.push({ ...item, page: page.path });
+      }
+    }
+    for (const item of siteWideItems) {
+      flatResults.push({ ...item, page: "site-wide" });
+    }
 
     // Update check record
     await admin
       .from("site_checks")
       .update({
         status: "completed" as const,
-        score,
+        score: overallScore,
         summary,
-        results: seoItems as unknown as Record<string, unknown>[],
+        results: flatResults as unknown as Record<string, unknown>[],
         duration_ms: duration,
       })
       .eq("id", checkId);
 
     return NextResponse.json({
       success: true,
-      checkId: checkId,
-      score,
+      checkId,
+      score: overallScore,
       summary,
-      results: seoItems,
+      pages: pageAudits,
+      siteWide: siteWideItems,
+      results: flatResults,
       duration,
     });
   } catch (e) {
@@ -376,7 +514,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: false,
-      checkId: checkId,
+      checkId,
       error: e instanceof Error ? e.message : "Audit failed",
     }, { status: 500 });
   }

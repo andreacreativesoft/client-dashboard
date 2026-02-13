@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   analyzeWebsite,
+  cancelAnalysis,
   getAnalysisById,
   getWebsiteConfig,
   saveWebsiteConfig,
@@ -246,7 +247,15 @@ function ConfigForm({
 
 // ─── Analysis Running State ──────────────────────────────────────────
 
-function AnalysisRunning({ startedAt }: { startedAt: string }) {
+function AnalysisRunning({
+  startedAt,
+  onCancel,
+  cancelling,
+}: {
+  startedAt: string;
+  onCancel: () => void;
+  cancelling: boolean;
+}) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -272,6 +281,15 @@ function AnalysisRunning({ startedAt }: { startedAt: string }) {
           {minutes}:{seconds.toString().padStart(2, "0")}
         </p>
       </div>
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={onCancel}
+        disabled={cancelling}
+        className="mt-2"
+      >
+        {cancelling ? "Stopping..." : "Stop Analysis"}
+      </Button>
     </div>
   );
 }
@@ -298,6 +316,7 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<RecommendationCategory | "all">("all");
   const [pollingId, setPollingId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -355,6 +374,7 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
     }
 
     setAnalyzing(true);
+    setCancelling(false);
     setError(null);
     setAnalysis((prev) => prev ? { ...prev, status: "running", started_at: new Date().toISOString() } : {
       id: "",
@@ -384,10 +404,38 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
       }
       setAnalyzing(false);
       setPollingId(null);
+      setCancelling(false);
     } else {
       setError(result.error || "Failed to start analysis");
       setAnalyzing(false);
+      setCancelling(false);
     }
+  }
+
+  // Cancel analysis
+  async function handleCancel() {
+    // Need the analysis ID to cancel
+    const analysisId = analysis?.id || pollingId;
+    if (!analysisId) {
+      // If we don't have an ID yet (server action hasn't returned), just reset UI
+      setAnalyzing(false);
+      return;
+    }
+
+    setCancelling(true);
+    const result = await cancelAnalysis(analysisId);
+
+    if (result.success) {
+      setAnalysis((prev) => prev ? {
+        ...prev,
+        status: "failed" as const,
+        error_message: "Cancelled by user",
+        completed_at: new Date().toISOString(),
+      } : prev);
+      setAnalyzing(false);
+      setPollingId(null);
+    }
+    setCancelling(false);
   }
 
   function handleConfigSaved(newConfig: WPSiteConfig) {
@@ -493,7 +541,11 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
           )}
 
           {analyzing && analysis?.started_at && (
-            <AnalysisRunning startedAt={analysis.started_at} />
+            <AnalysisRunning
+              startedAt={analysis.started_at}
+              onCancel={handleCancel}
+              cancelling={cancelling}
+            />
           )}
 
           {/* Analysis failed */}

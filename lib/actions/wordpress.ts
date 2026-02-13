@@ -362,6 +362,45 @@ async function gatherDashboardAnalytics(
   return analytics;
 }
 
+// ─── Cancel analysis ─────────────────────────────────────────────────
+
+/**
+ * Cancel a running analysis by marking it as failed/cancelled.
+ */
+export async function cancelAnalysis(
+  analysisId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const { data: existing } = await supabase
+    .from("wp_analyses")
+    .select("status")
+    .eq("id", analysisId)
+    .single();
+
+  if (!existing) {
+    return { success: false, error: "Analysis not found" };
+  }
+
+  if (existing.status !== "running") {
+    return { success: false, error: "Analysis is not running" };
+  }
+
+  await supabase
+    .from("wp_analyses")
+    .update({
+      status: "failed",
+      error_message: "Cancelled by user",
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", analysisId);
+
+  return { success: true };
+}
+
 // ─── Main analysis action ────────────────────────────────────────────
 
 /**
@@ -370,6 +409,9 @@ async function gatherDashboardAnalytics(
  * 2. Gather dashboard analytics (GA4, GSC, SEO audit, etc.)
  * 3. Send everything to Claude for analysis
  * 4. Store results in database
+ *
+ * The server action awaits the pipeline (needed for Vercel serverless).
+ * The UI polls via getAnalysisById for progress and can cancel via cancelAnalysis.
  */
 export async function analyzeWebsite(
   websiteId: string
@@ -423,6 +465,7 @@ export async function analyzeWebsite(
   const analysisId = analysis.id as string;
 
   // 3. Run the full analysis pipeline (awaited — server action stays alive)
+  // The pipeline checks for cancellation at key checkpoints.
   await runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path);
 
   return {
@@ -431,7 +474,28 @@ export async function analyzeWebsite(
   };
 }
 
-// ─── Analysis pipeline (runs after response) ────────────────────────
+// ─── Cancellation check helper ──────────────────────────────────────
+
+/**
+ * Check if an analysis has been cancelled (status changed to "failed" with
+ * "Cancelled by user" message). Throws if cancelled.
+ */
+async function checkCancelled(analysisId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("wp_analyses")
+    .select("status")
+    .eq("id", analysisId)
+    .single();
+
+  if (data?.status !== "running") {
+    throw new Error("Analysis was cancelled");
+  }
+}
+
+// ─── Analysis pipeline ──────────────────────────────────────────────
+
+const PIPELINE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute hard timeout
 
 async function runAnalysisPipeline(
   analysisId: string,
@@ -441,36 +505,61 @@ async function runAnalysisPipeline(
 ): Promise<void> {
   const supabase = createAdminClient();
 
+  // Wrap the entire pipeline in a timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Analysis timed out after 5 minutes")), PIPELINE_TIMEOUT_MS);
+  });
+
   try {
-    // Step 1: Crawl WordPress site
-    const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
+    await Promise.race([
+      (async () => {
+        // Step 1: Crawl WordPress site
+        const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
 
-    // Step 2: Gather dashboard analytics
-    const analyticsData = await gatherDashboardAnalytics(websiteId, clientId);
+        // Check if user cancelled between steps
+        await checkCancelled(analysisId);
 
-    // Step 3: Send to Claude for analysis
-    const { result, tokensUsed } = await analyzeWithClaude(crawlData, analyticsData);
+        // Step 2: Gather dashboard analytics
+        const analyticsData = await gatherDashboardAnalytics(websiteId, clientId);
 
-    // Step 4: Update analysis record with results
-    await supabase
-      .from("wp_analyses")
-      .update({
-        status: "completed",
-        site_data: crawlData as unknown as Record<string, unknown>,
-        recommendations: result.recommendations as unknown as Record<string, unknown>[],
-        scores: result.scores as unknown as Record<string, unknown>,
-        pages_analyzed: crawlData.total_pages,
-        issues_found: result.total_issues,
-        claude_tokens: tokensUsed,
-        summary: result.summary,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", analysisId);
+        // Check again before the expensive Claude call
+        await checkCancelled(analysisId);
 
-    revalidatePath(`/admin/websites/${websiteId}`);
+        // Step 3: Send to Claude for analysis
+        const { result, tokensUsed } = await analyzeWithClaude(crawlData, analyticsData);
+
+        // Final check before writing results
+        await checkCancelled(analysisId);
+
+        // Step 4: Update analysis record with results
+        await supabase
+          .from("wp_analyses")
+          .update({
+            status: "completed",
+            site_data: crawlData as unknown as Record<string, unknown>,
+            recommendations: result.recommendations as unknown as Record<string, unknown>[],
+            scores: result.scores as unknown as Record<string, unknown>,
+            pages_analyzed: crawlData.total_pages,
+            issues_found: result.total_issues,
+            claude_tokens: tokensUsed,
+            summary: result.summary,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", analysisId);
+
+        revalidatePath(`/admin/websites/${websiteId}`);
+      })(),
+      timeoutPromise,
+    ]);
   } catch (err) {
-    console.error("Analysis pipeline failed:", err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error during analysis";
+
+    // Don't overwrite a user-initiated cancel
+    if (errorMessage === "Analysis was cancelled") {
+      return;
+    }
+
+    console.error("Analysis pipeline failed:", errorMessage);
 
     // Update record with failure
     await supabase

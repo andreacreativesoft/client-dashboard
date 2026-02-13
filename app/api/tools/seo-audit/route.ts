@@ -212,52 +212,69 @@ async function fetchPage(url: string): Promise<string | null> {
   }
 }
 
-// ─── Get URLs from sitemap ──────────────────────────────────────────
+// ─── Parse sitemap XML (handles both index and regular) ─────────────
 
-async function getUrlsFromSitemap(baseUrl: string): Promise<string[]> {
+async function parseSitemapXml(xml: string): Promise<string[]> {
   const urls: string[] = [];
 
-  try {
-    // Try sitemap.xml
-    const sitemapUrl = new URL("/sitemap.xml", baseUrl).href;
-    const html = await fetchPage(sitemapUrl);
-    if (!html) return urls;
+  // Check if this is a sitemap index (contains <sitemap> tags)
+  const sitemapIndexMatches = xml.match(/<sitemap>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/sitemap>/gi);
 
-    // Check if this is a sitemap index (contains other sitemaps)
-    const sitemapIndexMatches = html.match(/<sitemap>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/sitemap>/gi);
+  if (sitemapIndexMatches && sitemapIndexMatches.length > 0) {
+    // It's a sitemap index — fetch child sitemaps
+    for (const match of sitemapIndexMatches) {
+      const locMatch = match.match(/<loc>([^<]+)<\/loc>/i);
+      if (!locMatch?.[1]) continue;
+      const childUrl = locMatch[1].trim();
 
-    if (sitemapIndexMatches && sitemapIndexMatches.length > 0) {
-      // It's a sitemap index — fetch child sitemaps
-      for (const match of sitemapIndexMatches) {
-        const locMatch = match.match(/<loc>([^<]+)<\/loc>/i);
-        if (!locMatch?.[1]) continue;
-        const childUrl = locMatch[1].trim();
+      const childHtml = await fetchPage(childUrl);
+      if (!childHtml) continue;
 
-        const childHtml = await fetchPage(childUrl);
-        if (!childHtml) continue;
-
-        // Extract URLs from child sitemap
-        const locMatches = childHtml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
-        for (const m of locMatches) {
-          if (m[1]) urls.push(m[1].trim());
-          if (urls.length >= MAX_PAGES) break;
-        }
-
-        if (urls.length >= MAX_PAGES) break;
-      }
-    } else {
-      // Regular sitemap — extract URLs directly
-      const locMatches = html.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+      // Extract URLs from child sitemap
+      const locMatches = childHtml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
       for (const m of locMatches) {
         if (m[1]) urls.push(m[1].trim());
         if (urls.length >= MAX_PAGES) break;
       }
+
+      if (urls.length >= MAX_PAGES) break;
     }
-  } catch {
-    // Sitemap parsing failed — we'll just use the homepage
+  } else {
+    // Regular sitemap — extract URLs directly
+    const locMatches = xml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+    for (const m of locMatches) {
+      if (m[1]) urls.push(m[1].trim());
+      if (urls.length >= MAX_PAGES) break;
+    }
   }
 
   return urls;
+}
+
+// ─── Get URLs from sitemap ──────────────────────────────────────────
+
+async function getUrlsFromSitemap(baseUrl: string): Promise<string[]> {
+  // Try multiple common sitemap locations
+  const sitemapPaths = [
+    "/sitemap.xml",           // Standard
+    "/sitemap_index.xml",     // Yoast SEO
+    "/wp-sitemap.xml",        // WordPress core (5.5+)
+  ];
+
+  for (const path of sitemapPaths) {
+    try {
+      const sitemapUrl = new URL(path, baseUrl).href;
+      const xml = await fetchPage(sitemapUrl);
+      if (!xml) continue;
+
+      const urls = await parseSitemapXml(xml);
+      if (urls.length > 0) return urls;
+    } catch {
+      // Try next path
+    }
+  }
+
+  return [];
 }
 
 // ─── Calculate score for a set of items ─────────────────────────────
@@ -389,27 +406,37 @@ export async function POST(request: NextRequest) {
     // 3. Site-wide checks (only once, not per page)
     const siteWideItems: SeoItem[] = [];
 
-    // Check sitemap.xml
-    try {
-      const sitemapUrl = new URL("/sitemap.xml", website.url).href;
-      const sitemapRes = await fetch(sitemapUrl, {
-        method: "HEAD",
-        signal: AbortSignal.timeout(5000),
-        headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
-      });
+    // Check sitemap (try multiple paths)
+    let sitemapFound = false;
+    for (const spath of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
+      try {
+        const sitemapUrl = new URL(spath, website.url).href;
+        const sitemapRes = await fetch(sitemapUrl, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(5000),
+          headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
+        });
+        if (sitemapRes.ok) {
+          siteWideItems.push({
+            name: "Sitemap",
+            status: "pass",
+            value: sitemapUrl,
+            details: `Sitemap found at ${spath}`,
+            weight: 10,
+          });
+          sitemapFound = true;
+          break;
+        }
+      } catch {
+        // Try next
+      }
+    }
+    if (!sitemapFound) {
       siteWideItems.push({
-        name: "Sitemap.xml",
-        status: sitemapRes.ok ? "pass" : "warning",
-        value: sitemapRes.ok ? sitemapUrl : null,
-        details: sitemapRes.ok ? "Sitemap found" : "No sitemap.xml found",
-        weight: 10,
-      });
-    } catch {
-      siteWideItems.push({
-        name: "Sitemap.xml",
+        name: "Sitemap",
         status: "warning",
         value: null,
-        details: "Could not check sitemap.xml",
+        details: "No sitemap found (checked sitemap.xml, sitemap_index.xml, wp-sitemap.xml)",
         weight: 10,
       });
     }

@@ -51,11 +51,22 @@ export interface WPCrawlResult {
   crawled_at: string;
 }
 
+export interface WPPluginAsset {
+  handle: string;
+  src: string;
+  type: "js" | "css";
+  size_kb: number;
+}
+
 export interface WPPluginData {
   name: string;
   slug: string;
   version: string;
   active: boolean;
+  loads_on: "all" | "frontend" | "admin" | "specific";
+  assets: WPPluginAsset[];
+  total_js_kb: number;
+  total_css_kb: number;
 }
 
 // ─── AI Analysis Types ───────────────────────────────────────────────

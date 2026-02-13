@@ -104,10 +104,20 @@ function buildUserPrompt(
   sections.push(`**Images Missing Alt Text:** ${crawlData.missing_alt} of ${crawlData.total_images}`);
   sections.push(`**Pages Missing Meta Description:** ${crawlData.missing_meta} of ${crawlData.total_pages}`);
 
-  // Active plugins
-  sections.push(`\n### Active Plugins (${crawlData.plugins.length})`);
+  // Active plugins with asset analysis
+  const totalPluginJs = crawlData.plugins.reduce((s, p) => s + (p.total_js_kb || 0), 0);
+  const totalPluginCss = crawlData.plugins.reduce((s, p) => s + (p.total_css_kb || 0), 0);
+  sections.push(`\n### Active Plugins (${crawlData.plugins.length}) — Total JS: ${totalPluginJs}KB, CSS: ${totalPluginCss}KB`);
   for (const plugin of crawlData.plugins) {
-    sections.push(`- ${plugin.name} (${plugin.slug})`);
+    const assetInfo = plugin.assets && plugin.assets.length > 0
+      ? ` | JS: ${plugin.total_js_kb || 0}KB, CSS: ${plugin.total_css_kb || 0}KB | Loads: ${plugin.loads_on || "all"}`
+      : "";
+    sections.push(`- ${plugin.name} (${plugin.slug})${assetInfo}`);
+    if (plugin.assets) {
+      for (const asset of plugin.assets) {
+        sections.push(`    ${asset.type.toUpperCase()}: ${asset.handle} → ${asset.src}${asset.size_kb > 0 ? ` (${asset.size_kb}KB)` : ""}`);
+      }
+    }
   }
 
   // Database health

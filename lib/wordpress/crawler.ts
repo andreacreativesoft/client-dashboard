@@ -7,7 +7,7 @@
  * Designed to run on the server (Node.js) against local WordPress installations.
  */
 
-import { readFile, access, stat } from "fs/promises";
+import { readFile, access, stat, readdir } from "fs/promises";
 import { join, extname, resolve } from "path";
 import mysql from "mysql2/promise";
 import * as cheerio from "cheerio";
@@ -16,6 +16,7 @@ import type {
   WPPageData,
   WPImageData,
   WPPluginData,
+  WPPluginAsset,
 } from "@/types/wordpress";
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -199,6 +200,165 @@ async function estimateImageSize(localPath: string, src: string): Promise<number
   return 0;
 }
 
+// ─── Plugin asset analyzer ───────────────────────────────────────────
+
+/**
+ * Scan a plugin's PHP files to find enqueued JS/CSS and where they load.
+ * Looks for wp_enqueue_script, wp_enqueue_style, wp_register_script, wp_register_style.
+ */
+async function analyzePluginAssets(
+  pluginsDir: string,
+  pluginSlug: string,
+  localPath: string
+): Promise<{ assets: WPPluginAsset[]; loadsOn: "all" | "frontend" | "admin" | "specific" }> {
+  const assets: WPPluginAsset[] = [];
+  let loadsOn: "all" | "frontend" | "admin" | "specific" = "all";
+
+  const pluginDir = join(pluginsDir, pluginSlug);
+
+  try {
+    await access(pluginDir);
+  } catch {
+    return { assets, loadsOn };
+  }
+
+  // Collect all PHP files in plugin dir (max 2 levels deep)
+  const phpFiles: string[] = [];
+  try {
+    const entries = await readdir(pluginDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".php")) {
+        phpFiles.push(join(pluginDir, entry.name));
+      } else if (entry.isDirectory()) {
+        try {
+          const subEntries = await readdir(join(pluginDir, entry.name), { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (sub.isFile() && sub.name.endsWith(".php")) {
+              phpFiles.push(join(pluginDir, entry.name, sub.name));
+            }
+          }
+        } catch {
+          // Skip unreadable subdirectories
+        }
+      }
+    }
+  } catch {
+    return { assets, loadsOn };
+  }
+
+  // Track loading context
+  let hasAdminOnly = false;
+  let hasFrontendOnly = false;
+  let hasGlobalLoad = false;
+
+  for (const filePath of phpFiles.slice(0, 30)) {
+    try {
+      const content = await readFile(filePath, "utf-8");
+
+      // Detect loading context from hooks
+      if (content.includes("is_admin()") || content.includes("admin_enqueue_scripts")) {
+        hasAdminOnly = true;
+      }
+      if (content.includes("wp_enqueue_scripts") && !content.includes("admin_enqueue_scripts")) {
+        hasFrontendOnly = true;
+      }
+      if (content.includes("wp_enqueue_scripts") && content.includes("admin_enqueue_scripts")) {
+        hasGlobalLoad = true;
+      }
+
+      // Find enqueued scripts
+      const scriptMatches = content.matchAll(
+        /wp_(?:enqueue|register)_script\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/g
+      );
+      for (const m of scriptMatches) {
+        const handle = m[1] || "";
+        let src = m[2] || "";
+
+        // Skip empty or inline
+        if (!src || src === "false") continue;
+
+        // Resolve plugin-relative paths
+        if (src.includes("plugins_url") || src.includes("plugin_dir_url")) {
+          // Extract the relative file path from the function call
+          const relMatch = src.match(/['"]([^'"]+\.js)['"]/);
+          if (relMatch?.[1]) src = relMatch[1];
+        }
+
+        // Try to get file size
+        let sizeKb = 0;
+        try {
+          const jsFileName = src.split("/").pop() || "";
+          // Search common locations
+          for (const subDir of ["js", "assets", "assets/js", "dist", "build", ""]) {
+            try {
+              const fullPath = join(pluginDir, subDir, jsFileName);
+              const s = await stat(fullPath);
+              sizeKb = Math.round(s.size / 1024);
+              break;
+            } catch {
+              // Try next
+            }
+          }
+        } catch {
+          // Ignore
+        }
+
+        assets.push({ handle, src, type: "js", size_kb: sizeKb });
+      }
+
+      // Find enqueued styles
+      const styleMatches = content.matchAll(
+        /wp_(?:enqueue|register)_style\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/g
+      );
+      for (const m of styleMatches) {
+        const handle = m[1] || "";
+        let src = m[2] || "";
+
+        if (!src || src === "false") continue;
+
+        if (src.includes("plugins_url") || src.includes("plugin_dir_url")) {
+          const relMatch = src.match(/['"]([^'"]+\.css)['"]/);
+          if (relMatch?.[1]) src = relMatch[1];
+        }
+
+        let sizeKb = 0;
+        try {
+          const cssFileName = src.split("/").pop() || "";
+          for (const subDir of ["css", "assets", "assets/css", "dist", "build", ""]) {
+            try {
+              const fullPath = join(pluginDir, subDir, cssFileName);
+              const s = await stat(fullPath);
+              sizeKb = Math.round(s.size / 1024);
+              break;
+            } catch {
+              // Try next
+            }
+          }
+        } catch {
+          // Ignore
+        }
+
+        assets.push({ handle, src, type: "css", size_kb: sizeKb });
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  // Determine load context
+  if (hasGlobalLoad) {
+    loadsOn = "all";
+  } else if (hasAdminOnly && !hasFrontendOnly) {
+    loadsOn = "admin";
+  } else if (hasFrontendOnly && !hasAdminOnly) {
+    loadsOn = "frontend";
+  } else if (hasAdminOnly && hasFrontendOnly) {
+    loadsOn = "all";
+  }
+
+  return { assets, loadsOn };
+}
+
 // ─── Main crawler ─────────────────────────────────────────────────────
 
 /**
@@ -340,16 +500,34 @@ export async function crawlWordPressSite(rawPath: string): Promise<WPCrawlResult
       // Failed to parse plugins
     }
 
-    const plugins: WPPluginData[] = activePluginSlugs.map((slug) => {
+    // Analyze each plugin's assets and loading context
+    const pluginsDir = join(localPath, "wp-content", "plugins");
+    const plugins: WPPluginData[] = [];
+
+    for (const slug of activePluginSlugs) {
       const parts = slug.split("/");
       const pluginDir = parts[0] || slug;
-      return {
+
+      const { assets, loadsOn } = await analyzePluginAssets(pluginsDir, pluginDir, localPath);
+
+      const totalJsKb = assets
+        .filter((a) => a.type === "js")
+        .reduce((sum, a) => sum + a.size_kb, 0);
+      const totalCssKb = assets
+        .filter((a) => a.type === "css")
+        .reduce((sum, a) => sum + a.size_kb, 0);
+
+      plugins.push({
         name: pluginDir.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
         slug: pluginDir,
         version: "",
         active: true,
-      };
-    });
+        loads_on: loadsOn,
+        assets,
+        total_js_kb: totalJsKb,
+        total_css_kb: totalCssKb,
+      });
+    }
 
     // 9. Theme
     const [themeRows] = await connection.execute<mysql.RowDataPacket[]>(

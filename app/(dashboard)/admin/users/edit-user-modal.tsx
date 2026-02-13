@@ -3,14 +3,110 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import {
   assignUserToClientAction,
   removeUserFromClientAction,
+  adminChangePasswordAction,
   type UserWithClients,
 } from "@/lib/actions/users";
 import type { Client } from "@/types/database";
+
+function ChangePasswordSection({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(false);
+
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setSaving(true);
+    const result = await adminChangePasswordAction(userId, newPassword);
+    setSaving(false);
+
+    if (result.success) {
+      setSuccess(true);
+      setNewPassword("");
+      setConfirmPassword("");
+      setTimeout(() => {
+        setOpen(false);
+        setSuccess(false);
+      }, 1500);
+    } else {
+      setError(result.error || "Failed to change password");
+    }
+  }
+
+  return (
+    <div className="border-t border-border pt-4">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Change Password
+        </button>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <h3 className="text-sm font-medium">Change Password</h3>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {success && <p className="text-xs text-green-600">Password changed successfully!</p>}
+          <div className="space-y-1">
+            <Label htmlFor="edit_new_password" className="text-xs">New Password</Label>
+            <Input
+              id="edit_new_password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={6}
+              placeholder="Minimum 6 characters"
+              className="h-9"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="edit_confirm_password" className="text-xs">Confirm Password</Label>
+            <Input
+              id="edit_confirm_password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={6}
+              placeholder="Re-enter password"
+              className="h-9"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={saving}>
+              {saving ? "Saving..." : "Change Password"}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => { setOpen(false); setError(null); }}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 interface EditUserModalProps {
   user: UserWithClients | null;
@@ -137,6 +233,9 @@ export function EditUserModal({ user, clients, onClose }: EditUserModalProps) {
             )}
           </>
         )}
+
+        {/* Change Password */}
+        <ChangePasswordSection userId={user.id} />
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 

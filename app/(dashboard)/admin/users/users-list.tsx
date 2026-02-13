@@ -5,14 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Modal } from "@/components/ui/modal";
 import { UserForm } from "./user-form";
 import {
   deleteUserAction,
   updateUserRoleAction,
-  adminChangePasswordAction,
   unblockUserAction,
   type UserWithClients,
 } from "@/lib/actions/users";
@@ -28,88 +24,10 @@ interface UsersListProps {
   currentUserId: string;
 }
 
-function ChangePasswordModal({
-  user,
-  onClose,
-}: {
-  user: UserWithClients;
-  onClose: () => void;
-}) {
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-
-    if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-
-    setSaving(true);
-    const result = await adminChangePasswordAction(user.id, newPassword);
-    setSaving(false);
-
-    if (result.success) {
-      onClose();
-    } else {
-      setError(result.error || "Failed to change password");
-    }
-  }
-
-  return (
-    <Modal open={true} onClose={onClose} title={`Change Password — ${user.full_name || user.email}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="space-y-1">
-          <Label htmlFor="new_password">New Password</Label>
-          <Input
-            id="new_password"
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            required
-            minLength={6}
-            placeholder="Minimum 6 characters"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="confirm_password">Confirm Password</Label>
-          <Input
-            id="confirm_password"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            minLength={6}
-            placeholder="Re-enter password"
-          />
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Change Password"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 export function UsersList({ users, clients, pendingInvites, currentUserId }: UsersListProps) {
   const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserWithClients | null>(null);
-  const [changePasswordUser, setChangePasswordUser] = useState<UserWithClients | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
 
   async function handleToggleRole(user: UserWithClients) {
@@ -336,13 +254,6 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setChangePasswordUser(user)}
-                        >
-                          Password
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
                           onClick={() => handleToggleRole(user)}
                           disabled={loading === user.id}
                         >
@@ -383,13 +294,6 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
         clients={clients}
         onClose={() => setEditingUser(null)}
       />
-
-      {changePasswordUser && (
-        <ChangePasswordModal
-          user={changePasswordUser}
-          onClose={() => setChangePasswordUser(null)}
-        />
-      )}
     </>
   );
 }

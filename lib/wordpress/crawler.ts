@@ -27,6 +27,7 @@ const MAX_PAGES = 100;
 
 interface WPDBConfig {
   host: string;
+  port?: number;
   user: string;
   password: string;
   name: string;
@@ -76,8 +77,45 @@ export async function parseWPConfig(localPath: string): Promise<WPDBConfig> {
     throw new Error("Could not parse database credentials from wp-config.php");
   }
 
+  // Detect Local by Flywheel MySQL port
+  let port: number | undefined;
+  try {
+    const localSitesJson = join(
+      process.env.APPDATA || process.env.HOME || "",
+      "Local",
+      "sites.json"
+    );
+    const sitesRaw = await readFile(localSitesJson, "utf-8");
+    const sites = JSON.parse(sitesRaw) as Record<string, {
+      path?: string;
+      services?: {
+        mysql?: {
+          ports?: { MYSQL?: number[] };
+        };
+      };
+    }>;
+
+    // Find the site whose path matches our localPath
+    const normalizedLocal = resolve(localPath).toLowerCase().replace(/\\/g, "/");
+    for (const site of Object.values(sites)) {
+      const sitePath = (site.path || "").toLowerCase().replace(/\\/g, "/");
+      if (normalizedLocal.startsWith(sitePath)) {
+        const mysqlPorts = site.services?.mysql?.ports?.MYSQL;
+        if (mysqlPorts && mysqlPorts.length > 0) {
+          port = mysqlPorts[0];
+        }
+        break;
+      }
+    }
+  } catch {
+    // Not Local by Flywheel or sites.json not found — use default port
+  }
+
+  console.log("[WP Crawler] DB config — host:", dbHost, "port:", port, "user:", dbUser, "db:", dbName);
+
   return {
     host: dbHost || "localhost",
+    port,
     user: dbUser,
     password: dbPassword,
     name: dbName,
@@ -374,6 +412,7 @@ export async function crawlWordPressSite(rawPath: string): Promise<WPCrawlResult
   // 2. Connect to MySQL
   const connection = await mysql.createConnection({
     host: dbConfig.host,
+    port: dbConfig.port || 3306,
     user: dbConfig.user,
     password: dbConfig.password,
     database: dbConfig.name,

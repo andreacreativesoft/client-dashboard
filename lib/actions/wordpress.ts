@@ -560,7 +560,15 @@ async function runAnalysisPipeline(
       timeoutPromise,
     ]);
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "Unknown error during analysis";
+    // Extract error message — handle non-Error objects
+    let errorMessage: string;
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    } else if (typeof err === "string") {
+      errorMessage = err;
+    } else {
+      errorMessage = JSON.stringify(err) || "Unknown error during analysis";
+    }
 
     // Don't overwrite a user-initiated cancel
     if (errorMessage === "Analysis was cancelled") {
@@ -568,6 +576,7 @@ async function runAnalysisPipeline(
     }
 
     console.error("Analysis pipeline failed:", errorMessage);
+    console.error("Raw error:", err);
 
     // Update record with failure
     await supabase

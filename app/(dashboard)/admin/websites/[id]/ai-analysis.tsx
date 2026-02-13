@@ -356,11 +356,34 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
 
     setAnalyzing(true);
     setError(null);
+    setAnalysis((prev) => prev ? { ...prev, status: "running", started_at: new Date().toISOString() } : {
+      id: "",
+      website_id: websiteId,
+      client_id: "",
+      status: "running" as const,
+      site_data: {},
+      recommendations: [],
+      scores: {},
+      pages_analyzed: 0,
+      issues_found: 0,
+      claude_tokens: 0,
+      summary: null,
+      error_message: null,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      created_at: new Date().toISOString(),
+    });
 
     const result = await analyzeWebsite(websiteId);
 
     if (result.success && result.analysisId) {
-      setPollingId(result.analysisId);
+      // Server action awaited completion — fetch the final result
+      const finalResult = await getAnalysisById(result.analysisId);
+      if (finalResult.success && finalResult.analysis) {
+        setAnalysis(finalResult.analysis);
+      }
+      setAnalyzing(false);
+      setPollingId(null);
     } else {
       setError(result.error || "Failed to start analysis");
       setAnalyzing(false);

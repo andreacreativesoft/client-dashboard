@@ -422,13 +422,8 @@ export async function analyzeWebsite(
 
   const analysisId = analysis.id as string;
 
-  // 3. Run the analysis pipeline (non-blocking — we return the ID immediately)
-  // The actual work happens in the background
-  runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path).catch(
-    (err) => {
-      console.error("Analysis pipeline error:", err);
-    }
-  );
+  // 3. Run the full analysis pipeline (awaited — server action stays alive)
+  await runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path);
 
   return {
     success: true,

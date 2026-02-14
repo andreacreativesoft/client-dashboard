@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { updateLeadStatusAction } from "@/lib/actions/leads";
 import type { LeadStatus } from "@/types/database";
 
@@ -10,10 +9,10 @@ interface LeadStatusProps {
   currentStatus: LeadStatus;
 }
 
-const STATUS_OPTIONS: { value: LeadStatus; label: string }[] = [
-  { value: "new", label: "New" },
-  { value: "contacted", label: "Contacted" },
-  { value: "done", label: "Done" },
+const STATUS_OPTIONS: { value: LeadStatus; label: string; color: string; activeColor: string }[] = [
+  { value: "new", label: "New", color: "border-red-300 text-red-600 hover:bg-red-50", activeColor: "bg-red-500 text-white border-red-500" },
+  { value: "contacted", label: "Contacted", color: "border-blue-300 text-blue-600 hover:bg-blue-50", activeColor: "bg-blue-500 text-white border-blue-500" },
+  { value: "done", label: "Done", color: "border-green-300 text-green-600 hover:bg-green-50", activeColor: "bg-green-500 text-white border-green-500" },
 ];
 
 export function LeadStatusToggle({ leadId, currentStatus }: LeadStatusProps) {
@@ -35,17 +34,20 @@ export function LeadStatusToggle({ leadId, currentStatus }: LeadStatusProps) {
   }
 
   return (
-    <div className="flex gap-2">
+    <div className="flex rounded-lg border border-border overflow-hidden">
       {STATUS_OPTIONS.map((option) => (
-        <Button
+        <button
           key={option.value}
-          variant={status === option.value ? "default" : "outline"}
-          size="sm"
           onClick={() => handleChange(option.value)}
           disabled={loading}
+          className={`px-4 py-2 text-sm font-medium border transition-colors disabled:opacity-50 ${
+            status === option.value
+              ? option.activeColor
+              : option.color + " bg-background"
+          }`}
         >
           {option.label}
-        </Button>
+        </button>
       ))}
     </div>
   );

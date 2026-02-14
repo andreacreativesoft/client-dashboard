@@ -78,6 +78,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher }: Hea
           title="Edit profile"
         >
           {avatarUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={avatarUrl}
               alt={userName}

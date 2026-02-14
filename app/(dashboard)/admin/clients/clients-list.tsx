@@ -52,7 +52,7 @@ export function ClientsList({ clients }: ClientsListProps) {
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground">
-              No clients yet. Click "Add Client" to create your first one.
+              No clients yet. Click &quot;Add Client&quot; to create your first one.
             </p>
           </CardContent>
         </Card>

@@ -11,6 +11,9 @@ export type WebsiteFormData = {
   name: string;
   url: string;
   source_type: string;
+  git_repo_url?: string;
+  asana_project_url?: string;
+  figma_url?: string;
 };
 
 function generateApiKey(): string {
@@ -57,6 +60,9 @@ export async function createWebsiteAction(
       name: formData.name,
       url: formData.url,
       source_type: formData.source_type || "elementor",
+      git_repo_url: formData.git_repo_url || null,
+      asana_project_url: formData.asana_project_url || null,
+      figma_url: formData.figma_url || null,
       api_key: apiKey,
       webhook_secret: webhookSecret,
       is_active: true,
@@ -95,6 +101,9 @@ export async function updateWebsiteAction(
       name: formData.name,
       url: formData.url,
       source_type: formData.source_type,
+      git_repo_url: formData.git_repo_url || null,
+      asana_project_url: formData.asana_project_url || null,
+      figma_url: formData.figma_url || null,
     })
     .eq("id", id);
 
@@ -183,4 +192,26 @@ export async function regenerateApiKeyAction(
 
   revalidatePath("/admin/websites");
   return { success: true, apiKey: newApiKey };
+}
+
+export async function acknowledgeChangesAction(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ has_changes: false })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error acknowledging changes:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/websites");
+  return { success: true };
 }

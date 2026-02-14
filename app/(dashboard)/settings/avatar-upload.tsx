@@ -118,6 +118,7 @@ export function AvatarUpload({ currentAvatarUrl, userName, userId }: AvatarUploa
     <div className="flex items-center gap-4">
       {/* Avatar preview */}
       {previewUrl ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={previewUrl}
           alt={userName}

@@ -99,7 +99,7 @@ Examples:
           <p className="whitespace-pre-wrap text-sm">{notes}</p>
         ) : (
           <p className="text-sm text-muted-foreground italic">
-            No notes yet. Click "Add" to add internal notes.
+            No notes yet. Click &quot;Add&quot; to add internal notes.
           </p>
         )}
       </CardContent>

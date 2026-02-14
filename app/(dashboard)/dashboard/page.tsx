@@ -19,13 +19,17 @@ function getGreeting(): string {
   return "Good evening";
 }
 
+function getThirtyDaysAgo(): string {
+  return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
 export default async function DashboardPage() {
   const profile = await getProfile();
   const leads = await getLeads();
   const recentLeads = leads.slice(0, 5);
 
   // Calculate stats
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const thirtyDaysAgo = getThirtyDaysAgo();
   const newLeads = leads.filter((l) => l.created_at >= thirtyDaysAgo);
   const newCount = newLeads.filter((l) => l.status === "new").length;
   const contactedCount = newLeads.filter((l) => l.status === "contacted").length;

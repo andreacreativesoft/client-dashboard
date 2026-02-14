@@ -44,7 +44,23 @@ export type Website = {
   api_key: string;
   webhook_secret: string;
   source_type: string;
+  git_repo_url: string | null;
+  asana_project_url: string | null;
+  figma_url: string | null;
+  content_hash: string | null;
+  last_checked_at: string | null;
+  has_changes: boolean;
   is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WebsiteInfo = {
+  id: string;
+  website_id: string;
+  label: string;
+  value: string;
+  is_sensitive: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -189,9 +205,21 @@ export type Database = {
           api_key: string;
           webhook_secret: string;
           source_type: string;
+          git_repo_url?: string | null;
+          asana_project_url?: string | null;
+          figma_url?: string | null;
+          content_hash?: string | null;
+          last_checked_at?: string | null;
+          has_changes?: boolean;
           is_active: boolean;
         };
         Update: Partial<Omit<Website, "id" | "created_at">>;
+        Relationships: [];
+      };
+      website_info: {
+        Row: WebsiteInfo;
+        Insert: Omit<WebsiteInfo, "id" | "created_at" | "updated_at">;
+        Update: Partial<Omit<WebsiteInfo, "id" | "created_at">>;
         Relationships: [];
       };
       leads: {

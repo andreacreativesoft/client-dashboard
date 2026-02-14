@@ -119,14 +119,7 @@ export function Sidebar({ isAdmin, className }: SidebarProps) {
     >
       {/* Header with toggle */}
       <div className="flex h-16 items-center border-b border-border px-3">
-        {!collapsed && (
-          <Link
-            href="/dashboard"
-            className="flex-1 truncate pl-3 text-2xl font-bold text-foreground"
-          >
-            Dashboard
-          </Link>
-        )}
+        {!collapsed && <div className="flex-1" />}
         <button
           onClick={toggle}
           className={cn(

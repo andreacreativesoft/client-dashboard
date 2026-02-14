@@ -61,7 +61,7 @@ export default async function AdminPage() {
     <div className="p-4 md:p-6">
       <h1 className="mb-6 text-2xl font-bold">Admin Panel</h1>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((stat) => (
           <Link key={stat.title} href={stat.href}>
             <Card className="transition-colors hover:bg-muted/50">

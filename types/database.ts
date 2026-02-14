@@ -45,6 +45,8 @@ export type Website = {
   webhook_secret: string;
   source_type: string;
   git_repo_url: string | null;
+  asana_project_url: string | null;
+  figma_url: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -191,6 +193,8 @@ export type Database = {
           webhook_secret: string;
           source_type: string;
           git_repo_url?: string | null;
+          asana_project_url?: string | null;
+          figma_url?: string | null;
           is_active: boolean;
         };
         Update: Partial<Omit<Website, "id" | "created_at">>;

@@ -146,7 +146,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/leads/${lead.id}`}
-                        className="font-semibold hover:underline"
+                        className="text-lg font-bold hover:underline"
                       >
                         {lead.name || lead.email || lead.phone || "Unknown"}
                       </Link>

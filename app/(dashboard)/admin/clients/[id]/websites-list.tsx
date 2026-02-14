@@ -349,9 +349,9 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                   key={website.id}
                   className="rounded-lg border border-border p-4"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h4 className="font-medium">{website.name}</h4>
                         <Badge variant={website.is_active ? "default" : "secondary"}>
                           {website.is_active ? "Active" : "Inactive"}
@@ -366,7 +366,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                         href={website.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-muted-foreground hover:underline"
+                        className="block truncate text-sm text-muted-foreground hover:underline"
                       >
                         {website.url}
                       </a>
@@ -437,7 +437,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                   </div>
 
                   {/* Change Detection */}
-                  <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 ${website.has_changes ? "border-destructive bg-destructive/5" : "border-border bg-muted/50"}`}>
+                  <div className={`mt-3 flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center ${website.has_changes ? "border-destructive bg-destructive/5" : "border-border bg-muted/50"}`}>
                     <div className="flex-1 text-xs text-muted-foreground">
                       {website.has_changes ? (
                         <span className="font-medium text-destructive">
@@ -455,7 +455,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                           variant="outline"
                           size="sm"
                           onClick={() => handleAcknowledge(website.id)}
-                          className="h-7 text-xs"
+                          className="h-9 flex-1 text-xs sm:h-7 sm:flex-none"
                         >
                           Dismiss
                         </Button>
@@ -465,9 +465,9 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                         size="sm"
                         onClick={() => handleCheckChanges(website)}
                         disabled={checkingId === website.id}
-                        className="h-7 text-xs"
+                        className="h-9 flex-1 text-xs sm:h-7 sm:flex-none"
                       >
-                        {checkingId === website.id ? "Checking..." : "Check for Changes"}
+                        {checkingId === website.id ? "Checking..." : "Check Changes"}
                       </Button>
                     </div>
                   </div>
@@ -476,27 +476,29 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                     <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
                       API Key (for webhook)
                     </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 overflow-x-auto rounded bg-background px-2 py-1 text-xs">
-                        {website.api_key}
-                      </code>
+                    <code className="mb-2 block truncate rounded bg-background px-2 py-1 text-xs">
+                      {website.api_key}
+                    </code>
+                    <div className="flex gap-2">
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-9 flex-1 sm:h-8 sm:flex-none"
                         onClick={() => handleCopyApiKey(website)}
                       >
-                        {copiedId === website.id ? "Copied!" : "Copy"}
+                        {copiedId === website.id ? "Copied!" : "Copy Key"}
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-9 flex-1 sm:h-8 sm:flex-none"
                         onClick={() => handleRegenerateKey(website)}
                       >
                         Regenerate
                       </Button>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Webhook URL: {process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/lead?key={website.api_key}
+                    <p className="mt-2 break-all text-xs text-muted-foreground">
+                      Webhook: {process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/lead?key={website.api_key}
                     </p>
                   </div>
 

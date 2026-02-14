@@ -373,50 +373,6 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                       <p className="mt-1 text-xs text-muted-foreground">
                         Source: {website.source_type}
                       </p>
-                      {/* Project links */}
-                      {(website.git_repo_url || website.asana_project_url || website.figma_url) && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {website.git_repo_url && (
-                            <a
-                              href={website.git_repo_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                              </svg>
-                              Git
-                            </a>
-                          )}
-                          {website.asana_project_url && (
-                            <a
-                              href={website.asana_project_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" />
-                              </svg>
-                              Asana
-                            </a>
-                          )}
-                          {website.figma_url && (
-                            <a
-                              href={website.figma_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" />
-                              </svg>
-                              Figma
-                            </a>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -508,6 +464,54 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                     integrations={integrations}
                     googleConfigured={googleConfigured}
                   />
+
+                  {/* Project Links */}
+                  <div className="mt-4 border-t border-border pt-3">
+                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+                      Project Links
+                    </p>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                        </svg>
+                        <span className="text-xs font-medium">Git:</span>
+                        {website.git_repo_url ? (
+                          <a href={website.git_repo_url} target="_blank" rel="noopener noreferrer" className="truncate text-xs text-muted-foreground hover:text-foreground hover:underline">
+                            {website.git_repo_url}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not set</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" />
+                        </svg>
+                        <span className="text-xs font-medium">Asana:</span>
+                        {website.asana_project_url ? (
+                          <a href={website.asana_project_url} target="_blank" rel="noopener noreferrer" className="truncate text-xs text-muted-foreground hover:text-foreground hover:underline">
+                            {website.asana_project_url}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not set</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" />
+                        </svg>
+                        <span className="text-xs font-medium">Figma:</span>
+                        {website.figma_url ? (
+                          <a href={website.figma_url} target="_blank" rel="noopener noreferrer" className="truncate text-xs text-muted-foreground hover:text-foreground hover:underline">
+                            {website.figma_url}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not set</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Info Board */}
                   <InfoBoard websiteId={website.id} />

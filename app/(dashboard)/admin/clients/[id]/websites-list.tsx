@@ -8,8 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WebsiteForm } from "./website-form";
-import { deleteWebsiteAction, regenerateApiKeyAction } from "@/lib/actions/websites";
+import { InfoBoard } from "./info-board";
+import { deleteWebsiteAction, regenerateApiKeyAction, acknowledgeChangesAction } from "@/lib/actions/websites";
 import { addFacebookIntegration, deleteIntegration } from "@/lib/actions/integrations";
+import { timeAgo } from "@/lib/utils";
 import type { Website, Integration } from "@/types/database";
 
 interface WebsitesListProps {
@@ -247,9 +249,11 @@ TOKEN_ENCRYPTION_KEY=any-32-char-random-string`}
 }
 
 export function WebsitesList({ clientId, websites, integrations, googleConfigured }: WebsitesListProps) {
+  const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
   const [editingWebsite, setEditingWebsite] = useState<Website | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   function handleEdit(website: Website) {
     setEditingWebsite(website);
@@ -292,6 +296,38 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
     }
   }
 
+  async function handleCheckChanges(website: Website) {
+    setCheckingId(website.id);
+    try {
+      const res = await fetch("/api/check-website", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId: website.id }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+      } else if (data.hasChanges) {
+        alert("Changes detected on the live website! Review before pushing local changes.");
+      } else if (data.isFirstCheck) {
+        alert("Baseline snapshot saved. Future checks will detect changes.");
+      } else {
+        alert("No changes detected. Safe to proceed.");
+      }
+      router.refresh();
+    } catch {
+      alert("Failed to check website");
+    }
+    setCheckingId(null);
+  }
+
+  async function handleAcknowledge(websiteId: string) {
+    const result = await acknowledgeChangesAction(websiteId);
+    if (!result.success) {
+      alert(result.error || "Failed to acknowledge");
+    }
+  }
+
   return (
     <>
       <Card>
@@ -320,6 +356,11 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                         <Badge variant={website.is_active ? "default" : "secondary"}>
                           {website.is_active ? "Active" : "Inactive"}
                         </Badge>
+                        {website.has_changes && (
+                          <Badge variant="destructive" className="animate-pulse">
+                            Changed
+                          </Badge>
+                        )}
                       </div>
                       <a
                         href={website.url}
@@ -395,6 +436,42 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                     </div>
                   </div>
 
+                  {/* Change Detection */}
+                  <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 ${website.has_changes ? "border-destructive bg-destructive/5" : "border-border bg-muted/50"}`}>
+                    <div className="flex-1 text-xs text-muted-foreground">
+                      {website.has_changes ? (
+                        <span className="font-medium text-destructive">
+                          Live website has changed since last check
+                        </span>
+                      ) : website.last_checked_at ? (
+                        <>Last checked {timeAgo(website.last_checked_at)}</>
+                      ) : (
+                        "Never checked for changes"
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {website.has_changes && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleAcknowledge(website.id)}
+                          className="h-7 text-xs"
+                        >
+                          Dismiss
+                        </Button>
+                      )}
+                      <Button
+                        variant={website.has_changes ? "destructive" : "outline"}
+                        size="sm"
+                        onClick={() => handleCheckChanges(website)}
+                        disabled={checkingId === website.id}
+                        className="h-7 text-xs"
+                      >
+                        {checkingId === website.id ? "Checking..." : "Check for Changes"}
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="mt-4 rounded-lg bg-muted p-3">
                     <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
                       API Key (for webhook)
@@ -429,6 +506,9 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                     integrations={integrations}
                     googleConfigured={googleConfigured}
                   />
+
+                  {/* Info Board */}
+                  <InfoBoard websiteId={website.id} />
                 </div>
               ))}
             </div>

@@ -44,6 +44,7 @@ export type Website = {
   api_key: string;
   webhook_secret: string;
   source_type: string;
+  git_repo_url: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -189,6 +190,7 @@ export type Database = {
           api_key: string;
           webhook_secret: string;
           source_type: string;
+          git_repo_url?: string | null;
           is_active: boolean;
         };
         Update: Partial<Omit<Website, "id" | "created_at">>;

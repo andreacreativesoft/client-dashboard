@@ -43,6 +43,7 @@ export function WebsiteForm({ open, onClose, clientId, website }: WebsiteFormPro
       name: (form.elements.namedItem("name") as HTMLInputElement).value,
       url: (form.elements.namedItem("url") as HTMLInputElement).value,
       source_type: (form.elements.namedItem("source_type") as HTMLSelectElement).value,
+      git_repo_url: (form.elements.namedItem("git_repo_url") as HTMLInputElement).value,
     };
 
     const result = isEdit
@@ -87,6 +88,20 @@ export function WebsiteForm({ open, onClose, clientId, website }: WebsiteFormPro
             defaultValue={website?.url || "https://"}
             placeholder="https://example.com"
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="git_repo_url">Git Repository URL</Label>
+          <Input
+            id="git_repo_url"
+            name="git_repo_url"
+            type="url"
+            defaultValue={website?.git_repo_url || ""}
+            placeholder="https://github.com/user/repo"
+          />
+          <p className="text-xs text-muted-foreground">
+            Link to the Git repo for this website (GitHub, GitLab, Bitbucket, etc.)
+          </p>
         </div>
 
         <div className="space-y-2">

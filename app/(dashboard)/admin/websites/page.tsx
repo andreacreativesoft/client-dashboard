@@ -50,8 +50,8 @@ export default async function WebsitesPage() {
           {typedWebsites.map((website) => (
             <Card key={website.id}>
               <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
+                <div className="space-y-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{website.name}</span>
                       <Badge variant={website.is_active ? "default" : "secondary"}>
@@ -66,7 +66,7 @@ export default async function WebsitesPage() {
                     >
                       {website.url}
                     </a>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>Source: {website.source_type}</span>
                       <span>•</span>
                       {website.git_repo_url && (

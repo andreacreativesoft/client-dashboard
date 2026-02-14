@@ -7,12 +7,17 @@ import { ClientAlerts } from "@/components/client-alerts";
 import { getClientAlerts } from "@/lib/actions/alerts";
 import type { Client } from "@/types/database";
 
+function getThirtyDaysAgo(): string {
+  return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
 export const metadata: Metadata = {
   title: "Admin",
 };
 
 export default async function AdminPage() {
   const supabase = await createClient();
+  const thirtyDaysAgo = getThirtyDaysAgo();
 
   // Fetch stats, clients for quick actions, and alerts
   const [clientsResult, websitesResult, leadsResult, usersResult, clientsData, alerts] = await Promise.all([
@@ -21,7 +26,7 @@ export default async function AdminPage() {
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
-      .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+      .gte("created_at", thirtyDaysAgo),
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("clients").select("*").order("business_name").returns<Client[]>(),
     getClientAlerts(),

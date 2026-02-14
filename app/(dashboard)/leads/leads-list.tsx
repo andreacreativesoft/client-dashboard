@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   updateLeadStatusAction,
-  deleteLeadAction,
   type LeadWithDetails,
 } from "@/lib/actions/leads";
 import { timeAgo } from "@/lib/utils";
@@ -81,15 +80,6 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
   async function handleStatusChange(leadId: string, newStatus: LeadStatus) {
     setUpdating(leadId);
     await updateLeadStatusAction(leadId, newStatus);
-    setUpdating(null);
-  }
-
-  async function handleDelete(lead: LeadWithDetails) {
-    if (!confirm(`Delete this lead from ${lead.name || lead.email || "unknown"}?`)) {
-      return;
-    }
-    setUpdating(lead.id);
-    await deleteLeadAction(lead.id);
     setUpdating(null);
   }
 

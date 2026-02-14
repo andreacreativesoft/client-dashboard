@@ -215,8 +215,8 @@ export async function getGBPLocations(accessToken: string) {
 export async function getGBPInsights(
   accessToken: string,
   locationName: string,
-  _startDate: string,
-  _endDate: string
+  _startDate: string, // eslint-disable-line @typescript-eslint/no-unused-vars
+  _endDate: string // eslint-disable-line @typescript-eslint/no-unused-vars
 ) {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });

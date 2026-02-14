@@ -63,7 +63,7 @@ export function GenerateReportButton({ clients }: GenerateReportButtonProps) {
       } else {
         setError(data.error || "Failed to generate report");
       }
-    } catch (err) {
+    } catch {
       setError("Failed to generate report");
     } finally {
       setLoading(false);

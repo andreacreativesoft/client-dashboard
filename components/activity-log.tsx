@@ -58,7 +58,7 @@ const defaultIcon = (
   </svg>
 );
 
-export function ActivityLog({ activities, showClient }: ActivityLogProps) {
+export function ActivityLog({ activities }: ActivityLogProps) {
   if (activities.length === 0) {
     return (
       <p className="py-4 text-center text-sm text-muted-foreground">

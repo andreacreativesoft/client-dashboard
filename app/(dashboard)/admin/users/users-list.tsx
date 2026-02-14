@@ -177,7 +177,7 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground">
-              No users yet. Click "Invite User" to send an invitation.
+              No users yet. Click &quot;Invite User&quot; to send an invitation.
             </p>
           </CardContent>
         </Card>

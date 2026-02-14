@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   updateLeadStatusAction,
@@ -27,10 +26,10 @@ interface LeadsListProps {
   pagination?: PaginationInfo;
 }
 
-const STATUS_OPTIONS: { value: LeadStatus; label: string; variant: "default" | "warning" | "success" }[] = [
-  { value: "new", label: "New", variant: "default" },
-  { value: "contacted", label: "Contacted", variant: "warning" },
-  { value: "done", label: "Done", variant: "success" },
+const STATUS_OPTIONS: { value: LeadStatus; label: string; color: string; activeColor: string }[] = [
+  { value: "new", label: "New", color: "border-red-300 text-red-600 hover:bg-red-50", activeColor: "bg-red-500 text-white border-red-500" },
+  { value: "contacted", label: "Contacted", color: "border-blue-300 text-blue-600 hover:bg-blue-50", activeColor: "bg-blue-500 text-white border-blue-500" },
+  { value: "done", label: "Done", color: "border-green-300 text-green-600 hover:bg-green-50", activeColor: "bg-green-500 text-white border-green-500" },
 ];
 
 export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
@@ -111,14 +110,17 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
             All
           </Button>
           {STATUS_OPTIONS.map((status) => (
-            <Button
+            <button
               key={status.value}
-              variant={currentStatus === status.value ? "default" : "outline"}
-              size="sm"
               onClick={() => handleStatusFilter(status.value)}
+              className={`inline-flex h-9 items-center rounded-lg border px-3 text-sm font-medium transition-colors ${
+                currentStatus === status.value
+                  ? status.activeColor
+                  : status.color + " bg-background"
+              }`}
             >
               {status.label}
-            </Button>
+            </button>
           ))}
         </div>
       </div>
@@ -148,9 +150,6 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                       >
                         {lead.name || lead.email || lead.phone || "Unknown"}
                       </Link>
-                      <Badge variant={STATUS_OPTIONS.find((s) => s.value === lead.status)?.variant || "default"}>
-                        {lead.status}
-                      </Badge>
                     </div>
 
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -183,19 +182,23 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <select
-                      value={lead.status}
-                      onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
-                      disabled={updating === lead.id}
-                      className="h-9 rounded-lg border border-input bg-background px-2 text-sm"
-                    >
+                  <div className="flex items-center gap-2">
+                    <div className="flex rounded-lg border border-border overflow-hidden">
                       {STATUS_OPTIONS.map((status) => (
-                        <option key={status.value} value={status.value}>
+                        <button
+                          key={status.value}
+                          onClick={() => handleStatusChange(lead.id, status.value)}
+                          disabled={updating === lead.id}
+                          className={`px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-50 ${
+                            lead.status === status.value
+                              ? status.activeColor
+                              : status.color + " bg-background"
+                          }`}
+                        >
                           {status.label}
-                        </option>
+                        </button>
                       ))}
-                    </select>
+                    </div>
                     <Link
                       href={`/leads/${lead.id}`}
                       className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted"

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { getLead, getLeadNotes } from "@/lib/actions/leads";
 import { LeadNotes } from "./lead-notes";
 import { LeadStatusToggle } from "./lead-status";
@@ -16,10 +15,10 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-const STATUS_VARIANTS: Record<string, "default" | "warning" | "success"> = {
-  new: "default",
-  contacted: "warning",
-  done: "success",
+const STATUS_COLORS: Record<string, string> = {
+  new: "bg-red-500 text-white",
+  contacted: "bg-blue-500 text-white",
+  done: "bg-green-500 text-white",
 };
 
 export default async function LeadDetailPage({ params }: PageProps) {
@@ -47,9 +46,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
             <h1 className="text-2xl font-bold">
               {lead.name || lead.email || lead.phone || "Unknown Lead"}
             </h1>
-            <Badge variant={STATUS_VARIANTS[lead.status] || "default"}>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[lead.status] || "bg-muted text-muted-foreground"}`}>
               {lead.status}
-            </Badge>
+            </span>
           </div>
           <p className="text-sm text-muted-foreground">
             Received {timeAgo(lead.created_at)} • {lead.website_name}

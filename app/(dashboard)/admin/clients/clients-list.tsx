@@ -60,12 +60,12 @@ export function ClientsList({ clients }: ClientsListProps) {
         <div className="grid gap-4">
           {clients.map((client) => (
             <Card key={client.id} className="p-4">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/admin/clients/${client.id}`}
-                      className="text-lg font-semibold hover:underline"
+                      className="text-lg font-bold hover:underline"
                     >
                       {client.business_name}
                     </Link>
@@ -106,16 +106,17 @@ export function ClientsList({ clients }: ClientsListProps) {
                     </div>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex gap-2">
                   <Link
                     href={`/admin/clients/${client.id}`}
-                    className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted"
+                    className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:flex-none sm:px-3"
                   >
                     View
                   </Link>
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-11 flex-1 sm:h-9 sm:flex-none"
                     onClick={() => handleEdit(client)}
                   >
                     Edit
@@ -123,6 +124,7 @@ export function ClientsList({ clients }: ClientsListProps) {
                   <Button
                     variant="destructive"
                     size="sm"
+                    className="h-11 flex-1 sm:h-9 sm:flex-none"
                     onClick={() => handleDelete(client)}
                     disabled={deletingId === client.id}
                   >

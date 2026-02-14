@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const cleaned = html
       .replace(/nonce="[^"]*"/g, "")
       .replace(/\d{10,13}/g, "") // timestamps
-      .replace(/<!--.*?-->/gs, "") // comments
+      .replace(/<!--[\s\S]*?-->/g, "") // comments
       .replace(/\s+/g, " ") // normalize whitespace
       .trim();
 

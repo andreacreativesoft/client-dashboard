@@ -43,7 +43,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">
+            <h1 className="text-3xl font-bold">
               {lead.name || lead.email || lead.phone || "Unknown Lead"}
             </h1>
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[lead.status] || "bg-muted text-muted-foreground"}`}>
@@ -70,7 +70,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   <p className="text-xs font-medium uppercase text-muted-foreground">
                     Name
                   </p>
-                  <p>{lead.name}</p>
+                  <p className="text-base">{lead.name}</p>
                 </div>
               )}
               {lead.email && (
@@ -78,7 +78,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   <p className="text-xs font-medium uppercase text-muted-foreground">
                     Email
                   </p>
-                  <a href={`mailto:${lead.email}`} className="hover:underline">
+                  <a href={`mailto:${lead.email}`} className="text-base break-all hover:underline">
                     {lead.email}
                   </a>
                 </div>
@@ -88,7 +88,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   <p className="text-xs font-medium uppercase text-muted-foreground">
                     Phone
                   </p>
-                  <a href={`tel:${lead.phone}`} className="hover:underline">
+                  <a href={`tel:${lead.phone}`} className="text-base hover:underline">
                     {lead.phone}
                   </a>
                 </div>
@@ -98,7 +98,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   <p className="text-xs font-medium uppercase text-muted-foreground">
                     Message
                   </p>
-                  <p className="whitespace-pre-wrap">{lead.message}</p>
+                  <p className="text-base whitespace-pre-wrap">{lead.message}</p>
                 </div>
               )}
             </CardContent>
@@ -111,8 +111,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 <CardTitle>All Form Data</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto rounded-lg bg-muted p-4">
-                  <pre className="text-xs">
+                <div className="max-w-full overflow-x-auto rounded-lg bg-muted p-4">
+                  <pre className="text-xs whitespace-pre-wrap break-all">
                     {JSON.stringify(lead.raw_data, null, 2)}
                   </pre>
                 </div>

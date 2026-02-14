@@ -146,7 +146,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/leads/${lead.id}`}
-                        className="font-semibold hover:underline"
+                        className="text-lg font-bold hover:underline"
                       >
                         {lead.name || lead.email || lead.phone || "Unknown"}
                       </Link>
@@ -182,14 +182,17 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <div className="flex rounded-lg border border-border overflow-hidden">
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <div className="flex flex-1 rounded-lg border border-border overflow-hidden">
                       {STATUS_OPTIONS.map((status) => (
                         <button
                           key={status.value}
-                          onClick={() => handleStatusChange(lead.id, status.value)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleStatusChange(lead.id, status.value);
+                          }}
                           disabled={updating === lead.id}
-                          className={`px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-50 ${
+                          className={`flex-1 px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 sm:px-3 sm:py-1.5 sm:text-xs ${
                             lead.status === status.value
                               ? status.activeColor
                               : status.color + " bg-background"
@@ -201,7 +204,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                     </div>
                     <Link
                       href={`/leads/${lead.id}`}
-                      className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted"
+                      className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:px-3"
                     >
                       View
                     </Link>

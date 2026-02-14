@@ -56,13 +56,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher }: Hea
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 md:px-6">
-      <div className="flex items-center gap-3">
-        {showClientSwitcher && clients.length > 0 && (
-          <div className="sm:hidden">
-            <ClientSwitcher clients={clients} />
-          </div>
-        )}
-      </div>
+      <div className="flex-1" />
 
       <div className="flex items-center gap-3">
         {showClientSwitcher && clients.length > 0 && (

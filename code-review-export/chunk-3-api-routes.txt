@@ -1,0 +1,2290 @@
+# CHUNK 3: API Routes
+
+========================================
+FILE: ./app/api/auth/google/callback/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  getTokensFromCode,
+  encryptToken,
+  listGA4Properties,
+  getGBPLocations,
+  listGSCSites,
+} from "@/lib/google";
+import { rateLimit } from "@/lib/rate-limit";
+import type { IntegrationType } from "@/types/database";
+
+export async function GET(request: NextRequest) {
+  try {
+    // Rate limit: 10 OAuth callbacks per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`oauth-callback:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+    const code = request.nextUrl.searchParams.get("code");
+    const state = request.nextUrl.searchParams.get("state");
+    const error = request.nextUrl.searchParams.get("error");
+
+    // Helper to build redirect URL back to client detail page
+    function clientUrl(clientId: string, params?: string) {
+      const base = `/admin/clients/${clientId}`;
+      return new URL(params ? `${base}?${params}` : base, request.url);
+    }
+
+    // Handle OAuth errors
+    if (error) {
+      console.error("Google OAuth error:", error);
+      // No state to parse yet, fallback to clients list
+      return NextResponse.redirect(
+        new URL("/admin/clients", request.url)
+      );
+    }
+
+    if (!code || !state) {
+      return NextResponse.redirect(
+        new URL("/admin/clients", request.url)
+      );
+    }
+
+    // Verify user is authenticated
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    // Parse state
+    let stateData: { clientId: string; userId: string; type: IntegrationType };
+    try {
+      const parsed = JSON.parse(Buffer.from(state, "base64").toString());
+      if (parsed.type !== "ga4" && parsed.type !== "gbp" && parsed.type !== "gsc") {
+        throw new Error("Invalid integration type");
+      }
+      stateData = parsed;
+    } catch {
+      return NextResponse.redirect(
+        new URL("/admin/clients", request.url)
+      );
+    }
+
+    // Verify user matches
+    if (stateData.userId !== user.id) {
+      return NextResponse.redirect(
+        clientUrl(stateData.clientId, "error=user_mismatch")
+      );
+    }
+
+    // Exchange code for tokens
+    const tokens = await getTokensFromCode(code);
+
+    // Encrypt tokens for storage
+    const encryptedAccessToken = encryptToken(tokens.access_token);
+    const encryptedRefreshToken = encryptToken(tokens.refresh_token);
+
+    // Depending on integration type, get account info
+    const adminClient = createAdminClient();
+    let accountId = "";
+    let accountName = "";
+    let metadata: Record<string, unknown> = {};
+
+    if (stateData.type === "ga4") {
+      // Get GA4 properties for user to select
+      const properties = await listGA4Properties(tokens.access_token);
+
+      // For now, just store that we have access - user will select property later
+      metadata = { properties, needsPropertySelection: true };
+      accountId = "pending_selection";
+      accountName = "Google Analytics";
+    } else if (stateData.type === "gbp") {
+      // Get GBP locations (gracefully handle API errors)
+      let locations: Awaited<ReturnType<typeof getGBPLocations>> = [];
+      try {
+        locations = await getGBPLocations(tokens.access_token);
+      } catch (err) {
+        console.error("Failed to fetch GBP locations:", err);
+        // Still save integration — user can retry location fetch from settings
+      }
+
+      if (locations.length === 1) {
+        // Auto-select if only one location
+        accountId = locations[0]!.locationId;
+        accountName = locations[0]!.locationName;
+        metadata = { locations };
+      } else {
+        metadata = { locations, needsLocationSelection: true };
+        accountId = "pending_selection";
+        accountName = "Google Business Profile";
+      }
+    } else if (stateData.type === "gsc") {
+      // Get Search Console sites
+      let sites: Awaited<ReturnType<typeof listGSCSites>> = [];
+      let gscError: string | null = null;
+      try {
+        sites = await listGSCSites(tokens.access_token);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("Failed to fetch GSC sites:", errMsg);
+        gscError = errMsg;
+      }
+
+      if (sites.length === 1) {
+        accountId = sites[0]!.siteUrl;
+        accountName = sites[0]!.siteUrl;
+        metadata = { sites };
+      } else if (sites.length > 1) {
+        metadata = { sites, needsSiteSelection: true };
+        accountId = "pending_selection";
+        accountName = "Google Search Console";
+      } else {
+        // No sites found or API error — still save tokens so user can retry
+        metadata = { sites: [], needsSiteSelection: true, error: gscError || "No verified sites found" };
+        accountId = "pending_selection";
+        accountName = "Google Search Console";
+      }
+    }
+
+    // Delete existing integration of this type for this client (to avoid unique constraint issues on reconnect)
+    await adminClient
+      .from("integrations")
+      .delete()
+      .eq("client_id", stateData.clientId)
+      .eq("type", stateData.type);
+
+    // Insert new integration record
+    const { error: insertError } = await adminClient
+      .from("integrations")
+      .insert({
+        client_id: stateData.clientId,
+        type: stateData.type,
+        account_id: accountId,
+        account_name: accountName,
+        access_token_encrypted: encryptedAccessToken,
+        refresh_token_encrypted: encryptedRefreshToken,
+        token_expires_at: new Date(tokens.expiry_date).toISOString(),
+        metadata,
+        is_active: true,
+      });
+
+    if (insertError) {
+      console.error("Failed to save integration:", insertError);
+      return NextResponse.redirect(
+        clientUrl(stateData.clientId, "error=save_failed")
+      );
+    }
+
+    // Redirect back to client detail page
+    return NextResponse.redirect(
+      clientUrl(stateData.clientId, `success=true&type=${stateData.type}`)
+    );
+  } catch (err) {
+    console.error("Google callback error:", err instanceof Error ? err.message : err);
+    if (process.env.NODE_ENV === "development") {
+      console.error("Stack:", err instanceof Error ? err.stack : "no stack");
+    }
+    return NextResponse.redirect(
+      new URL("/admin/clients?error=callback_failed", request.url)
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/auth/google/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { getAuthUrl } from "@/lib/google";
+import { rateLimit } from "@/lib/rate-limit";
+
+export async function GET(request: NextRequest) {
+  try {
+    // Rate limit: 10 OAuth initiations per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`oauth:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    // Get client_id from query param (required to know which client to connect)
+    const clientId = request.nextUrl.searchParams.get("client_id");
+    const integrationType = request.nextUrl.searchParams.get("type") || "ga4";
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "client_id is required" },
+        { status: 400 }
+      );
+    }
+
+    // Create state for OAuth callback
+    const state = Buffer.from(
+      JSON.stringify({
+        clientId,
+        userId: user.id,
+        type: integrationType,
+      })
+    ).toString("base64");
+
+    const authUrl = getAuthUrl(state);
+    return NextResponse.redirect(authUrl);
+  } catch (err) {
+    console.error("Google auth error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Failed to initiate Google auth" },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/check-website/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import crypto from "crypto";
+
+export async function POST(request: NextRequest) {
+  const supabase = await createClient();
+
+  // Verify user is admin
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  }
+
+  const { websiteId } = await request.json();
+  if (!websiteId) {
+    return NextResponse.json({ error: "Missing websiteId" }, { status: 400 });
+  }
+
+  // Get the website
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, url, content_hash")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return NextResponse.json({ error: "Website not found" }, { status: 404 });
+  }
+
+  // Fetch the live website content
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(website.url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "ClientDashboard-ChangeDetector/1.0",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return NextResponse.json({
+        error: `Website returned ${response.status}`,
+        checked: true,
+        reachable: false,
+      });
+    }
+
+    const html = await response.text();
+
+    // Hash the content (strip dynamic elements like nonces, timestamps)
+    const cleaned = html
+      .replace(/nonce="[^"]*"/g, "")
+      .replace(/\d{10,13}/g, "") // timestamps
+      .replace(/<!--[\s\S]*?-->/g, "") // comments
+      .replace(/\s+/g, " ") // normalize whitespace
+      .trim();
+
+    const newHash = crypto
+      .createHash("sha256")
+      .update(cleaned)
+      .digest("hex");
+
+    const previousHash = website.content_hash;
+    const hasChanges = previousHash !== null && previousHash !== newHash;
+
+    // Update the website record
+    const adminClient = createAdminClient();
+    await adminClient
+      .from("websites")
+      .update({
+        content_hash: newHash,
+        last_checked_at: new Date().toISOString(),
+        has_changes: hasChanges,
+      })
+      .eq("id", websiteId);
+
+    return NextResponse.json({
+      checked: true,
+      reachable: true,
+      hasChanges,
+      isFirstCheck: previousHash === null,
+      lastCheckedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch";
+    return NextResponse.json({
+      error: `Could not reach website: ${message}`,
+      checked: true,
+      reachable: false,
+    });
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/cron/cleanup-cache/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+/**
+ * Cron endpoint: cleans up stale analytics cache entries.
+ * Deletes cache rows older than 24 hours.
+ *
+ * Secured by CRON_SECRET — Vercel Cron automatically sends this header.
+ * Can also be triggered manually with: GET /api/cron/cleanup-cache
+ * with Authorization: Bearer <CRON_SECRET>
+ */
+export async function GET(request: NextRequest) {
+  // Verify cron secret (Vercel sends it automatically for cron jobs)
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const supabase = createAdminClient();
+
+    // Delete analytics cache entries older than 24 hours
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabase
+      .from("analytics_cache")
+      .delete()
+      .lt("fetched_at", cutoff)
+      .select("id");
+
+    if (error) {
+      console.error("Cache cleanup error:", error.message);
+      return NextResponse.json(
+        { error: "Cleanup failed", details: error.message },
+        { status: 500 }
+      );
+    }
+
+    const deletedCount = data?.length || 0;
+    console.log(`Cache cleanup: deleted ${deletedCount} stale entries`);
+
+    return NextResponse.json({
+      success: true,
+      deleted: deletedCount,
+      cutoff,
+    });
+  } catch (err) {
+    console.error("Cache cleanup error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Cleanup failed" },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/debug-gbp/route.ts
+========================================
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/actions/profile";
+import { decryptToken } from "@/lib/google";
+import { google } from "googleapis";
+
+export async function GET() {
+  try {
+    const profile = await getProfile();
+    if (!profile || profile.role !== "admin") {
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    }
+
+    // Find any GBP integration
+    const supabase = await createClient();
+    const { data: integration } = await supabase
+      .from("integrations")
+      .select("*")
+      .eq("type", "gbp")
+      .eq("is_active", true)
+      .limit(1)
+      .single();
+
+    if (!integration) {
+      return NextResponse.json({ error: "No GBP integration found" });
+    }
+
+    const integrationData = integration as Record<string, unknown>;
+    const accessToken = decryptToken(integrationData.access_token_encrypted as string);
+
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+
+    // Step 1: List accounts
+    const mybusiness = google.mybusinessaccountmanagement({
+      version: "v1",
+      auth: oauth2Client,
+    });
+
+    let accountsData;
+    try {
+      const accountsResponse = await mybusiness.accounts.list();
+      accountsData = accountsResponse.data;
+    } catch (err) {
+      return NextResponse.json({
+        step: "accounts.list",
+        error: err instanceof Error ? err.message : String(err),
+        hint: "My Business Account Management API may not be enabled",
+      });
+    }
+
+    const accounts = accountsData.accounts || [];
+
+    // Step 2: For each account, list locations
+    const results = [];
+    for (const account of accounts) {
+      if (!account.name) continue;
+
+      const businessInfo = google.mybusinessbusinessinformation({
+        version: "v1",
+        auth: oauth2Client,
+      });
+
+      try {
+        const locationsResponse = await businessInfo.accounts.locations.list({
+          parent: account.name,
+          readMask: "name,title",
+        });
+        results.push({
+          account: { name: account.name, accountName: account.accountName, type: account.type },
+          locations: locationsResponse.data.locations || [],
+          locationsCount: (locationsResponse.data.locations || []).length,
+        });
+      } catch (err) {
+        results.push({
+          account: { name: account.name, accountName: account.accountName, type: account.type },
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return NextResponse.json({
+      accountsCount: accounts.length,
+      accounts: accounts.map(a => ({ name: a.name, accountName: a.accountName, type: a.type })),
+      locationResults: results,
+      integrationId: integrationData.id,
+      metadata: integrationData.metadata,
+    });
+  } catch (err) {
+    return NextResponse.json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/health/route.ts
+========================================
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  });
+}
+
+
+
+========================================
+FILE: ./app/api/push/subscribe/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { rateLimit } from "@/lib/rate-limit";
+
+export async function POST(request: NextRequest) {
+  try {
+    // Rate limit: 10 subscription changes per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const subscription = await request.json();
+
+    if (!subscription?.endpoint || !subscription?.keys) {
+      return NextResponse.json(
+        { error: "Invalid subscription data" },
+        { status: 400 }
+      );
+    }
+
+    // Store subscription in database
+    const { error } = await supabase.from("push_subscriptions").upsert(
+      {
+        user_id: user.id,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "endpoint",
+      }
+    );
+
+    if (error) {
+      console.error("Failed to save subscription:", error);
+      return NextResponse.json(
+        { error: "Failed to save subscription" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Subscription error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Invalid request" },
+      { status: 400 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    // Rate limit: 10 per minute per IP (shared with POST)
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`push:${ip}`, { windowMs: 60_000, maxRequests: 10 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { endpoint } = await request.json();
+
+    if (!endpoint) {
+      return NextResponse.json(
+        { error: "Missing endpoint" },
+        { status: 400 }
+      );
+    }
+
+    const { error } = await supabase
+      .from("push_subscriptions")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("endpoint", endpoint);
+
+    if (error) {
+      console.error("Failed to delete subscription:", error);
+      return NextResponse.json(
+        { error: "Failed to delete subscription" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Unsubscribe error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Invalid request" },
+      { status: 400 }
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/reports/[id]/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import type { Report } from "@/types/database";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+
+    // Verify user is authenticated
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get report record (RLS will filter by client access)
+    const { data: report, error } = await supabase
+      .from("reports")
+      .select("*")
+      .eq("id", id)
+      .single<Report>();
+
+    if (error || !report) {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    }
+
+    // Generate signed URL for download
+    const { data: urlData, error: urlError } = await supabase.storage
+      .from("reports")
+      .createSignedUrl(report.file_path, 60 * 60); // 1 hour
+
+    if (urlError || !urlData?.signedUrl) {
+      return NextResponse.json(
+        { error: "Failed to generate download link" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      downloadUrl: urlData.signedUrl,
+      report: {
+        id: report.id,
+        periodStart: report.period_start,
+        periodEnd: report.period_end,
+        generatedAt: report.generated_at,
+        fileSize: report.file_size,
+      },
+    });
+  } catch (err) {
+    console.error("Report download error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Failed to get report" },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/reports/generate/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { generateClientReport, generateAllMonthlyReports } from "@/lib/reports/generate";
+import { getLastMonthPeriod } from "@/lib/reports/gather-data";
+import { startOfMonth, endOfMonth, parse } from "date-fns";
+import { rateLimit } from "@/lib/rate-limit";
+
+export async function POST(request: NextRequest) {
+  try {
+    // Rate limit: 5 report generations per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`reports:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+    const supabase = await createClient();
+
+    // Verify user is admin
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { clientId, period, sendEmail, generateAll } = body as {
+      clientId?: string;
+      period?: string; // "YYYY-MM" format
+      sendEmail?: boolean;
+      generateAll?: boolean;
+    };
+
+    // Parse period or use last month
+    let periodStart: Date;
+    let periodEnd: Date;
+
+    if (period) {
+      const date = parse(period, "yyyy-MM", new Date());
+      periodStart = startOfMonth(date);
+      periodEnd = endOfMonth(date);
+    } else {
+      const lastMonth = getLastMonthPeriod();
+      periodStart = lastMonth.start;
+      periodEnd = lastMonth.end;
+    }
+
+    // Generate all reports or single client
+    if (generateAll) {
+      const result = await generateAllMonthlyReports({ sendEmail });
+      return NextResponse.json(result);
+    }
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "clientId or generateAll required" },
+        { status: 400 }
+      );
+    }
+
+    const result = await generateClientReport(clientId, periodStart, periodEnd, {
+      sendEmail,
+    });
+
+    if (result.success) {
+      return NextResponse.json({ success: true, reportId: result.reportId });
+    } else {
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+  } catch (err) {
+    console.error("Report generation error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Failed to generate report" },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/tools/broken-links/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/rate-limit";
+
+const MAX_LINKS = 50;
+const FETCH_TIMEOUT = 5000;
+
+function extractLinks(html: string, baseUrl: string): string[] {
+  const linkRegex = /<a[^>]+href=["']([^"'#]+)["']/gi;
+  const links = new Set<string>();
+  let match;
+
+  while ((match = linkRegex.exec(html)) !== null) {
+    const href = match[1];
+    if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) {
+      continue;
+    }
+
+    try {
+      const resolved = new URL(href, baseUrl).href;
+      links.add(resolved);
+    } catch {
+      // Skip invalid URLs
+    }
+  }
+
+  return Array.from(links).slice(0, MAX_LINKS);
+}
+
+async function checkLink(url: string): Promise<{ url: string; statusCode: number | null; error: string | null; type: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { "User-Agent": "ClientDashboard-LinkChecker/1.0" },
+    });
+    clearTimeout(timeout);
+
+    return {
+      url,
+      statusCode: res.status,
+      error: res.ok ? null : `HTTP ${res.status}`,
+      type: "head",
+    };
+  } catch {
+    clearTimeout(timeout);
+    // Try GET as fallback (some servers reject HEAD)
+    const controller2 = new AbortController();
+    const timeout2 = setTimeout(() => controller2.abort(), FETCH_TIMEOUT);
+
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        signal: controller2.signal,
+        redirect: "follow",
+        headers: { "User-Agent": "ClientDashboard-LinkChecker/1.0" },
+      });
+      clearTimeout(timeout2);
+
+      return {
+        url,
+        statusCode: res.status,
+        error: res.ok ? null : `HTTP ${res.status}`,
+        type: "get",
+      };
+    } catch (e) {
+      clearTimeout(timeout2);
+      return {
+        url,
+        statusCode: null,
+        error: e instanceof Error ? e.message : "Connection failed",
+        type: "error",
+      };
+    }
+  }
+}
+
+export async function POST(request: NextRequest) {
+  // Rate limit
+  const ip = request.headers.get("x-forwarded-for") || "unknown";
+  const limit = await rateLimit(`tools:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  // Auth check
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+  }
+
+  // Parse request
+  const body = await request.json();
+  const { websiteId } = body as { websiteId: string };
+
+  if (!websiteId) {
+    return NextResponse.json({ error: "websiteId required" }, { status: 400 });
+  }
+
+  // Get website
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, url, name, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return NextResponse.json({ error: "Website not found" }, { status: 404 });
+  }
+
+  const startTime = Date.now();
+  const admin = createAdminClient();
+
+  // Create check record
+  const { data: checkRow } = await admin
+    .from("site_checks")
+    .insert({
+      website_id: website.id,
+      client_id: website.client_id,
+      check_type: "broken_links" as const,
+      status: "running" as const,
+      score: null,
+      summary: {},
+      results: [],
+      duration_ms: null,
+    })
+    .select("id")
+    .single();
+
+  const checkId = (checkRow as { id: string } | null)?.id;
+
+  if (!checkId) {
+    return NextResponse.json({ error: "Failed to create check" }, { status: 500 });
+  }
+
+  try {
+    // Fetch homepage
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const pageRes = await fetch(website.url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "ClientDashboard-LinkChecker/1.0" },
+    });
+    clearTimeout(timeout);
+
+    if (!pageRes.ok) {
+      throw new Error(`Failed to fetch homepage: HTTP ${pageRes.status}`);
+    }
+
+    const html = await pageRes.text();
+    const links = extractLinks(html, website.url);
+
+    // Check all links concurrently (batches of 10)
+    const results: { url: string; statusCode: number | null; error: string | null; type: string; isInternal: boolean }[] = [];
+    const baseHost = new URL(website.url).hostname;
+
+    for (let i = 0; i < links.length; i += 10) {
+      const batch = links.slice(i, i + 10);
+      const batchResults = await Promise.all(batch.map(checkLink));
+
+      for (const r of batchResults) {
+        let isInternal = false;
+        try {
+          isInternal = new URL(r.url).hostname === baseHost;
+        } catch { /* external */ }
+
+        results.push({ ...r, isInternal });
+      }
+    }
+
+    const brokenLinks = results.filter((r) => r.statusCode === null || r.statusCode >= 400);
+    const duration = Date.now() - startTime;
+
+    const summary = {
+      totalLinks: results.length,
+      brokenCount: brokenLinks.length,
+      internalBroken: brokenLinks.filter((r) => r.isInternal).length,
+      externalBroken: brokenLinks.filter((r) => !r.isInternal).length,
+    };
+
+    // Update check record
+    await admin
+      .from("site_checks")
+      .update({
+        status: "completed" as const,
+        summary,
+        results: results as unknown as Record<string, unknown>[],
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: true,
+      checkId: checkId,
+      summary,
+      results,
+      duration,
+    });
+  } catch (e) {
+    const duration = Date.now() - startTime;
+
+    await admin
+      .from("site_checks")
+      .update({
+        status: "failed" as const,
+        summary: { error: e instanceof Error ? e.message : "Unknown error" },
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: false,
+      checkId: checkId,
+      error: e instanceof Error ? e.message : "Check failed",
+    }, { status: 500 });
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/tools/seo-audit/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/rate-limit";
+
+const FETCH_TIMEOUT = 10000;
+const MAX_PAGES = 20;
+
+type SeoItem = {
+  name: string;
+  status: "pass" | "fail" | "warning";
+  value: string | null;
+  details: string;
+  weight: number;
+};
+
+type PageAudit = {
+  url: string;
+  path: string;
+  items: SeoItem[];
+  score: number;
+  passed: number;
+  warnings: number;
+  failed: number;
+};
+
+// ─── HTML analyzer (works on any page) ──────────────────────────────
+
+function analyzeHtml(html: string, _url: string): SeoItem[] {
+  const items: SeoItem[] = [];
+
+  // 1. Title tag
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const title = titleMatch ? titleMatch[1]?.trim() || null : null;
+  const titleLen = title?.length || 0;
+  items.push({
+    name: "Page Title",
+    status: !title ? "fail" : titleLen < 30 || titleLen > 65 ? "warning" : "pass",
+    value: title,
+    details: !title
+      ? "Missing <title> tag"
+      : titleLen < 30
+        ? `Too short (${titleLen} chars, recommended 50-60)`
+        : titleLen > 65
+          ? `Too long (${titleLen} chars, recommended 50-60)`
+          : `Good length (${titleLen} chars)`,
+    weight: 15,
+  });
+
+  // 2. Meta description
+  const descMatch = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i);
+  const desc = descMatch ? descMatch[1]?.trim() || null : null;
+  const descLen = desc?.length || 0;
+  items.push({
+    name: "Meta Description",
+    status: !desc ? "fail" : descLen < 120 || descLen > 165 ? "warning" : "pass",
+    value: desc ? (desc.length > 80 ? desc.substring(0, 80) + "..." : desc) : null,
+    details: !desc
+      ? "Missing meta description"
+      : descLen < 120
+        ? `Too short (${descLen} chars, recommended 150-160)`
+        : descLen > 165
+          ? `Too long (${descLen} chars, recommended 150-160)`
+          : `Good length (${descLen} chars)`,
+    weight: 10,
+  });
+
+  // 3. H1 tag — exactly one
+  const h1Matches = html.match(/<h1[^>]*>/gi) || [];
+  const h1Content = html.match(/<h1[^>]*>([^<]*)<\/h1>/i);
+  items.push({
+    name: "H1 Tag",
+    status: h1Matches.length === 1 ? "pass" : h1Matches.length === 0 ? "fail" : "warning",
+    value: h1Content ? h1Content[1]?.trim() || null : null,
+    details: h1Matches.length === 0
+      ? "No H1 tag found"
+      : h1Matches.length > 1
+        ? `Multiple H1 tags found (${h1Matches.length})`
+        : "Single H1 tag present",
+    weight: 10,
+  });
+
+  // 4. Heading hierarchy
+  const headingRegex = /<h([1-6])[^>]*>/gi;
+  const headings: number[] = [];
+  let headingMatch;
+  while ((headingMatch = headingRegex.exec(html)) !== null) {
+    headings.push(parseInt(headingMatch[1]!, 10));
+  }
+
+  let hierarchyOk = true;
+  let hierarchyDetails = "Proper heading hierarchy";
+  for (let i = 1; i < headings.length; i++) {
+    const current = headings[i]!;
+    const previous = headings[i - 1]!;
+    if (current > previous + 1) {
+      hierarchyOk = false;
+      hierarchyDetails = `Skipped heading level: H${previous} → H${current}`;
+      break;
+    }
+  }
+  items.push({
+    name: "Heading Hierarchy",
+    status: headings.length === 0 ? "warning" : hierarchyOk ? "pass" : "warning",
+    value: headings.length > 0 ? headings.map((h) => `H${h}`).join(" → ") : null,
+    details: headings.length === 0 ? "No headings found" : hierarchyDetails,
+    weight: 8,
+  });
+
+  // 5. Image alt texts
+  const imgRegex = /<img[^>]*>/gi;
+  const imgs = html.match(imgRegex) || [];
+  const missingAlt = imgs.filter((img) => !img.match(/alt=["'][^"']+["']/i));
+  items.push({
+    name: "Image Alt Text",
+    status: imgs.length === 0 ? "pass" : missingAlt.length === 0 ? "pass" : missingAlt.length <= 2 ? "warning" : "fail",
+    value: `${imgs.length - missingAlt.length}/${imgs.length} images have alt text`,
+    details: imgs.length === 0
+      ? "No images found"
+      : missingAlt.length === 0
+        ? "All images have alt text"
+        : `${missingAlt.length} of ${imgs.length} images missing alt text`,
+    weight: 8,
+  });
+
+  // 6. Open Graph tags
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i);
+  const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i);
+  const ogImage = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']*)["']/i);
+  const ogCount = [ogTitle, ogDesc, ogImage].filter(Boolean).length;
+  items.push({
+    name: "Open Graph Tags",
+    status: ogCount === 3 ? "pass" : ogCount > 0 ? "warning" : "fail",
+    value: `${ogCount}/3 OG tags present`,
+    details: ogCount === 3
+      ? "og:title, og:description, og:image all present"
+      : `Missing: ${[!ogTitle && "og:title", !ogDesc && "og:description", !ogImage && "og:image"].filter(Boolean).join(", ")}`,
+    weight: 10,
+  });
+
+  // 7. Canonical URL
+  const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']*)["']/i);
+  items.push({
+    name: "Canonical URL",
+    status: canonical ? "pass" : "warning",
+    value: canonical ? canonical[1] || null : null,
+    details: canonical ? "Canonical URL set" : "No canonical URL specified",
+    weight: 7,
+  });
+
+  // 8. Robots meta
+  const robots = html.match(/<meta[^>]+name=["']robots["'][^>]+content=["']([^"']*)["']/i);
+  const hasNoindex = robots && robots[1]?.includes("noindex");
+  items.push({
+    name: "Robots Meta",
+    status: hasNoindex ? "warning" : "pass",
+    value: robots ? robots[1] || null : "Not set (default: index, follow)",
+    details: hasNoindex ? "Page set to noindex" : robots ? "Robots directive present" : "No robots meta (defaults to index, follow)",
+    weight: 7,
+  });
+
+  // Viewport meta
+  const viewport = html.match(/<meta[^>]+name=["']viewport["'][^>]+content=["']([^"']*)["']/i);
+  items.push({
+    name: "Viewport Meta",
+    status: viewport ? "pass" : "fail",
+    value: viewport ? "Set" : null,
+    details: viewport ? "Mobile viewport configured" : "Missing viewport meta tag — bad for mobile",
+    weight: 5,
+  });
+
+  // Language attribute
+  const lang = html.match(/<html[^>]+lang=["']([^"']*)["']/i);
+  items.push({
+    name: "HTML Lang Attribute",
+    status: lang ? "pass" : "warning",
+    value: lang ? lang[1] || null : null,
+    details: lang ? `Language set to "${lang[1]}"` : "No lang attribute on <html> tag",
+    weight: 5,
+  });
+
+  // Charset
+  const charset = html.match(/<meta[^>]+charset=["']([^"']*)["']/i)
+    || html.match(/<meta[^>]+content=["'][^"']*charset=([^"'\s;]+)/i);
+  items.push({
+    name: "Character Encoding",
+    status: charset ? "pass" : "warning",
+    value: charset ? charset[1] || null : null,
+    details: charset ? `Charset: ${charset[1]}` : "No charset declaration found",
+    weight: 5,
+  });
+
+  return items;
+}
+
+// ─── Fetch a page with timeout ──────────────────────────────────────
+
+async function fetchPage(url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+// ─── Parse sitemap XML (handles both index and regular) ─────────────
+
+async function parseSitemapXml(xml: string): Promise<string[]> {
+  const urls: string[] = [];
+
+  // Check if this is a sitemap index (contains <sitemap> tags)
+  const sitemapIndexMatches = xml.match(/<sitemap>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/sitemap>/gi);
+
+  if (sitemapIndexMatches && sitemapIndexMatches.length > 0) {
+    // It's a sitemap index — fetch child sitemaps
+    for (const match of sitemapIndexMatches) {
+      const locMatch = match.match(/<loc>([^<]+)<\/loc>/i);
+      if (!locMatch?.[1]) continue;
+      const childUrl = locMatch[1].trim();
+
+      const childHtml = await fetchPage(childUrl);
+      if (!childHtml) continue;
+
+      // Extract URLs from child sitemap
+      const locMatches = childHtml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+      for (const m of locMatches) {
+        if (m[1]) urls.push(m[1].trim());
+        if (urls.length >= MAX_PAGES) break;
+      }
+
+      if (urls.length >= MAX_PAGES) break;
+    }
+  } else {
+    // Regular sitemap — extract URLs directly
+    const locMatches = xml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/url>/gi);
+    for (const m of locMatches) {
+      if (m[1]) urls.push(m[1].trim());
+      if (urls.length >= MAX_PAGES) break;
+    }
+  }
+
+  return urls;
+}
+
+// ─── Get URLs from sitemap ──────────────────────────────────────────
+
+async function getUrlsFromSitemap(baseUrl: string): Promise<string[]> {
+  // Try multiple common sitemap locations
+  const sitemapPaths = [
+    "/sitemap.xml",           // Standard
+    "/sitemap_index.xml",     // Yoast SEO
+    "/wp-sitemap.xml",        // WordPress core (5.5+)
+  ];
+
+  for (const path of sitemapPaths) {
+    try {
+      const sitemapUrl = new URL(path, baseUrl).href;
+      const xml = await fetchPage(sitemapUrl);
+      if (!xml) continue;
+
+      const urls = await parseSitemapXml(xml);
+      if (urls.length > 0) return urls;
+    } catch {
+      // Try next path
+    }
+  }
+
+  return [];
+}
+
+// ─── Calculate score for a set of items ─────────────────────────────
+
+function calcScore(items: SeoItem[]): number {
+  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight === 0) return 0;
+  const earnedWeight = items.reduce((sum, item) => {
+    if (item.status === "pass") return sum + item.weight;
+    if (item.status === "warning") return sum + item.weight * 0.5;
+    return sum;
+  }, 0);
+  return Math.round((earnedWeight / totalWeight) * 100);
+}
+
+// ─── Route handler ──────────────────────────────────────────────────
+
+export async function POST(request: NextRequest) {
+  // Rate limit
+  const ip = request.headers.get("x-forwarded-for") || "unknown";
+  const limit = await rateLimit(`tools:seo:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  // Auth check
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+  }
+
+  // Parse request
+  const body = await request.json();
+  const { websiteId } = body as { websiteId: string };
+
+  if (!websiteId) {
+    return NextResponse.json({ error: "websiteId required" }, { status: 400 });
+  }
+
+  // Get website
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, url, name, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return NextResponse.json({ error: "Website not found" }, { status: 404 });
+  }
+
+  const startTime = Date.now();
+  const admin = createAdminClient();
+
+  // Create check record
+  const { data: checkRow } = await admin
+    .from("site_checks")
+    .insert({
+      website_id: website.id,
+      client_id: website.client_id,
+      check_type: "seo_audit" as const,
+      status: "running" as const,
+      score: null,
+      summary: {},
+      results: [],
+      duration_ms: null,
+    })
+    .select("id")
+    .single();
+
+  const checkId = (checkRow as { id: string } | null)?.id;
+
+  if (!checkId) {
+    return NextResponse.json({ error: "Failed to create check" }, { status: 500 });
+  }
+
+  try {
+    // 1. Get all page URLs from sitemap
+    let pageUrls = await getUrlsFromSitemap(website.url);
+
+    // Always ensure homepage is included and first
+    const normalizedBase = website.url.replace(/\/$/, "");
+    pageUrls = pageUrls.filter(
+      (u) => u.replace(/\/$/, "") !== normalizedBase
+    );
+    pageUrls.unshift(website.url);
+
+    // Cap at MAX_PAGES
+    pageUrls = pageUrls.slice(0, MAX_PAGES);
+
+    // 2. Audit each page
+    const pageAudits: PageAudit[] = [];
+
+    for (const pageUrl of pageUrls) {
+      const html = await fetchPage(pageUrl);
+      if (!html) continue;
+
+      const items = analyzeHtml(html, pageUrl);
+      const score = calcScore(items);
+
+      let path: string;
+      try {
+        path = new URL(pageUrl).pathname || "/";
+      } catch {
+        path = pageUrl;
+      }
+
+      pageAudits.push({
+        url: pageUrl,
+        path,
+        items,
+        score,
+        passed: items.filter((i) => i.status === "pass").length,
+        warnings: items.filter((i) => i.status === "warning").length,
+        failed: items.filter((i) => i.status === "fail").length,
+      });
+    }
+
+    // 3. Site-wide checks (only once, not per page)
+    const siteWideItems: SeoItem[] = [];
+
+    // Check sitemap (try multiple paths)
+    let sitemapFound = false;
+    for (const spath of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
+      try {
+        const sitemapUrl = new URL(spath, website.url).href;
+        const sitemapRes = await fetch(sitemapUrl, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(5000),
+          headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
+        });
+        if (sitemapRes.ok) {
+          siteWideItems.push({
+            name: "Sitemap",
+            status: "pass",
+            value: sitemapUrl,
+            details: `Sitemap found at ${spath}`,
+            weight: 10,
+          });
+          sitemapFound = true;
+          break;
+        }
+      } catch {
+        // Try next
+      }
+    }
+    if (!sitemapFound) {
+      siteWideItems.push({
+        name: "Sitemap",
+        status: "warning",
+        value: null,
+        details: "No sitemap found (checked sitemap.xml, sitemap_index.xml, wp-sitemap.xml)",
+        weight: 10,
+      });
+    }
+
+    // Check robots.txt
+    try {
+      const robotsUrl = new URL("/robots.txt", website.url).href;
+      const robotsRes = await fetch(robotsUrl, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(5000),
+        headers: { "User-Agent": "ClientDashboard-SEOAuditor/1.0" },
+      });
+      siteWideItems.push({
+        name: "Robots.txt",
+        status: robotsRes.ok ? "pass" : "warning",
+        value: robotsRes.ok ? robotsUrl : null,
+        details: robotsRes.ok ? "Robots.txt found" : "No robots.txt found",
+        weight: 5,
+      });
+    } catch {
+      siteWideItems.push({
+        name: "Robots.txt",
+        status: "warning",
+        value: null,
+        details: "Could not check robots.txt",
+        weight: 5,
+      });
+    }
+
+    // 4. Calculate overall score (average of all page scores + site-wide)
+    const siteWideScore = calcScore(siteWideItems);
+    const allPageScores = pageAudits.map((p) => p.score);
+    const avgPageScore = allPageScores.length > 0
+      ? Math.round(allPageScores.reduce((a, b) => a + b, 0) / allPageScores.length)
+      : 0;
+
+    // Weight: 80% page average, 20% site-wide
+    const overallScore = Math.round(avgPageScore * 0.8 + siteWideScore * 0.2);
+
+    const totalPassed = pageAudits.reduce((s, p) => s + p.passed, 0) + siteWideItems.filter((i) => i.status === "pass").length;
+    const totalWarnings = pageAudits.reduce((s, p) => s + p.warnings, 0) + siteWideItems.filter((i) => i.status === "warning").length;
+    const totalFailed = pageAudits.reduce((s, p) => s + p.failed, 0) + siteWideItems.filter((i) => i.status === "fail").length;
+    const totalChecks = totalPassed + totalWarnings + totalFailed;
+
+    const duration = Date.now() - startTime;
+
+    const summary = {
+      score: overallScore,
+      totalChecks,
+      passed: totalPassed,
+      warnings: totalWarnings,
+      failed: totalFailed,
+      pagesAudited: pageAudits.length,
+      pagesFound: pageUrls.length,
+    };
+
+    // Build flat results for storage (for backward compatibility with DB schema)
+    // Include page path in item name for multi-page results
+    const flatResults: (SeoItem & { page?: string })[] = [];
+    for (const page of pageAudits) {
+      for (const item of page.items) {
+        flatResults.push({ ...item, page: page.path });
+      }
+    }
+    for (const item of siteWideItems) {
+      flatResults.push({ ...item, page: "site-wide" });
+    }
+
+    // Update check record
+    await admin
+      .from("site_checks")
+      .update({
+        status: "completed" as const,
+        score: overallScore,
+        summary,
+        results: flatResults as unknown as Record<string, unknown>[],
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: true,
+      checkId,
+      score: overallScore,
+      summary,
+      pages: pageAudits,
+      siteWide: siteWideItems,
+      results: flatResults,
+      duration,
+    });
+  } catch (e) {
+    const duration = Date.now() - startTime;
+
+    await admin
+      .from("site_checks")
+      .update({
+        status: "failed" as const,
+        summary: { error: e instanceof Error ? e.message : "Unknown error" },
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: false,
+      checkId,
+      error: e instanceof Error ? e.message : "Audit failed",
+    }, { status: 500 });
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/tools/uptime/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/rate-limit";
+
+export async function POST(request: NextRequest) {
+  // Rate limit
+  const ip = request.headers.get("x-forwarded-for") || "unknown";
+  const limit = await rateLimit(`tools:uptime:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  // Auth check
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+  }
+
+  // Parse request
+  const body = await request.json();
+  const { websiteId } = body as { websiteId: string };
+
+  if (!websiteId) {
+    return NextResponse.json({ error: "websiteId required" }, { status: 400 });
+  }
+
+  // Get website
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, url, name, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return NextResponse.json({ error: "Website not found" }, { status: 404 });
+  }
+
+  const startTime = Date.now();
+  const admin = createAdminClient();
+
+  // Create check record
+  const { data: checkRow } = await admin
+    .from("site_checks")
+    .insert({
+      website_id: website.id,
+      client_id: website.client_id,
+      check_type: "uptime" as const,
+      status: "running" as const,
+      score: null,
+      summary: {},
+      results: [],
+      duration_ms: null,
+    })
+    .select("id")
+    .single();
+
+  const checkId = (checkRow as { id: string } | null)?.id;
+
+  if (!checkId) {
+    return NextResponse.json({ error: "Failed to create check" }, { status: 500 });
+  }
+
+  try {
+    const results: Record<string, unknown>[] = [];
+
+    // 1. HTTP Status + Response Time
+    const fetchStart = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const pageRes = await fetch(website.url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { "User-Agent": "ClientDashboard-UptimeMonitor/1.0" },
+    });
+    clearTimeout(timeout);
+    const responseTime = Date.now() - fetchStart;
+
+    const isUp = pageRes.ok;
+    const statusCode = pageRes.status;
+
+    results.push({
+      name: "HTTP Status",
+      status: isUp ? "pass" : "fail",
+      value: `${statusCode} ${pageRes.statusText}`,
+      details: isUp ? "Website is reachable" : `Returned HTTP ${statusCode}`,
+    });
+
+    results.push({
+      name: "Response Time",
+      status: responseTime < 1000 ? "pass" : responseTime < 3000 ? "warning" : "fail",
+      value: `${responseTime}ms`,
+      details: responseTime < 1000
+        ? "Fast response"
+        : responseTime < 3000
+          ? "Moderate response time"
+          : "Slow response time",
+    });
+
+    // 2. SSL Certificate check
+    const urlObj = new URL(website.url);
+    if (urlObj.protocol === "https:") {
+      // We can't directly check SSL from Node, but we can verify HTTPS works
+      // and check via headers
+      const isSecure = pageRes.url.startsWith("https://");
+      results.push({
+        name: "SSL/HTTPS",
+        status: isSecure ? "pass" : "fail",
+        value: isSecure ? "Valid" : "Not secure",
+        details: isSecure ? "HTTPS connection established" : "Site not served over HTTPS",
+      });
+
+      // Check for HSTS header
+      const hsts = pageRes.headers.get("strict-transport-security");
+      results.push({
+        name: "HSTS Header",
+        status: hsts ? "pass" : "warning",
+        value: hsts ? "Enabled" : "Not set",
+        details: hsts ? "Strict Transport Security enabled" : "HSTS not configured",
+      });
+    } else {
+      results.push({
+        name: "SSL/HTTPS",
+        status: "fail",
+        value: "Not using HTTPS",
+        details: "Website not served over HTTPS — insecure",
+      });
+    }
+
+    // 3. Security headers
+    const secHeaders = [
+      {
+        name: "X-Frame-Options",
+        header: pageRes.headers.get("x-frame-options"),
+        description: "Clickjacking protection",
+      },
+      {
+        name: "X-Content-Type-Options",
+        header: pageRes.headers.get("x-content-type-options"),
+        description: "MIME type sniffing protection",
+      },
+      {
+        name: "Content-Security-Policy",
+        header: pageRes.headers.get("content-security-policy"),
+        description: "Content security policy",
+      },
+    ];
+
+    for (const sh of secHeaders) {
+      results.push({
+        name: sh.name,
+        status: sh.header ? "pass" : "warning",
+        value: sh.header ? "Set" : "Missing",
+        details: sh.header ? `${sh.description}: configured` : `${sh.description}: not set`,
+      });
+    }
+
+    // 4. Page size
+    const contentLength = pageRes.headers.get("content-length");
+    const body = await pageRes.text();
+    const pageSize = contentLength ? parseInt(contentLength, 10) : body.length;
+    const pageSizeKb = Math.round(pageSize / 1024);
+
+    results.push({
+      name: "Page Size",
+      status: pageSizeKb < 500 ? "pass" : pageSizeKb < 2000 ? "warning" : "fail",
+      value: pageSizeKb < 1024 ? `${pageSizeKb} KB` : `${(pageSizeKb / 1024).toFixed(1)} MB`,
+      details: pageSizeKb < 500
+        ? "Good page size"
+        : pageSizeKb < 2000
+          ? "Moderate page size"
+          : "Large page size — consider optimization",
+    });
+
+    // 5. Compression
+    const encoding = pageRes.headers.get("content-encoding");
+    results.push({
+      name: "Compression",
+      status: encoding ? "pass" : "warning",
+      value: encoding || "None",
+      details: encoding ? `${encoding} compression enabled` : "No compression detected",
+    });
+
+    // 6. Redirect chain
+    const finalUrl = pageRes.url;
+    const hasRedirect = finalUrl !== website.url && new URL(finalUrl).pathname !== new URL(website.url).pathname;
+    results.push({
+      name: "Redirects",
+      status: hasRedirect ? "warning" : "pass",
+      value: hasRedirect ? `Redirected to ${finalUrl}` : "No redirects",
+      details: hasRedirect ? "URL redirects to a different page" : "Direct access, no redirects",
+    });
+
+    const duration = Date.now() - startTime;
+
+    const passCount = results.filter((r) => r.status === "pass").length;
+    const warnCount = results.filter((r) => r.status === "warning").length;
+    const failCount = results.filter((r) => r.status === "fail").length;
+
+    const summary = {
+      isUp,
+      statusCode,
+      responseTime,
+      pageSize: pageSizeKb,
+      totalChecks: results.length,
+      passed: passCount,
+      warnings: warnCount,
+      failed: failCount,
+    };
+
+    // Update check record
+    await admin
+      .from("site_checks")
+      .update({
+        status: "completed" as const,
+        summary,
+        results,
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: true,
+      checkId: checkId,
+      summary,
+      results,
+      duration,
+    });
+  } catch (e) {
+    const duration = Date.now() - startTime;
+
+    await admin
+      .from("site_checks")
+      .update({
+        status: "failed" as const,
+        summary: {
+          isUp: false,
+          error: e instanceof Error ? e.message : "Unknown error",
+        },
+        duration_ms: duration,
+      })
+      .eq("id", checkId);
+
+    return NextResponse.json({
+      success: false,
+      checkId: checkId,
+      error: e instanceof Error ? e.message : "Check failed",
+      summary: { isUp: false },
+    }, { status: 500 });
+  }
+}
+
+
+
+========================================
+FILE: ./app/api/webhooks/lead/route.ts
+========================================
+import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendNewLeadNotifications } from "@/lib/notifications/lead-notifications";
+import { rateLimit } from "@/lib/rate-limit";
+import type { WebhookLeadPayload } from "@/types/api";
+import type { Website } from "@/types/database";
+
+// Rate limit: 30 requests per minute per API key, 60 per minute per IP
+const RATE_LIMIT_PER_KEY = { windowMs: 60_000, maxRequests: 30 };
+const RATE_LIMIT_PER_IP = { windowMs: 60_000, maxRequests: 60 };
+
+/** Truncate and strip control characters from a string value */
+function sanitize(value: unknown, maxLength: number): string | null {
+  if (value === null || value === undefined) return null;
+  const str = String(value).trim();
+  if (str.length === 0) return null;
+  // Strip control characters (except newlines/tabs in messages)
+  const cleaned = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  return cleaned.slice(0, maxLength) || null;
+}
+
+/** Validate email format loosely (no need to be RFC-perfect for leads) */
+function sanitizeEmail(value: unknown): string | null {
+  const email = sanitize(value, 255);
+  if (!email) return null;
+  // Basic email format check
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.toLowerCase() : null;
+}
+
+/** Strip non-phone characters, keep digits and common phone symbols */
+function sanitizePhone(value: unknown): string | null {
+  const phone = sanitize(value, 50);
+  if (!phone) return null;
+  // Keep digits, +, -, (, ), spaces, dots
+  const cleaned = phone.replace(/[^\d+\-().  ]/g, "");
+  // Must have at least 6 digits to be a phone number
+  const digitCount = cleaned.replace(/\D/g, "").length;
+  return digitCount >= 6 ? cleaned : null;
+}
+
+// Known field name patterns for multi-language support
+const NAME_KEYS = /^(name|full_name|first_name|last_name|your_name|nume|nom|nombre|nome|naam|имя|vorname|nachname|prenume|nume_complet)$/i;
+const EMAIL_KEYS = /^(email|your_email|e-?mail|correo|courriel|почта|adresa_email|email_adres)$/i;
+const PHONE_KEYS = /^(phone|tel|telephone|your_phone|telefon|telefono|téléphone|телефон|mobil|celular|telefoon|numar_telefon|gsm)$/i;
+const MESSAGE_KEYS = /^(message|your_message|comment|mesaj|mensaje|messaggio|сообщение|nachricht|comentario|bericht|mesajul)$/i;
+const FORM_NAME_KEYS = /^(form_name|form_id|formName|form_title)$/i;
+// Keys to skip when auto-detecting fields
+const SKIP_KEYS = /^(key|api_key|action|referrer|referer|_wp_nonce|nonce|timestamp|token|source|fields|post_id|form_fields|queried_id)$/i;
+
+/** Auto-detect field type by scanning all keys and values */
+function autoDetectFields(body: Record<string, unknown>) {
+  let name: string | null = null;
+  let email: string | null = null;
+  let phone: string | null = null;
+  let message: string | null = null;
+  let form_name: string | null = null;
+
+  for (const [key, value] of Object.entries(body)) {
+    if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+    const strVal = String(value).trim();
+    if (!strVal) continue;
+
+    // Match by key name first
+    if (!name && NAME_KEYS.test(key)) { name = strVal; continue; }
+    if (!email && EMAIL_KEYS.test(key)) { email = strVal; continue; }
+    if (!phone && PHONE_KEYS.test(key)) { phone = strVal; continue; }
+    if (!message && MESSAGE_KEYS.test(key)) { message = strVal; continue; }
+    if (!form_name && FORM_NAME_KEYS.test(key)) { form_name = strVal; continue; }
+
+    // If key didn't match, try detecting by value pattern
+    if (!email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)) { email = strVal; continue; }
+    if (!phone && /^\+?[\d\s\-().]{6,}$/.test(strVal) && strVal.replace(/\D/g, "").length >= 6) { phone = strVal; continue; }
+  }
+
+  // If we still don't have a name, grab the first unmatched short text value
+  if (!name) {
+    for (const [key, value] of Object.entries(body)) {
+      if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+      const strVal = String(value).trim();
+      if (!strVal || strVal === email || strVal === phone || strVal === message || strVal === form_name) continue;
+      if (strVal.length <= 100 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal) && !/^\+?[\d\s\-().]{6,}$/.test(strVal)) {
+        name = strVal;
+        break;
+      }
+    }
+  }
+
+  // If we still don't have a message, grab the longest remaining text value
+  if (!message) {
+    let longest = "";
+    for (const [key, value] of Object.entries(body)) {
+      if (SKIP_KEYS.test(key) || value === null || value === undefined) continue;
+      const strVal = String(value).trim();
+      if (!strVal || strVal === email || strVal === phone || strVal === name || strVal === form_name) continue;
+      if (strVal.length > longest.length) longest = strVal;
+    }
+    if (longest.length > 0) message = longest;
+  }
+
+  return { name, email, phone, message, form_name };
+}
+
+function normalizeLead(body: WebhookLeadPayload) {
+  // Handle various form plugin formats
+  const combinedName = [body.first_name, body.last_name].filter(Boolean).join(" ");
+
+  // Try known field names first
+  let name = sanitize(
+    body.name ||
+    body.full_name ||
+    body.your_name ||
+    body.fields?.name ||
+    body.fields?.your_name ||
+    combinedName,
+    255
+  );
+
+  let email = sanitizeEmail(
+    body.email ||
+    body.your_email ||
+    body.fields?.email ||
+    body.fields?.your_email
+  );
+
+  let phone = sanitizePhone(
+    body.phone ||
+    body.tel ||
+    body.telephone ||
+    body.your_phone ||
+    body.fields?.phone ||
+    body.fields?.tel
+  );
+
+  let message = sanitize(
+    body.message ||
+    body.your_message ||
+    body.comment ||
+    body.fields?.message ||
+    body.fields?.your_message,
+    5000
+  );
+
+  let form_name = sanitize(
+    body.form_name || body.form_id || body.formName,
+    255
+  );
+
+  // If standard field names didn't match, try auto-detection (handles any language)
+  if (!name && !email && !phone && !message) {
+    const detected = autoDetectFields(body as Record<string, unknown>);
+    name = sanitize(detected.name, 255);
+    email = sanitizeEmail(detected.email);
+    phone = sanitizePhone(detected.phone);
+    message = sanitize(detected.message, 5000);
+    form_name = form_name || sanitize(detected.form_name, 255);
+  }
+
+  // Sanitize raw_data: limit total size to prevent oversized payloads
+  const rawJson = JSON.stringify(body);
+  const raw_data = rawJson.length > 50_000
+    ? { _truncated: true, _original_size: rawJson.length }
+    : (body as Record<string, unknown>);
+
+  return {
+    name,
+    email,
+    phone,
+    message,
+    form_name,
+    raw_data,
+  };
+}
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-api-key",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    // Get API key from header OR query param (support both for flexibility)
+    const apiKey =
+      request.headers.get("x-api-key") ||
+      request.nextUrl.searchParams.get("key");
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "Missing API key. Provide x-api-key header or ?key= query param" },
+        { status: 401, headers: CORS_HEADERS }
+      );
+    }
+
+    // Rate limit by IP address
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ipLimit = await rateLimit(`ip:${ip}`, RATE_LIMIT_PER_IP);
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests" },
+        {
+          status: 429,
+          headers: {
+            ...CORS_HEADERS,
+            "Retry-After": String(Math.ceil((ipLimit.resetAt - Date.now()) / 1000)),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
+    // Rate limit by API key
+    const keyLimit = await rateLimit(`key:${apiKey}`, RATE_LIMIT_PER_KEY);
+    if (!keyLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests for this API key" },
+        {
+          status: 429,
+          headers: {
+            ...CORS_HEADERS,
+            "Retry-After": String(Math.ceil((keyLimit.resetAt - Date.now()) / 1000)),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
+    // Parse request body (supports JSON and form-urlencoded)
+    let rawBody: unknown;
+    const contentType = request.headers.get("content-type") || "";
+    try {
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        const text = await request.text();
+        const params = new URLSearchParams(text);
+        const obj: Record<string, string> = {};
+        for (const [key, value] of params.entries()) {
+          obj[key] = value;
+        }
+        rawBody = obj;
+      } else {
+        rawBody = await request.json();
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    // Validate body is an object and not too large
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+      return NextResponse.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    const body = rawBody as WebhookLeadPayload;
+
+    // Use admin client (bypasses RLS) to look up website by API key
+    const supabase = createAdminClient();
+
+    const { data: website, error: websiteError } = await supabase
+      .from("websites")
+      .select("id, client_id, name, url, is_active")
+      .eq("api_key", apiKey)
+      .single<Pick<Website, "id" | "client_id" | "name" | "url" | "is_active">>();
+
+    if (websiteError || !website) {
+      return NextResponse.json(
+        { error: "Invalid API key" },
+        { status: 401, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!website.is_active) {
+      return NextResponse.json(
+        { error: "Website is inactive" },
+        { status: 403, headers: CORS_HEADERS }
+      );
+    }
+
+    // Get client name for email
+    const { data: client } = await supabase
+      .from("clients")
+      .select("name")
+      .eq("id", website.client_id)
+      .single<{ name: string }>();
+
+    // Normalize and insert lead
+    const normalized = normalizeLead(body);
+
+    const leadInsert = {
+      website_id: website.id,
+      client_id: website.client_id, // Denormalized for query performance
+      form_name: normalized.form_name,
+      source: "webhook" as const,
+      name: normalized.name,
+      email: normalized.email,
+      phone: normalized.phone,
+      message: normalized.message,
+      raw_data: normalized.raw_data,
+      status: "new" as const,
+    };
+
+    const { data: lead, error: leadError } = await supabase
+      .from("leads")
+      .insert(leadInsert)
+      .select("id")
+      .single<{ id: string }>();
+
+    if (leadError) {
+      console.error("Failed to insert lead:", leadError);
+      return NextResponse.json(
+        { error: "Failed to create lead" },
+        { status: 500, headers: CORS_HEADERS }
+      );
+    }
+
+    // Send all notifications (email, push, Facebook) — non-blocking
+    sendNewLeadNotifications({
+      leadId: lead.id,
+      clientId: website.client_id,
+      clientName: client?.name || "Client",
+      websiteName: website.name,
+      websiteUrl: website.url,
+      name: normalized.name,
+      email: normalized.email,
+      phone: normalized.phone,
+      message: normalized.message,
+      formName: normalized.form_name,
+    }).catch((err) => {
+      console.error("Error dispatching lead notifications:", err);
+    });
+
+    return NextResponse.json(
+      { success: true, lead_id: lead.id },
+      {
+        status: 200,
+        headers: {
+          ...CORS_HEADERS,
+          "X-RateLimit-Remaining": String(keyLimit.remaining),
+        },
+      }
+    );
+  } catch (err) {
+    console.error("Webhook error:", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400, headers: CORS_HEADERS }
+    );
+  }
+}
+
+// Also handle GET for testing the endpoint
+export async function GET(request: NextRequest) {
+  const apiKey = request.nextUrl.searchParams.get("key");
+
+  if (!apiKey) {
+    return NextResponse.json({
+      status: "ok",
+      message: "Lead webhook endpoint. POST JSON data with API key to submit leads.",
+      usage: {
+        method: "POST",
+        auth: "Provide API key via x-api-key header or ?key= query param",
+        body: {
+          name: "Contact name",
+          email: "Contact email",
+          phone: "Contact phone",
+          message: "Message content",
+          form_name: "Optional form identifier",
+        },
+      },
+    });
+  }
+
+  // If key provided, verify it exists
+  const supabase = createAdminClient();
+  const { data: website } = await supabase
+    .from("websites")
+    .select("name, is_active")
+    .eq("api_key", apiKey)
+    .single<{ name: string; is_active: boolean }>();
+
+  if (!website) {
+    return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+  }
+
+  return NextResponse.json({
+    status: "ok",
+    website: website.name,
+    active: website.is_active,
+    message: "API key valid. Ready to receive leads via POST.",
+  });
+}
+
+
+

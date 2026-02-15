@@ -1,0 +1,55 @@
+You are reviewing a production SaaS application — a Client Dashboard Platform built for agencies to give their clients access to leads and business analytics.
+
+Tech stack: Next.js 16 (App Router), React 19, TypeScript (strict), Supabase (PostgreSQL + Auth + RLS), Tailwind CSS v4, Vercel hosting, PWA.
+
+Please review the code and provide a detailed assessment covering:
+
+## 1. Security
+- Authentication & authorization flaws
+- SQL injection, XSS, CSRF vulnerabilities
+- RLS (Row Level Security) gaps
+- API key / token handling issues
+- Input validation & sanitization gaps
+- Rate limiting effectiveness
+
+## 2. Architecture & Design
+- Component structure and separation of concerns
+- Server vs client component usage
+- Data flow patterns (server actions, API routes)
+- State management approach
+- Error handling patterns
+
+## 3. Performance
+- Database query efficiency (N+1 queries, missing indexes)
+- Unnecessary re-renders or data fetching
+- Caching strategy effectiveness
+- Bundle size concerns
+- Loading state handling
+
+## 4. Code Quality
+- TypeScript usage (type safety, any types, assertions)
+- Code duplication
+- Naming conventions
+- Error handling completeness
+- Edge cases not handled
+
+## 5. Best Practices
+- Next.js App Router patterns
+- Supabase SSR patterns
+- React 19 patterns
+- Accessibility (a11y)
+- SEO considerations
+
+## 6. Bugs & Issues
+- Logic errors
+- Race conditions
+- Memory leaks
+- Broken functionality
+
+For each finding, provide:
+- **Severity:** Critical / High / Medium / Low
+- **File:** path to the file
+- **Issue:** description
+- **Recommendation:** how to fix it
+
+Prioritize findings by severity. Be specific and actionable.

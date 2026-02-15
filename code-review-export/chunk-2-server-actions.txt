@@ -1,0 +1,4238 @@
+# CHUNK 2: Server Actions (Business Logic)
+
+========================================
+FILE: ./lib/actions/activity.ts
+========================================
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ActivityLog, ActivityLogWithUser } from "@/types/database";
+import { type ActivityType } from "@/lib/constants/activity";
+
+interface LogActivityParams {
+  clientId?: string | null;
+  actionType: ActivityType;
+  description: string;
+  metadata?: Record<string, unknown>;
+}
+
+export async function logActivity(params: LogActivityParams): Promise<void> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("activity_logs").insert({
+    client_id: params.clientId || null,
+    user_id: user?.id || null,
+    action_type: params.actionType,
+    description: params.description,
+    metadata: params.metadata || {},
+  });
+
+  if (error) {
+    // Don't throw - activity logging should not break main functionality
+    // Table may not exist if migration 005_activity_logs.sql hasn't been run
+  }
+}
+
+/** Enrich activity logs with user names/emails via batch profile lookup */
+async function enrichLogsWithUsers(supabase: SupabaseClient, logs: ActivityLog[]): Promise<ActivityLogWithUser[]> {
+  const userIds = [...new Set(logs.map((log) => log.user_id).filter(Boolean))] as string[];
+
+  const userMap: Record<string, { full_name: string; email: string }> = {};
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", userIds);
+
+    if (profiles) {
+      for (const profile of profiles as { id: string; full_name: string; email: string }[]) {
+        userMap[profile.id] = {
+          full_name: profile.full_name,
+          email: profile.email,
+        };
+      }
+    }
+  }
+
+  return logs.map((log) => ({
+    ...log,
+    user_name: log.user_id ? userMap[log.user_id]?.full_name || null : null,
+    user_email: log.user_id ? userMap[log.user_id]?.email || null : null,
+  }));
+}
+
+export async function getClientActivity(
+  clientId: string,
+  limit = 50
+): Promise<ActivityLogWithUser[]> {
+  // Use admin client to bypass RLS — activity_logs may not have migration run
+  const adminClient = createAdminClient();
+
+  const { data: logs, error } = await adminClient
+    .from("activity_logs")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !logs) {
+    // Table may not exist if migration 005_activity_logs.sql hasn't been run
+    return [];
+  }
+
+  return enrichLogsWithUsers(adminClient, logs as ActivityLog[]);
+}
+
+export async function getRecentActivity(limit = 20): Promise<ActivityLogWithUser[]> {
+  // Use admin client to bypass RLS
+  const adminClient = createAdminClient();
+
+  const { data: logs, error } = await adminClient
+    .from("activity_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !logs) {
+    // Table may not exist if migration 005_activity_logs.sql hasn't been run
+    return [];
+  }
+
+  return enrichLogsWithUsers(adminClient, logs as ActivityLog[]);
+}
+
+
+
+========================================
+FILE: ./lib/actions/alerts.ts
+========================================
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
+
+export type AlertType = "inactive_user" | "uncontacted_leads" | "broken_integration";
+export type AlertSeverity = "warning" | "critical";
+
+export type ClientAlert = {
+  id: string;
+  type: AlertType;
+  severity: AlertSeverity;
+  title: string;
+  description: string;
+  clientId?: string;
+  clientName?: string;
+  userId?: string;
+  userName?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export async function getClientAlerts(): Promise<ClientAlert[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  const supabase = await createClient();
+  const alerts: ClientAlert[] = [];
+
+  // 1. Users who haven't logged in for 14+ days
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+  const { data: inactiveUsers } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, last_login_at, role")
+    .eq("role", "client")
+    .or(`last_login_at.is.null,last_login_at.lt.${fourteenDaysAgo.toISOString()}`);
+
+  if (inactiveUsers) {
+    for (const user of inactiveUsers) {
+      const daysSince = user.last_login_at
+        ? Math.floor((Date.now() - new Date(user.last_login_at).getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+      alerts.push({
+        id: `inactive-${user.id}`,
+        type: "inactive_user",
+        severity: daysSince && daysSince > 30 ? "critical" : "warning",
+        title: "Inactive user",
+        description: user.last_login_at
+          ? `${user.full_name || user.email} hasn't logged in for ${daysSince} days`
+          : `${user.full_name || user.email} has never logged in`,
+        userId: user.id,
+        userName: user.full_name || user.email,
+        metadata: { daysSince, lastLogin: user.last_login_at },
+      });
+    }
+  }
+
+  // 2. Leads received but not contacted (new status for 3+ days)
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+  type LeadWithClient = {
+    id: string;
+    name: string | null;
+    email: string | null;
+    client_id: string;
+    created_at: string;
+    clients: { id: string; business_name: string };
+  };
+
+  const { data: uncontactedLeads } = await supabase
+    .from("leads")
+    .select(`
+      id,
+      name,
+      email,
+      client_id,
+      created_at,
+      clients!inner(id, business_name)
+    `)
+    .eq("status", "new")
+    .lt("created_at", threeDaysAgo.toISOString())
+    .returns<LeadWithClient[]>();
+
+  if (uncontactedLeads) {
+    // Group by client
+    const leadsByClient: Record<string, { clientName: string; count: number; oldestDays: number }> = {};
+
+    for (const lead of uncontactedLeads) {
+      const daysSince = Math.floor((Date.now() - new Date(lead.created_at).getTime()) / (1000 * 60 * 60 * 24));
+
+      if (!leadsByClient[lead.client_id]) {
+        leadsByClient[lead.client_id] = {
+          clientName: lead.clients.business_name,
+          count: 0,
+          oldestDays: 0,
+        };
+      }
+      const clientData = leadsByClient[lead.client_id];
+      if (clientData) {
+        clientData.count++;
+        clientData.oldestDays = Math.max(clientData.oldestDays, daysSince);
+      }
+    }
+
+    for (const [clientId, data] of Object.entries(leadsByClient)) {
+      alerts.push({
+        id: `uncontacted-${clientId}`,
+        type: "uncontacted_leads",
+        severity: data.oldestDays > 7 ? "critical" : "warning",
+        title: "Uncontacted leads",
+        description: `${data.clientName} has ${data.count} lead${data.count > 1 ? "s" : ""} waiting (oldest: ${data.oldestDays} days)`,
+        clientId,
+        clientName: data.clientName,
+        metadata: { count: data.count, oldestDays: data.oldestDays },
+      });
+    }
+  }
+
+  // 3. Broken integrations (inactive or expired tokens)
+  type IntegrationWithClient = {
+    id: string;
+    type: string;
+    account_name: string | null;
+    is_active: boolean;
+    token_expires_at: string | null;
+    client_id: string;
+    clients: { id: string; business_name: string };
+  };
+
+  const { data: brokenIntegrations } = await supabase
+    .from("integrations")
+    .select(`
+      id,
+      type,
+      account_name,
+      is_active,
+      token_expires_at,
+      client_id,
+      clients!inner(id, business_name)
+    `)
+    .or(`is_active.eq.false,token_expires_at.lt.${new Date().toISOString()}`)
+    .returns<IntegrationWithClient[]>();
+
+  if (brokenIntegrations) {
+    for (const integration of brokenIntegrations) {
+      const isExpired = integration.token_expires_at && new Date(integration.token_expires_at) < new Date();
+
+      alerts.push({
+        id: `integration-${integration.id}`,
+        type: "broken_integration",
+        severity: "critical",
+        title: "Integration issue",
+        description: isExpired
+          ? `${integration.clients.business_name}'s ${integration.type.toUpperCase()} token has expired`
+          : `${integration.clients.business_name}'s ${integration.type.toUpperCase()} integration is disconnected`,
+        clientId: integration.client_id,
+        clientName: integration.clients.business_name,
+        metadata: { integrationType: integration.type, isExpired },
+      });
+    }
+  }
+
+  // Sort by severity (critical first) then by type
+  return alerts.sort((a, b) => {
+    if (a.severity === "critical" && b.severity !== "critical") return -1;
+    if (a.severity !== "critical" && b.severity === "critical") return 1;
+    return 0;
+  });
+}
+
+export async function updateLastLogin(): Promise<void> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    await supabase
+      .from("profiles")
+      .update({ last_login_at: new Date().toISOString() })
+      .eq("id", user.id);
+  }
+}
+
+
+
+========================================
+FILE: ./lib/actions/analytics.ts
+========================================
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getProfile } from "@/lib/actions/profile";
+import { getImpersonatedClientId } from "@/lib/impersonate";
+import {
+  decryptToken,
+  refreshAccessToken,
+  encryptToken,
+  getGA4Totals,
+  getGA4Data,
+  getGA4Events,
+  getGA4TopPages,
+  getGA4TrafficSources,
+  getGBPPerformanceMetrics,
+  getGBPSearchKeywords,
+  getGSCSearchAnalytics,
+  getGSCTopQueries,
+  getGSCTopPages as getGSCTopPagesAPI,
+  getGSCDeviceBreakdown,
+  type GA4ReportResponse,
+  type GA4Row,
+  type GSCQueryResponse,
+  type GSCRow,
+  type GBPMetricsResponse,
+  type GBPKeywordsResponse,
+} from "@/lib/google";
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+export type GA4Overview = {
+  sessions: number;
+  totalUsers: number;
+  pageViews: number;
+  bounceRate: number;
+  avgSessionDuration: number;
+};
+
+export type GA4DailyRow = {
+  date: string; // YYYYMMDD
+  sessions: number;
+  users: number;
+  pageViews: number;
+};
+
+export type GA4EventRow = {
+  eventName: string;
+  eventCount: number;
+  users: number;
+};
+
+export type GA4PageRow = {
+  pagePath: string;
+  pageViews: number;
+  users: number;
+};
+
+export type GA4SourceRow = {
+  channel: string;
+  sessions: number;
+  users: number;
+};
+
+export type GA4AnalyticsData = {
+  overview: GA4Overview;
+  daily: GA4DailyRow[];
+  events: GA4EventRow[];
+  topPages: GA4PageRow[];
+  trafficSources: GA4SourceRow[];
+  propertyName: string;
+  fetchedAt: string;
+};
+
+export type AnalyticsResult = {
+  success: boolean;
+  error?: string;
+  data?: GA4AnalyticsData;
+  cached?: boolean;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+/** Parse GA4 API response rows into typed arrays */
+function parseOverview(data: GA4ReportResponse): GA4Overview {
+  const row = data?.rows?.[0];
+  if (!row) {
+    return { sessions: 0, totalUsers: 0, pageViews: 0, bounceRate: 0, avgSessionDuration: 0 };
+  }
+  const vals = row.metricValues || [];
+  return {
+    sessions: parseInt(vals[0]?.value || "0", 10),
+    totalUsers: parseInt(vals[1]?.value || "0", 10),
+    pageViews: parseInt(vals[2]?.value || "0", 10),
+    bounceRate: parseFloat(vals[3]?.value || "0"),
+    avgSessionDuration: parseFloat(vals[4]?.value || "0"),
+  };
+}
+
+function parseDailyRows(data: GA4ReportResponse): GA4DailyRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GA4Row) => ({
+    date: row.dimensionValues?.[0]?.value || "",
+    sessions: parseInt(row.metricValues?.[0]?.value || "0", 10),
+    users: parseInt(row.metricValues?.[1]?.value || "0", 10),
+    pageViews: parseInt(row.metricValues?.[2]?.value || "0", 10),
+  }));
+}
+
+function parseEventRows(data: GA4ReportResponse): GA4EventRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GA4Row) => ({
+    eventName: row.dimensionValues?.[0]?.value || "",
+    eventCount: parseInt(row.metricValues?.[0]?.value || "0", 10),
+    users: parseInt(row.metricValues?.[1]?.value || "0", 10),
+  }));
+}
+
+function parsePageRows(data: GA4ReportResponse): GA4PageRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GA4Row) => ({
+    pagePath: row.dimensionValues?.[0]?.value || "",
+    pageViews: parseInt(row.metricValues?.[0]?.value || "0", 10),
+    users: parseInt(row.metricValues?.[1]?.value || "0", 10),
+  }));
+}
+
+function parseSourceRows(data: GA4ReportResponse): GA4SourceRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GA4Row) => ({
+    channel: row.dimensionValues?.[0]?.value || "",
+    sessions: parseInt(row.metricValues?.[0]?.value || "0", 10),
+    users: parseInt(row.metricValues?.[1]?.value || "0", 10),
+  }));
+}
+
+// ─── Token refresh helper ─────────────────────────────────────────────
+
+async function getValidAccessToken(integration: {
+  id: string;
+  access_token_encrypted: string | null;
+  refresh_token_encrypted: string | null;
+  token_expires_at: string | null;
+}): Promise<string | null> {
+  if (!integration.access_token_encrypted) return null;
+
+  const accessToken = decryptToken(integration.access_token_encrypted);
+
+  // Check if token is expired or will expire in the next 5 minutes
+  if (integration.token_expires_at) {
+    const expiresAt = new Date(integration.token_expires_at).getTime();
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+
+    if (expiresAt - now < fiveMinutes && integration.refresh_token_encrypted) {
+      // Token expired or about to — refresh it
+      try {
+        const refreshToken = decryptToken(integration.refresh_token_encrypted);
+        const newTokens = await refreshAccessToken(refreshToken);
+
+        // Save refreshed token to DB using admin client
+        const adminSupabase = createAdminClient();
+        await adminSupabase
+          .from("integrations")
+          .update({
+            access_token_encrypted: encryptToken(newTokens.access_token),
+            token_expires_at: new Date(newTokens.expiry_date).toISOString(),
+          })
+          .eq("id", integration.id);
+
+        return newTokens.access_token;
+      } catch (err) {
+        console.error("Failed to refresh GA4 token:", err);
+        return accessToken; // Try with existing token anyway
+      }
+    }
+  }
+
+  return accessToken;
+}
+
+// ─── Cache helpers ────────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/** Get date strings for cache period (YYYY-MM-DD) */
+function getCachePeriodDates(period: string): { periodStart: string; periodEnd: string } {
+  const now = new Date();
+  const endDate = now.toISOString().split("T")[0]!;
+  const daysBack = period === "7d" ? 7 : 30;
+  const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0]!;
+  return { periodStart: startDate, periodEnd: endDate };
+}
+
+async function getCachedAnalytics(
+  clientId: string,
+  period: string
+): Promise<GA4AnalyticsData | null> {
+  const supabase = await createClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+
+  const { data } = await supabase
+    .from("analytics_cache")
+    .select("data, fetched_at")
+    .eq("client_id", clientId)
+    .eq("integration_type", "ga4")
+    .eq("metric_type", `ga4_full_${period}`)
+    .eq("period_start", periodStart)
+    .eq("period_end", periodEnd)
+    .single();
+
+  if (!data) return null;
+
+  // Check if cache is still fresh
+  const fetchedAt = new Date(data.fetched_at).getTime();
+  if (Date.now() - fetchedAt > CACHE_TTL_MS) return null;
+
+  return data.data as unknown as GA4AnalyticsData;
+}
+
+async function setCachedAnalytics(
+  clientId: string,
+  period: string,
+  analyticsData: GA4AnalyticsData
+): Promise<void> {
+  const adminSupabase = createAdminClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+  const now = new Date().toISOString();
+
+  // Upsert cache entry (unique on: client_id, integration_type, metric_type, period_start, period_end)
+  await adminSupabase
+    .from("analytics_cache")
+    .upsert(
+      {
+        client_id: clientId,
+        integration_type: "ga4" as const,
+        metric_type: `ga4_full_${period}`,
+        period_start: periodStart,
+        period_end: periodEnd,
+        data: analyticsData as unknown as Record<string, unknown>,
+        fetched_at: now,
+      },
+      {
+        onConflict: "client_id,integration_type,metric_type,period_start,period_end",
+      }
+    )
+    .then(({ error }) => {
+      if (error) console.error("Failed to cache analytics:", error);
+    });
+}
+
+// ─── Main action ──────────────────────────────────────────────────────
+
+/**
+ * Fetch GA4 analytics for the current user's client (or selected client for admin).
+ * Returns cached data if available and fresh, otherwise fetches from GA4 API.
+ */
+export async function fetchGA4Analytics(
+  clientId?: string,
+  period: "7d" | "30d" = "30d",
+  forceRefresh = false
+): Promise<AnalyticsResult> {
+  const profile = await getProfile();
+  if (!profile) return { success: false, error: "Not authenticated" };
+
+  const isAdmin = profile.role === "admin";
+
+  // Determine which client to show data for
+  let targetClientId = clientId;
+  if (!targetClientId && isAdmin) {
+    targetClientId = await getImpersonatedClientId() || undefined;
+  }
+  if (!targetClientId && !isAdmin) {
+    // Non-admin: get their client
+    const supabase = await createClient();
+    const { data: clientUsers } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1);
+    targetClientId = clientUsers?.[0]?.client_id;
+  }
+
+  if (!targetClientId) {
+    return { success: false, error: "No client selected. Choose a client to view analytics." };
+  }
+
+  // Check cache first (unless force refresh)
+  if (!forceRefresh) {
+    const cached = await getCachedAnalytics(targetClientId, period);
+    if (cached) {
+      return { success: true, data: cached, cached: true };
+    }
+  }
+
+  // Find active GA4 integration for this client
+  const supabase = await createClient();
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_id, account_name, access_token_encrypted, refresh_token_encrypted, token_expires_at, metadata")
+    .eq("client_id", targetClientId)
+    .eq("type", "ga4")
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) {
+    return { success: false, error: "No GA4 integration found. Connect GA4 in the client settings first." };
+  }
+
+  // Check if property is selected
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  if (metadata.needsPropertySelection) {
+    return { success: false, error: "GA4 property not selected. Go to client settings and select a GA4 property." };
+  }
+
+  const propertyId = integration.account_id;
+  if (!propertyId) {
+    return { success: false, error: "GA4 property ID missing. Reconnect GA4 in client settings." };
+  }
+
+  // Get valid access token (with auto-refresh)
+  const accessToken = await getValidAccessToken(integration);
+  if (!accessToken) {
+    return { success: false, error: "GA4 access token invalid. Reconnect GA4 in client settings." };
+  }
+
+  // Fetch all GA4 data in parallel
+  const startDate = period === "7d" ? "7daysAgo" : "30daysAgo";
+  const endDate = "today";
+
+  try {
+    const [totalsData, dailyData, eventsData, pagesData, sourcesData] = await Promise.all([
+      getGA4Totals(accessToken, propertyId, startDate, endDate),
+      getGA4Data(accessToken, propertyId, startDate, endDate),
+      getGA4Events(accessToken, propertyId, startDate, endDate),
+      getGA4TopPages(accessToken, propertyId, startDate, endDate),
+      getGA4TrafficSources(accessToken, propertyId, startDate, endDate),
+    ]);
+
+    const analyticsData: GA4AnalyticsData = {
+      overview: parseOverview(totalsData),
+      daily: parseDailyRows(dailyData).sort((a, b) => a.date.localeCompare(b.date)),
+      events: parseEventRows(eventsData),
+      topPages: parsePageRows(pagesData),
+      trafficSources: parseSourceRows(sourcesData),
+      propertyName: integration.account_name || propertyId,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    // Cache for next time (non-blocking)
+    setCachedAnalytics(targetClientId, period, analyticsData).catch(() => {});
+
+    return { success: true, data: analyticsData };
+  } catch (err) {
+    console.error("GA4 API error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    // If it's a permission error, give specific guidance
+    if (message.includes("403") || message.includes("Permission")) {
+      return { success: false, error: "GA4 access denied. The connected Google account may not have access to this property." };
+    }
+    if (message.includes("401") || message.includes("invalid_grant")) {
+      return { success: false, error: "GA4 authentication expired. Reconnect GA4 in client settings." };
+    }
+
+    return { success: false, error: `Failed to fetch GA4 data: ${message}` };
+  }
+}
+
+/**
+ * Get list of clients with GA4 integrations (for admin client selector).
+ */
+export async function getClientsWithGA4(): Promise<
+  Array<{ clientId: string; clientName: string; propertyName: string | null }>
+> {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "admin") return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("integrations")
+    .select(`
+      client_id,
+      account_name,
+      client:clients!client_id(business_name)
+    `)
+    .eq("type", "ga4")
+    .eq("is_active", true);
+
+  if (!data) return [];
+
+  type IntegrationWithClient = {
+    client_id: string;
+    account_name: string | null;
+    client: { business_name: string } | null;
+  };
+
+  return (data as IntegrationWithClient[])
+    .filter((d) => d.client)
+    .map((d) => ({
+      clientId: d.client_id,
+      clientName: d.client!.business_name,
+      propertyName: d.account_name,
+    }));
+}
+
+// ─── GBP Types ────────────────────────────────────────────────────────
+
+export type GBPMetricTotals = {
+  directionRequests: number;
+  callClicks: number;
+  websiteClicks: number;
+  impressionsMaps: number;
+  impressionsSearch: number;
+  totalImpressions: number;
+  totalInteractions: number;
+};
+
+export type GBPDailyMetric = {
+  date: string; // YYYY-MM-DD
+  directionRequests: number;
+  callClicks: number;
+  websiteClicks: number;
+};
+
+export type GBPSearchKeyword = {
+  keyword: string;
+  impressions: number;
+};
+
+export type GBPAnalyticsData = {
+  totals: GBPMetricTotals;
+  daily: GBPDailyMetric[];
+  searchKeywords: GBPSearchKeyword[];
+  locationName: string;
+  fetchedAt: string;
+};
+
+export type GBPAnalyticsResult = {
+  success: boolean;
+  error?: string;
+  data?: GBPAnalyticsData;
+  cached?: boolean;
+};
+
+// ─── GBP Helpers ──────────────────────────────────────────────────────
+
+/** Parse GBP fetchMultiDailyMetricsTimeSeries response */
+function parseGBPMetrics(
+  data: GBPMetricsResponse
+): { totals: GBPMetricTotals; daily: GBPDailyMetric[] } {
+  const metricMap: Record<string, Record<string, number>> = {};
+  const totalsMap: Record<string, number> = {};
+
+  const series = data?.multiDailyMetricTimeSeries || [];
+  for (const multi of series) {
+    const dailySeries = multi.dailyMetricTimeSeries || [];
+    for (const ts of dailySeries) {
+      const metricName = ts.dailyMetric || "";
+      let metricTotal = 0;
+      const datedValues = ts.timeSeries?.datedValues || [];
+      for (const dv of datedValues) {
+        const val = parseInt(dv.value || "0", 10);
+        metricTotal += val;
+        if (dv.date) {
+          const dateKey = `${dv.date.year}-${String(dv.date.month).padStart(2, "0")}-${String(dv.date.day).padStart(2, "0")}`;
+          if (!metricMap[dateKey]) metricMap[dateKey] = {};
+          metricMap[dateKey]![metricName] = (metricMap[dateKey]![metricName] || 0) + val;
+        }
+      }
+      totalsMap[metricName] = (totalsMap[metricName] || 0) + metricTotal;
+    }
+  }
+
+  const impressionsMaps = (totalsMap["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"] || 0) +
+    (totalsMap["BUSINESS_IMPRESSIONS_MOBILE_MAPS"] || 0);
+  const impressionsSearch = (totalsMap["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"] || 0) +
+    (totalsMap["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"] || 0);
+
+  const totals: GBPMetricTotals = {
+    directionRequests: totalsMap["BUSINESS_DIRECTION_REQUESTS"] || 0,
+    callClicks: totalsMap["CALL_CLICKS"] || 0,
+    websiteClicks: totalsMap["WEBSITE_CLICKS"] || 0,
+    impressionsMaps,
+    impressionsSearch,
+    totalImpressions: impressionsMaps + impressionsSearch,
+    totalInteractions: (totalsMap["BUSINESS_DIRECTION_REQUESTS"] || 0) +
+      (totalsMap["CALL_CLICKS"] || 0) +
+      (totalsMap["WEBSITE_CLICKS"] || 0),
+  };
+
+  const daily: GBPDailyMetric[] = Object.entries(metricMap)
+    .map(([date, metrics]) => ({
+      date,
+      directionRequests: metrics["BUSINESS_DIRECTION_REQUESTS"] || 0,
+      callClicks: metrics["CALL_CLICKS"] || 0,
+      websiteClicks: metrics["WEBSITE_CLICKS"] || 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return { totals, daily };
+}
+
+/** Parse GBP search keywords response */
+function parseGBPKeywords(data: GBPKeywordsResponse): GBPSearchKeyword[] {
+  const results = data?.searchKeywordsCounts || [];
+  return results.map((item) => ({
+    keyword: item.searchKeyword || "",
+    impressions: parseInt(item.insightsValue?.value || "0", 10),
+  }));
+}
+
+// ─── GBP Cache helpers ───────────────────────────────────────────────
+
+async function getCachedGBPAnalytics(
+  clientId: string,
+  period: string
+): Promise<GBPAnalyticsData | null> {
+  const supabase = await createClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+
+  const { data } = await supabase
+    .from("analytics_cache")
+    .select("data, fetched_at")
+    .eq("client_id", clientId)
+    .eq("integration_type", "gbp")
+    .eq("metric_type", `gbp_full_${period}`)
+    .eq("period_start", periodStart)
+    .eq("period_end", periodEnd)
+    .single();
+
+  if (!data) return null;
+
+  const fetchedAt = new Date(data.fetched_at).getTime();
+  if (Date.now() - fetchedAt > CACHE_TTL_MS) return null;
+
+  return data.data as unknown as GBPAnalyticsData;
+}
+
+async function setCachedGBPAnalytics(
+  clientId: string,
+  period: string,
+  analyticsData: GBPAnalyticsData
+): Promise<void> {
+  const adminSupabase = createAdminClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+  const now = new Date().toISOString();
+
+  await adminSupabase
+    .from("analytics_cache")
+    .upsert(
+      {
+        client_id: clientId,
+        integration_type: "gbp" as const,
+        metric_type: `gbp_full_${period}`,
+        period_start: periodStart,
+        period_end: periodEnd,
+        data: analyticsData as unknown as Record<string, unknown>,
+        fetched_at: now,
+      },
+      {
+        onConflict: "client_id,integration_type,metric_type,period_start,period_end",
+      }
+    )
+    .then(({ error }) => {
+      if (error) console.error("Failed to cache GBP analytics:", error);
+    });
+}
+
+// ─── GBP Main action ─────────────────────────────────────────────────
+
+export async function fetchGBPAnalytics(
+  clientId?: string,
+  period: "7d" | "30d" = "30d",
+  forceRefresh = false
+): Promise<GBPAnalyticsResult> {
+  const profile = await getProfile();
+  if (!profile) return { success: false, error: "Not authenticated" };
+
+  const isAdmin = profile.role === "admin";
+
+  let targetClientId = clientId;
+  if (!targetClientId && isAdmin) {
+    targetClientId = await getImpersonatedClientId() || undefined;
+  }
+  if (!targetClientId && !isAdmin) {
+    const supabase = await createClient();
+    const { data: clientUsers } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1);
+    targetClientId = clientUsers?.[0]?.client_id;
+  }
+
+  if (!targetClientId) {
+    return { success: false, error: "No client selected." };
+  }
+
+  // Check cache
+  if (!forceRefresh) {
+    const cached = await getCachedGBPAnalytics(targetClientId, period);
+    if (cached) {
+      return { success: true, data: cached, cached: true };
+    }
+  }
+
+  // Find GBP integration
+  const supabase = await createClient();
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_id, account_name, access_token_encrypted, refresh_token_encrypted, token_expires_at, metadata")
+    .eq("client_id", targetClientId)
+    .eq("type", "gbp")
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) {
+    return { success: false, error: "No GBP integration found. Connect Google Business Profile in client settings." };
+  }
+
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  if (metadata.needsLocationSelection) {
+    return { success: false, error: "GBP location not selected. Go to client settings and select a location." };
+  }
+
+  const locationId = integration.account_id;
+  if (!locationId) {
+    return { success: false, error: "GBP location ID missing. Reconnect GBP in client settings." };
+  }
+
+  const accessToken = await getValidAccessToken(integration);
+  if (!accessToken) {
+    return { success: false, error: "GBP access token invalid. Reconnect GBP in client settings." };
+  }
+
+  // Build date range (GBP data has 2-3 day delay, so end 3 days ago)
+  const now = new Date();
+  const endDateObj = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const daysBack = period === "7d" ? 7 : 30;
+  const startDateObj = new Date(endDateObj.getTime() - daysBack * 24 * 60 * 60 * 1000);
+
+  const startDate = {
+    year: startDateObj.getFullYear(),
+    month: startDateObj.getMonth() + 1,
+    day: startDateObj.getDate(),
+  };
+  const endDate = {
+    year: endDateObj.getFullYear(),
+    month: endDateObj.getMonth() + 1,
+    day: endDateObj.getDate(),
+  };
+
+  // Search keywords: current month and previous month
+  const currentMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const prevMonth = now.getMonth() === 0
+    ? { year: now.getFullYear() - 1, month: 12 }
+    : { year: now.getFullYear(), month: now.getMonth() };
+
+  try {
+    const [metricsData, keywordsData] = await Promise.all([
+      getGBPPerformanceMetrics(accessToken, locationId, startDate, endDate),
+      getGBPSearchKeywords(accessToken, locationId, prevMonth, currentMonth).catch(() => null),
+    ]);
+
+    const { totals, daily } = parseGBPMetrics(metricsData);
+    const searchKeywords = keywordsData ? parseGBPKeywords(keywordsData) : [];
+
+    const analyticsData: GBPAnalyticsData = {
+      totals,
+      daily,
+      searchKeywords,
+      locationName: integration.account_name || locationId,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    setCachedGBPAnalytics(targetClientId, period, analyticsData).catch(() => {});
+
+    return { success: true, data: analyticsData };
+  } catch (err) {
+    console.error("GBP API error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    if (message.includes("403") || message.includes("Permission")) {
+      return { success: false, error: "GBP access denied. Make sure the Business Profile Performance API is enabled in Google Cloud Console." };
+    }
+    if (message.includes("401") || message.includes("invalid_grant")) {
+      return { success: false, error: "GBP authentication expired. Reconnect GBP in client settings." };
+    }
+
+    return { success: false, error: `Failed to fetch GBP data: ${message}` };
+  }
+}
+
+/**
+ * Get list of clients with GBP integrations (for admin client selector).
+ */
+export async function getClientsWithGBP(): Promise<
+  Array<{ clientId: string; clientName: string; locationName: string | null }>
+> {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "admin") return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("integrations")
+    .select(`
+      client_id,
+      account_name,
+      client:clients!client_id(business_name)
+    `)
+    .eq("type", "gbp")
+    .eq("is_active", true);
+
+  if (!data) return [];
+
+  type IntegrationWithClient = {
+    client_id: string;
+    account_name: string | null;
+    client: { business_name: string } | null;
+  };
+
+  return (data as IntegrationWithClient[])
+    .filter((d) => d.client)
+    .map((d) => ({
+      clientId: d.client_id,
+      clientName: d.client!.business_name,
+      locationName: d.account_name,
+    }));
+}
+
+// ─── GSC Types ────────────────────────────────────────────────────────
+
+export type GSCOverview = {
+  totalClicks: number;
+  totalImpressions: number;
+  averageCTR: number;
+  averagePosition: number;
+};
+
+export type GSCDailyRow = {
+  date: string; // YYYY-MM-DD
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCQueryRow = {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCPageRow = {
+  page: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCDeviceRow = {
+  device: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type GSCAnalyticsData = {
+  overview: GSCOverview;
+  daily: GSCDailyRow[];
+  topQueries: GSCQueryRow[];
+  topPages: GSCPageRow[];
+  deviceBreakdown: GSCDeviceRow[];
+  siteUrl: string;
+  fetchedAt: string;
+};
+
+export type GSCAnalyticsResult = {
+  success: boolean;
+  error?: string;
+  data?: GSCAnalyticsData;
+  cached?: boolean;
+};
+
+// ─── GSC Helpers ──────────────────────────────────────────────────────
+
+function parseGSCDailyRows(data: GSCQueryResponse): GSCDailyRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GSCRow) => ({
+    date: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCQueryRows(data: GSCQueryResponse): GSCQueryRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GSCRow) => ({
+    query: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCPageRows(data: GSCQueryResponse): GSCPageRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GSCRow) => ({
+    page: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+function parseGSCDeviceRows(data: GSCQueryResponse): GSCDeviceRow[] {
+  if (!data?.rows) return [];
+  return data.rows.map((row: GSCRow) => ({
+    device: row.keys?.[0] || "",
+    clicks: row.clicks || 0,
+    impressions: row.impressions || 0,
+    ctr: row.ctr || 0,
+    position: row.position || 0,
+  }));
+}
+
+// ─── GSC Cache helpers ───────────────────────────────────────────────
+
+async function getCachedGSCAnalytics(
+  clientId: string,
+  period: string
+): Promise<GSCAnalyticsData | null> {
+  const supabase = await createClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+
+  const { data } = await supabase
+    .from("analytics_cache")
+    .select("data, fetched_at")
+    .eq("client_id", clientId)
+    .eq("integration_type", "gsc")
+    .eq("metric_type", `gsc_full_${period}`)
+    .eq("period_start", periodStart)
+    .eq("period_end", periodEnd)
+    .single();
+
+  if (!data) return null;
+
+  const fetchedAt = new Date(data.fetched_at).getTime();
+  if (Date.now() - fetchedAt > CACHE_TTL_MS) return null;
+
+  return data.data as unknown as GSCAnalyticsData;
+}
+
+async function setCachedGSCAnalytics(
+  clientId: string,
+  period: string,
+  analyticsData: GSCAnalyticsData
+): Promise<void> {
+  const adminSupabase = createAdminClient();
+  const { periodStart, periodEnd } = getCachePeriodDates(period);
+  const now = new Date().toISOString();
+
+  await adminSupabase
+    .from("analytics_cache")
+    .upsert(
+      {
+        client_id: clientId,
+        integration_type: "gsc" as const,
+        metric_type: `gsc_full_${period}`,
+        period_start: periodStart,
+        period_end: periodEnd,
+        data: analyticsData as unknown as Record<string, unknown>,
+        fetched_at: now,
+      },
+      {
+        onConflict: "client_id,integration_type,metric_type,period_start,period_end",
+      }
+    )
+    .then(({ error }) => {
+      if (error) console.error("Failed to cache GSC analytics:", error);
+    });
+}
+
+// ─── GSC Main action ─────────────────────────────────────────────────
+
+export async function fetchGSCAnalytics(
+  clientId?: string,
+  period: "7d" | "30d" = "30d",
+  forceRefresh = false
+): Promise<GSCAnalyticsResult> {
+  const profile = await getProfile();
+  if (!profile) return { success: false, error: "Not authenticated" };
+
+  const isAdmin = profile.role === "admin";
+
+  let targetClientId = clientId;
+  if (!targetClientId && isAdmin) {
+    targetClientId = await getImpersonatedClientId() || undefined;
+  }
+  if (!targetClientId && !isAdmin) {
+    const supabase = await createClient();
+    const { data: clientUsers } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1);
+    targetClientId = clientUsers?.[0]?.client_id;
+  }
+
+  if (!targetClientId) {
+    return { success: false, error: "No client selected." };
+  }
+
+  // Check cache
+  if (!forceRefresh) {
+    const cached = await getCachedGSCAnalytics(targetClientId, period);
+    if (cached) {
+      return { success: true, data: cached, cached: true };
+    }
+  }
+
+  // Find GSC integration
+  const supabase = await createClient();
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_id, account_name, access_token_encrypted, refresh_token_encrypted, token_expires_at, metadata")
+    .eq("client_id", targetClientId)
+    .eq("type", "gsc")
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) {
+    return { success: false, error: "No Search Console integration found. Connect Google Search Console in client settings." };
+  }
+
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  if (metadata.needsSiteSelection) {
+    return { success: false, error: "Search Console site not selected. Go to client settings and select a site." };
+  }
+
+  const siteUrl = integration.account_id;
+  if (!siteUrl) {
+    return { success: false, error: "Search Console site URL missing. Reconnect GSC in client settings." };
+  }
+
+  const accessToken = await getValidAccessToken(integration);
+  if (!accessToken) {
+    return { success: false, error: "Search Console access token invalid. Reconnect GSC in client settings." };
+  }
+
+  // Build date range (GSC data has ~2 day delay)
+  const now = new Date();
+  const endDateObj = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const daysBack = period === "7d" ? 7 : 30;
+  const startDateObj = new Date(endDateObj.getTime() - daysBack * 24 * 60 * 60 * 1000);
+
+  const startDate = startDateObj.toISOString().split("T")[0]!;
+  const endDate = endDateObj.toISOString().split("T")[0]!;
+
+  try {
+    const [dailyData, queriesData, pagesData, deviceData] = await Promise.all([
+      getGSCSearchAnalytics(accessToken, siteUrl, startDate, endDate),
+      getGSCTopQueries(accessToken, siteUrl, startDate, endDate),
+      getGSCTopPagesAPI(accessToken, siteUrl, startDate, endDate),
+      getGSCDeviceBreakdown(accessToken, siteUrl, startDate, endDate),
+    ]);
+
+    const daily = parseGSCDailyRows(dailyData).sort((a, b) => a.date.localeCompare(b.date));
+    const topQueries = parseGSCQueryRows(queriesData);
+    const topPages = parseGSCPageRows(pagesData);
+    const deviceBreakdown = parseGSCDeviceRows(deviceData);
+
+    // Calculate overview totals from daily data
+    const overview: GSCOverview = {
+      totalClicks: daily.reduce((sum, d) => sum + d.clicks, 0),
+      totalImpressions: daily.reduce((sum, d) => sum + d.impressions, 0),
+      averageCTR: daily.length > 0
+        ? daily.reduce((sum, d) => sum + d.ctr, 0) / daily.length
+        : 0,
+      averagePosition: daily.length > 0
+        ? daily.reduce((sum, d) => sum + d.position, 0) / daily.length
+        : 0,
+    };
+
+    const analyticsData: GSCAnalyticsData = {
+      overview,
+      daily,
+      topQueries,
+      topPages,
+      deviceBreakdown,
+      siteUrl: integration.account_name || siteUrl,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    setCachedGSCAnalytics(targetClientId, period, analyticsData).catch(() => {});
+
+    return { success: true, data: analyticsData };
+  } catch (err) {
+    console.error("GSC API error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+
+    if (message.includes("403") || message.includes("Permission")) {
+      return { success: false, error: "Search Console access denied. The connected Google account may not have access to this site." };
+    }
+    if (message.includes("401") || message.includes("invalid_grant")) {
+      return { success: false, error: "Search Console authentication expired. Reconnect GSC in client settings." };
+    }
+
+    return { success: false, error: `Failed to fetch Search Console data: ${message}` };
+  }
+}
+
+/**
+ * Get list of clients with GSC integrations (for admin client selector).
+ */
+export async function getClientsWithGSC(): Promise<
+  Array<{ clientId: string; clientName: string; siteUrl: string | null }>
+> {
+  const profile = await getProfile();
+  if (!profile || profile.role !== "admin") return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("integrations")
+    .select(`
+      client_id,
+      account_name,
+      client:clients!client_id(business_name)
+    `)
+    .eq("type", "gsc")
+    .eq("is_active", true);
+
+  if (!data) return [];
+
+  type IntegrationWithClient = {
+    client_id: string;
+    account_name: string | null;
+    client: { business_name: string } | null;
+  };
+
+  return (data as IntegrationWithClient[])
+    .filter((d) => d.client)
+    .map((d) => ({
+      clientId: d.client_id,
+      clientName: d.client!.business_name,
+      siteUrl: d.account_name,
+    }));
+}
+
+
+
+========================================
+FILE: ./lib/actions/auth.ts
+========================================
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import {
+  verifyRecaptcha,
+  checkLoginAttempt,
+  recordFailedLogin,
+  clearLoginAttempts,
+  checkResetRateLimit,
+} from "@/lib/login-security";
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+interface LoginResult {
+  success: boolean;
+  error?: string;
+  blocked?: boolean;
+  waitMinutes?: number;
+}
+
+interface ResetResult {
+  success: boolean;
+  error?: string;
+  waitMinutes?: number;
+}
+
+// ─── Login action ─────────────────────────────────────────────────────
+
+export async function loginAction(
+  email: string,
+  password: string,
+  recaptchaToken?: string
+): Promise<LoginResult> {
+  // 1. Verify reCAPTCHA
+  if (recaptchaToken) {
+    const isHuman = await verifyRecaptcha(recaptchaToken);
+    if (!isHuman) {
+      return { success: false, error: "reCAPTCHA verification failed. Please try again." };
+    }
+  } else if (process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY) {
+    // reCAPTCHA is configured but no token provided — suspicious
+    return { success: false, error: "Security verification required. Please reload the page and try again." };
+  }
+
+  // 2. Check login attempts before authenticating
+  const attemptCheck = await checkLoginAttempt(email);
+  if (!attemptCheck.allowed) {
+    return {
+      success: false,
+      error: attemptCheck.error,
+      blocked: attemptCheck.blocked,
+      waitMinutes: attemptCheck.waitMinutes,
+    };
+  }
+
+  // 3. Authenticate with Supabase
+  const supabase = await createClient();
+  const { error: authError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (authError) {
+    // Record failure
+    await recordFailedLogin(email);
+
+    // Re-check to see if this failure triggered blocking or pause
+    const postCheck = await checkLoginAttempt(email);
+    if (!postCheck.allowed) {
+      return {
+        success: false,
+        error: postCheck.error,
+        blocked: postCheck.blocked,
+        waitMinutes: postCheck.waitMinutes,
+      };
+    }
+
+    return { success: false, error: "Invalid email or password" };
+  }
+
+  // 4. Success — clear attempts
+  await clearLoginAttempts(email);
+
+  return { success: true };
+}
+
+// ─── Forgot password action ──────────────────────────────────────────
+
+export async function forgotPasswordAction(
+  email: string,
+  recaptchaToken?: string,
+  redirectUrl?: string
+): Promise<ResetResult> {
+  // 1. Verify reCAPTCHA
+  if (recaptchaToken) {
+    const isHuman = await verifyRecaptcha(recaptchaToken);
+    if (!isHuman) {
+      return { success: false, error: "reCAPTCHA verification failed. Please try again." };
+    }
+  } else if (process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY) {
+    return { success: false, error: "Security verification required. Please reload the page and try again." };
+  }
+
+  // 2. Check rate limit (1 per 15 min)
+  const rateLimitCheck = await checkResetRateLimit(email);
+  if (!rateLimitCheck.allowed) {
+    return {
+      success: false,
+      error: rateLimitCheck.error,
+      waitMinutes: rateLimitCheck.waitMinutes,
+    };
+  }
+
+  // 3. Send reset email via Supabase
+  const supabase = await createClient();
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+    email,
+    {
+      redirectTo: redirectUrl || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/callback?next=/settings`,
+    }
+  );
+
+  if (resetError) {
+    return { success: false, error: resetError.message };
+  }
+
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/clients.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
+import { setSelectedClientId } from "@/lib/selected-client";
+import type { Client } from "@/types/database";
+
+export type ClientFormData = {
+  business_name: string;
+  contact_email: string;
+  contact_phone: string;
+  notes: string;
+};
+
+export async function getClients(): Promise<Client[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .returns<Client[]>();
+
+  if (error) {
+    console.error("Error fetching clients:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function getClient(id: string): Promise<Client | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .eq("id", id)
+    .single<Client>();
+
+  if (error) {
+    console.error("Error fetching client:", error);
+    return null;
+  }
+
+  return data;
+}
+
+export async function createClientAction(
+  formData: ClientFormData
+): Promise<{ success: boolean; error?: string; client?: Client }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({
+      business_name: formData.business_name,
+      contact_email: formData.contact_email || null,
+      contact_phone: formData.contact_phone || null,
+      notes: formData.notes || null,
+      created_by: auth.userId,
+    })
+    .select()
+    .single<Client>();
+
+  if (error) {
+    console.error("Error creating client:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/clients");
+  return { success: true, client: data };
+}
+
+export async function updateClientAction(
+  id: string,
+  formData: ClientFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      business_name: formData.business_name,
+      contact_email: formData.contact_email || null,
+      contact_phone: formData.contact_phone || null,
+      notes: formData.notes || null,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error updating client:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/clients");
+  revalidatePath(`/admin/clients/${id}`);
+  return { success: true };
+}
+
+export async function deleteClientAction(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+
+  if (error) {
+    console.error("Error deleting client:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/clients");
+  return { success: true };
+}
+
+export async function selectClientAction(
+  clientId: string | null
+): Promise<{ success: boolean }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false };
+
+  await setSelectedClientId(clientId);
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function updateClientNotesAction(
+  id: string,
+  notes: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("clients")
+    .update({ notes: notes || null })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error updating client notes:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/clients/${id}`);
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/email.ts
+========================================
+"use server";
+
+import { requireAdmin } from "@/lib/auth";
+import { sendClientEmail } from "@/lib/email";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export async function sendEmailToClientAction(
+  clientId: string,
+  toEmail: string,
+  subject: string,
+  message: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return auth;
+
+  if (!subject.trim() || !message.trim()) {
+    return { success: false, error: "Subject and message are required" };
+  }
+
+  // Get sender name from profile
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", auth.userId)
+    .single();
+
+  const senderName = profile?.full_name || "Admin";
+
+  const result = await sendClientEmail(toEmail, subject.trim(), message.trim(), senderName);
+
+  if (result.success) {
+    // Log activity
+    const admin = createAdminClient();
+    await admin.from("activity_logs").insert({
+      client_id: clientId,
+      user_id: auth.userId,
+      action_type: "email_sent",
+      description: `Sent email to ${toEmail}: "${subject.trim()}"`,
+      metadata: {},
+    });
+  }
+
+  return result;
+}
+
+
+
+========================================
+FILE: ./lib/actions/impersonate.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { setImpersonatedClientId, getImpersonatedClientId } from "@/lib/impersonate";
+
+export async function startImpersonation(clientId: string) {
+  const supabase = await createClient();
+
+  // Verify user is admin
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return { success: false, error: "Not authorized" };
+  }
+
+  // Verify client exists
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, business_name")
+    .eq("id", clientId)
+    .single();
+
+  if (!client) {
+    return { success: false, error: "Client not found" };
+  }
+
+  await setImpersonatedClientId(clientId);
+  revalidatePath("/", "layout");
+
+  return { success: true, clientName: client.business_name };
+}
+
+export async function stopImpersonation() {
+  const supabase = await createClient();
+
+  // Verify user is admin
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return { success: false, error: "Not authorized" };
+  }
+
+  await setImpersonatedClientId(null);
+  revalidatePath("/", "layout");
+
+  return { success: true };
+}
+
+export async function getImpersonationStatus() {
+  const supabase = await createClient();
+
+  const clientId = await getImpersonatedClientId();
+  if (!clientId) return null;
+
+  // Verify user is still admin
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    await setImpersonatedClientId(null);
+    return null;
+  }
+
+  // Get client name
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, business_name")
+    .eq("id", clientId)
+    .single();
+
+  if (!client) {
+    await setImpersonatedClientId(null);
+    return null;
+  }
+
+  return {
+    clientId: client.id,
+    clientName: client.business_name,
+  };
+}
+
+
+
+========================================
+FILE: ./lib/actions/integrations.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
+import { encryptToken } from "@/lib/google";
+import type { Integration, IntegrationType } from "@/types/database";
+
+export async function getIntegrationsForClient(
+  clientId: string
+): Promise<Integration[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("integrations")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch integrations:", error);
+    return [];
+  }
+
+  return (data || []) as Integration[];
+}
+
+export async function addFacebookIntegration(
+  clientId: string,
+  pixelId: string,
+  accessToken: string,
+  testEventCode?: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Encrypt the access token
+  const encryptedToken = encryptToken(accessToken);
+
+  // Upsert integration
+  const { error } = await supabase.from("integrations").upsert(
+    {
+      client_id: clientId,
+      type: "facebook" as IntegrationType,
+      account_id: pixelId,
+      account_name: `Pixel ${pixelId}`,
+      access_token_encrypted: encryptedToken,
+      refresh_token_encrypted: null,
+      token_expires_at: null,
+      metadata: testEventCode ? { test_event_code: testEventCode } : {},
+      is_active: true,
+    },
+    {
+      onConflict: "client_id,type,account_id",
+    }
+  );
+
+  if (error) {
+    console.error("Failed to save Facebook integration:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { success: true };
+}
+
+export async function selectIntegrationAccount(
+  integrationId: string,
+  accountId: string,
+  accountName: string,
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Get current integration to update metadata
+  const { data: integration, error: fetchError } = await supabase
+    .from("integrations")
+    .select("metadata")
+    .eq("id", integrationId)
+    .single();
+
+  if (fetchError || !integration) {
+    return { success: false, error: "Integration not found" };
+  }
+
+  // Remove selection flags from metadata, keep the rest
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  delete metadata.needsPropertySelection;
+  delete metadata.needsLocationSelection;
+  delete metadata.needsSiteSelection;
+
+  const { error } = await supabase
+    .from("integrations")
+    .update({
+      account_id: accountId,
+      account_name: accountName,
+      metadata,
+    })
+    .eq("id", integrationId);
+
+  if (error) {
+    console.error("Failed to select integration account:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { success: true };
+}
+
+export async function deleteIntegration(
+  integrationId: string,
+  clientId?: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("integrations")
+    .delete()
+    .eq("id", integrationId);
+
+  if (error) {
+    console.error("Failed to delete integration:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (clientId) {
+    revalidatePath(`/admin/clients/${clientId}`);
+  }
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/invites.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth";
+import { sendInviteEmail } from "@/lib/email";
+import { format } from "date-fns";
+import type { Invite } from "@/types/database";
+
+export type InviteFormData = {
+  email: string;
+  full_name?: string; // Optional - user fills when accepting if not provided
+  phone?: string;
+  role: "admin" | "client";
+  client_ids: string[];
+};
+
+export async function createInviteAction(
+  formData: InviteFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Get inviter's name
+  const { data: inviterProfile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", auth.userId)
+    .single();
+
+  // Check if user already exists
+  const adminClient = createAdminClient();
+  const { data: existingUsers } = await adminClient.auth.admin.listUsers();
+  const existingUser = existingUsers?.users?.find(
+    (u) => u.email?.toLowerCase() === formData.email.toLowerCase()
+  );
+
+  if (existingUser) {
+    return { success: false, error: "A user with this email already exists" };
+  }
+
+  // Check if there's a pending invite for this email
+  const { data: existingInvite } = await supabase
+    .from("invites")
+    .select("id")
+    .eq("email", formData.email.toLowerCase())
+    .is("accepted_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (existingInvite) {
+    return { success: false, error: "An invitation has already been sent to this email" };
+  }
+
+  // Create the invite
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
+
+  const { data: invite, error: insertError } = await adminClient
+    .from("invites")
+    .insert({
+      email: formData.email.toLowerCase(),
+      full_name: formData.full_name || "", // Empty if not provided - user fills when accepting
+      phone: formData.phone || null,
+      role: formData.role,
+      client_ids: formData.client_ids,
+      invited_by: auth.userId,
+      expires_at: expiresAt.toISOString(),
+    })
+    .select("token, expires_at")
+    .single();
+
+  if (insertError || !invite) {
+    console.error("Error creating invite:", insertError);
+    return { success: false, error: "Failed to create invitation" };
+  }
+
+  // Send the invite email
+  const displayName = formData.full_name || formData.email.split("@")[0] || "there";
+  const emailResult = await sendInviteEmail(formData.email, {
+    inviteeName: displayName,
+    inviterName: inviterProfile?.full_name || "An administrator",
+    token: invite.token,
+    expiresAt: format(new Date(invite.expires_at), "MMMM d, yyyy"),
+  });
+
+  if (!emailResult.success) {
+    // Delete the invite if email failed
+    await adminClient.from("invites").delete().eq("token", invite.token);
+    return { success: false, error: emailResult.error || "Failed to send invitation email" };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function getInviteByToken(
+  token: string
+): Promise<{ invite: Invite | null; error?: string }> {
+  const supabase = createAdminClient();
+
+  const { data: invite, error } = await supabase
+    .from("invites")
+    .select("*")
+    .eq("token", token)
+    .single<Invite>();
+
+  if (error || !invite) {
+    return { invite: null, error: "Invitation not found" };
+  }
+
+  // Check if already accepted
+  if (invite.accepted_at) {
+    return { invite: null, error: "This invitation has already been used" };
+  }
+
+  // Check if expired
+  if (new Date(invite.expires_at) < new Date()) {
+    return { invite: null, error: "This invitation has expired" };
+  }
+
+  return { invite };
+}
+
+export type AcceptInviteData = {
+  password: string;
+  full_name?: string; // Required if not provided in invite
+  phone?: string;
+};
+
+export async function acceptInviteAction(
+  token: string,
+  data: AcceptInviteData
+): Promise<{ success: boolean; error?: string }> {
+  const adminClient = createAdminClient();
+
+  // Get the invite
+  const { invite, error: inviteError } = await getInviteByToken(token);
+
+  if (!invite) {
+    return { success: false, error: inviteError };
+  }
+
+  // Determine final name and phone
+  const finalName = invite.full_name || data.full_name || "";
+  const finalPhone = invite.phone || data.phone || null;
+
+  if (!finalName) {
+    return { success: false, error: "Full name is required" };
+  }
+
+  // Create the auth user
+  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+    email: invite.email,
+    password: data.password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: finalName,
+    },
+  });
+
+  if (authError || !authData.user) {
+    console.error("Error creating user from invite:", authError);
+    return { success: false, error: authError?.message || "Failed to create account" };
+  }
+
+  // Update profile with role and phone
+  const { error: profileError } = await adminClient
+    .from("profiles")
+    .update({
+      role: invite.role,
+      full_name: finalName,
+      phone: finalPhone,
+    })
+    .eq("id", authData.user.id);
+
+  if (profileError) {
+    console.error("Error updating profile:", profileError);
+  }
+
+  // Assign to clients
+  if (invite.client_ids && invite.client_ids.length > 0 && invite.role === "client") {
+    for (const clientId of invite.client_ids) {
+      await adminClient.from("client_users").insert({
+        user_id: authData.user.id,
+        client_id: clientId,
+        access_role: "owner",
+      });
+    }
+  }
+
+  // Mark invite as accepted
+  await adminClient
+    .from("invites")
+    .update({ accepted_at: new Date().toISOString() })
+    .eq("id", invite.id);
+
+  return { success: true };
+}
+
+export async function resendInviteAction(
+  inviteId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  // Get inviter's name
+  const { data: inviterProfile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", auth.userId)
+    .single();
+
+  // Get the invite
+  const { data: invite, error } = await adminClient
+    .from("invites")
+    .select("*")
+    .eq("id", inviteId)
+    .single<Invite>();
+
+  if (error || !invite) {
+    return { success: false, error: "Invitation not found" };
+  }
+
+  if (invite.accepted_at) {
+    return { success: false, error: "This invitation has already been accepted" };
+  }
+
+  // Extend expiration
+  const newExpiresAt = new Date();
+  newExpiresAt.setDate(newExpiresAt.getDate() + 7);
+
+  await adminClient
+    .from("invites")
+    .update({ expires_at: newExpiresAt.toISOString() })
+    .eq("id", inviteId);
+
+  // Resend email
+  const resendDisplayName = invite.full_name || invite.email.split("@")[0] || "there";
+  const emailResult = await sendInviteEmail(invite.email, {
+    inviteeName: resendDisplayName,
+    inviterName: inviterProfile?.full_name || "An administrator",
+    token: invite.token,
+    expiresAt: format(newExpiresAt, "MMMM d, yyyy"),
+  });
+
+  if (!emailResult.success) {
+    return { success: false, error: emailResult.error || "Failed to send email" };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function deleteInviteAction(
+  inviteId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const adminClient = createAdminClient();
+
+  const { error } = await adminClient
+    .from("invites")
+    .delete()
+    .eq("id", inviteId);
+
+  if (error) {
+    console.error("Error deleting invite:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function getPendingInvites(): Promise<Invite[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  // Use admin client to bypass RLS — this is already admin-only
+  const adminClient = createAdminClient();
+
+  const { data, error } = await adminClient
+    .from("invites")
+    .select("*")
+    .is("accepted_at", null)
+    .order("created_at", { ascending: false })
+    .returns<Invite[]>();
+
+  if (error) {
+    // Table may not exist if migration 004_invites.sql hasn't been run
+    return [];
+  }
+
+  return data || [];
+}
+
+
+
+========================================
+FILE: ./lib/actions/leads.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/actions/profile";
+import { getImpersonatedClientId } from "@/lib/impersonate";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Lead, LeadStatus } from "@/types/database";
+
+export type LeadWithDetails = Lead & {
+  website_name: string;
+  website_url: string;
+  client_name: string;
+  // client_id is already on Lead (denormalized)
+};
+
+export type LeadFilters = {
+  status?: LeadStatus | "all";
+  websiteId?: string;
+  clientId?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type PaginatedLeads = {
+  leads: LeadWithDetails[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+};
+
+// Type with denormalized client_id and joined relations
+type LeadWithRelations = Lead & {
+  website: { id: string; name: string; url: string } | null;
+  client: { id: string; business_name: string } | null;
+};
+
+/** Apply common Supabase filters to a leads query */
+function applyLeadQueryFilters<T extends { eq: (col: string, val: string) => T; gte: (col: string, val: string) => T; lte: (col: string, val: string) => T }>(
+  query: T,
+  filters?: LeadFilters,
+  clientId?: string | null
+): T {
+  if (filters?.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
+  }
+  if (filters?.websiteId) {
+    query = query.eq("website_id", filters.websiteId);
+  }
+  // Push client_id filter to DB when possible (impersonation or explicit filter)
+  if (clientId) {
+    query = query.eq("client_id", clientId);
+  } else if (filters?.clientId) {
+    query = query.eq("client_id", filters.clientId);
+  }
+  if (filters?.dateFrom) {
+    query = query.gte("created_at", filters.dateFrom);
+  }
+  if (filters?.dateTo) {
+    query = query.lte("created_at", filters.dateTo);
+  }
+  return query;
+}
+
+/** Transform raw Supabase rows into LeadWithDetails, applying access + search filters */
+function transformLeadRows(
+  data: LeadWithRelations[],
+  opts: {
+    isAdmin: boolean;
+    userClientIds: string[];
+    impersonatedClientId: string | null;
+    filters?: LeadFilters;
+  }
+): LeadWithDetails[] {
+  const leads: LeadWithDetails[] = [];
+
+  for (const item of data) {
+    const { website, client } = item;
+    if (!website || !client) continue;
+
+    // Filter by client if specified (using denormalized client_id)
+    if (opts.filters?.clientId && item.client_id !== opts.filters.clientId) {
+      continue;
+    }
+
+    // When impersonating, only show that client's leads
+    if (opts.impersonatedClientId && item.client_id !== opts.impersonatedClientId) {
+      continue;
+    }
+
+    // Non-admins can only see their clients' leads
+    if (!opts.isAdmin && !opts.userClientIds.includes(item.client_id)) {
+      continue;
+    }
+
+    // Search filter
+    if (opts.filters?.search) {
+      const searchLower = opts.filters.search.toLowerCase();
+      const matchesSearch =
+        item.name?.toLowerCase().includes(searchLower) ||
+        item.email?.toLowerCase().includes(searchLower) ||
+        item.phone?.toLowerCase().includes(searchLower) ||
+        item.message?.toLowerCase().includes(searchLower);
+
+      if (!matchesSearch) continue;
+    }
+
+    leads.push({
+      ...item,
+      website_name: website.name,
+      website_url: website.url,
+      client_name: client.business_name,
+      client_id: item.client_id,
+    });
+  }
+
+  return leads;
+}
+
+/** Get user's accessible client IDs (for non-admin users) */
+async function getUserClientIds(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<string[]> {
+  const { data: clientUsers } = await supabase
+    .from("client_users")
+    .select("client_id")
+    .eq("user_id", userId);
+
+  if (!clientUsers) return [];
+  return (clientUsers as { client_id: string }[]).map((cu) => cu.client_id);
+}
+
+export async function getLeads(filters?: LeadFilters): Promise<LeadWithDetails[]> {
+  const profile = await getProfile();
+  if (!profile) return [];
+
+  const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
+  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+
+  let query = supabase
+    .from("leads")
+    .select(`
+      *,
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
+    `)
+    .order("created_at", { ascending: false });
+
+  query = applyLeadQueryFilters(query, filters, impersonatedClientId);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Error fetching leads:", error.message, error.code, error.details, error.hint);
+    return [];
+  }
+
+  const userClientIds = !isAdmin ? await getUserClientIds(supabase, profile.id) : [];
+
+  return transformLeadRows((data || []) as LeadWithRelations[], {
+    isAdmin,
+    userClientIds,
+    impersonatedClientId,
+    filters,
+  });
+}
+
+export async function getLeadsPaginated(
+  filters?: LeadFilters,
+  page = 1,
+  perPage = 25
+): Promise<PaginatedLeads> {
+  const empty: PaginatedLeads = { leads: [], total: 0, page, perPage, totalPages: 0 };
+
+  const profile = await getProfile();
+  if (!profile) return empty;
+
+  const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
+  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
+
+  // For non-admin users, get their client IDs first
+  const userClientIds = !isAdmin ? await getUserClientIds(supabase, profile.id) : [];
+
+  // Determine the effective client_id filter to push to DB
+  let effectiveClientId: string | null = impersonatedClientId;
+  if (!effectiveClientId && filters?.clientId) {
+    effectiveClientId = filters.clientId;
+  }
+  // For non-admin users with a single client, push it to DB too
+  if (!isAdmin && !effectiveClientId && userClientIds.length === 1) {
+    effectiveClientId = userClientIds[0]!;
+  }
+
+  // Count query (runs in parallel with data query)
+  let countQuery = supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true });
+  countQuery = applyLeadQueryFilters(countQuery, filters, effectiveClientId);
+
+  // Data query with pagination
+  const offset = (page - 1) * perPage;
+  let dataQuery = supabase
+    .from("leads")
+    .select(`
+      *,
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
+    `)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + perPage - 1);
+  dataQuery = applyLeadQueryFilters(dataQuery, filters, effectiveClientId);
+
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    console.error("Error fetching paginated leads:", dataResult.error.message);
+    return empty;
+  }
+
+  const total = countResult.count ?? 0;
+  const leads = transformLeadRows((dataResult.data || []) as LeadWithRelations[], {
+    isAdmin,
+    userClientIds,
+    impersonatedClientId,
+    filters,
+  });
+
+  return {
+    leads,
+    total,
+    page,
+    perPage,
+    totalPages: Math.ceil(total / perPage),
+  };
+}
+
+export async function getLead(id: string): Promise<LeadWithDetails | null> {
+  const supabase = await createClient();
+
+  // Uses denormalized client_id — explicit FK hints to avoid PostgREST ambiguity
+  const { data, error } = await supabase
+    .from("leads")
+    .select(`
+      *,
+      website:websites!website_id(id, name, url),
+      client:clients!client_id(id, business_name)
+    `)
+    .eq("id", id)
+    .single();
+
+  if (error || !data) {
+    console.error("Error fetching lead:", error);
+    return null;
+  }
+
+  type LeadWithRelations = Lead & {
+    website: { id: string; name: string; url: string } | null;
+    client: { id: string; business_name: string } | null;
+  };
+
+  const typedData = data as LeadWithRelations;
+  const { website, client } = typedData;
+
+  if (!website || !client) return null;
+
+  return {
+    ...typedData,
+    website_name: website.name,
+    website_url: website.url,
+    client_name: client.business_name,
+    client_id: typedData.client_id,
+  };
+}
+
+export async function updateLeadStatusAction(
+  id: string,
+  status: LeadStatus
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ status })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error updating lead status:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/leads");
+  revalidatePath(`/leads/${id}`);
+  return { success: true };
+}
+
+export async function deleteLeadAction(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("leads").delete().eq("id", id);
+
+  if (error) {
+    console.error("Error deleting lead:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/leads");
+  return { success: true };
+}
+
+// Lead notes
+export type LeadNoteWithUser = {
+  id: string;
+  lead_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user_name: string;
+};
+
+export async function getLeadNotes(leadId: string): Promise<LeadNoteWithUser[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("lead_notes")
+    .select(`
+      *,
+      profile:profiles(full_name)
+    `)
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching lead notes:", error);
+    return [];
+  }
+
+  type NoteWithProfile = {
+    id: string;
+    lead_id: string;
+    user_id: string;
+    content: string;
+    created_at: string;
+    profile: { full_name: string } | null;
+  };
+
+  return ((data || []) as NoteWithProfile[]).map((note) => ({
+    id: note.id,
+    lead_id: note.lead_id,
+    user_id: note.user_id,
+    content: note.content,
+    created_at: note.created_at,
+    user_name: note.profile?.full_name || "Unknown",
+  }));
+}
+
+export async function addLeadNoteAction(
+  leadId: string,
+  content: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return { success: false, error: "Note content is required" };
+  }
+  if (trimmed.length > 5000) {
+    return { success: false, error: "Note content must be under 5,000 characters" };
+  }
+
+  const { error } = await supabase.from("lead_notes").insert({
+    lead_id: leadId,
+    user_id: user.id,
+    content: trimmed,
+  });
+
+  if (error) {
+    console.error("Error adding lead note:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/leads/${leadId}`);
+  return { success: true };
+}
+
+export async function getLeadCountForClient(clientId: string): Promise<number> {
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from("leads")
+    .select("*", { count: "exact", head: true })
+    .eq("client_id", clientId);
+
+  if (error) {
+    console.error("Error fetching lead count:", error);
+    return 0;
+  }
+
+  return count || 0;
+}
+
+
+
+========================================
+FILE: ./lib/actions/profile.ts
+========================================
+"use server";
+
+import { cache } from "react";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import type { Profile } from "@/types/database";
+
+export type ProfileFormData = {
+  full_name: string;
+  phone: string;
+};
+
+/**
+ * Cached profile fetch — deduplicated per server request via React.cache().
+ * Multiple pages/layouts calling this in the same render only hit the DB once.
+ */
+export const getProfile = cache(async (): Promise<Profile | null> => {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single<Profile>();
+
+  if (error) {
+    console.error("Error fetching profile:", error);
+    return null;
+  }
+
+  return data;
+});
+
+export async function updateProfileAction(
+  formData: ProfileFormData
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      full_name: formData.full_name,
+      phone: formData.phone || null,
+    })
+    .eq("id", user.id);
+
+  if (error) {
+    console.error("Error updating profile:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function changePasswordAction(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  // Verify current password by re-authenticating
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error: verifyError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+
+  if (verifyError) {
+    return { success: false, error: "Current password is incorrect" };
+  }
+
+  // Current password verified — update to new password
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (error) {
+    console.error("Error changing password:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function updateAvatarAction(
+  avatarUrl: string | null
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", user.id);
+
+  if (error) {
+    console.error("Error updating avatar:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/site-checks.ts
+========================================
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import type { SiteCheck, CheckType } from "@/types/database";
+
+export async function getSiteChecks(
+  websiteId: string,
+  checkType: CheckType,
+  limit = 5
+): Promise<SiteCheck[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("site_checks")
+    .select("*")
+    .eq("website_id", websiteId)
+    .eq("check_type", checkType)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("Error fetching site checks:", error);
+    return [];
+  }
+
+  return (data || []) as SiteCheck[];
+}
+
+export async function getLatestChecks(clientId: string): Promise<SiteCheck[]> {
+  const supabase = await createClient();
+
+  // Get latest check of each type per website for this client
+  const { data, error } = await supabase
+    .from("site_checks")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.error("Error fetching latest checks:", error);
+    return [];
+  }
+
+  // Deduplicate: keep only latest per website+type combo
+  const seen = new Set<string>();
+  const latest: SiteCheck[] = [];
+
+  for (const check of (data || []) as SiteCheck[]) {
+    const key = `${check.website_id}:${check.check_type}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      latest.push(check);
+    }
+  }
+
+  return latest;
+}
+
+export async function getLatestCheckForWebsite(
+  websiteId: string,
+  checkType: CheckType
+): Promise<SiteCheck | null> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("site_checks")
+    .select("*")
+    .eq("website_id", websiteId)
+    .eq("check_type", checkType)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching latest check:", error);
+    return null;
+  }
+
+  return (data as SiteCheck) || null;
+}
+
+export async function getAllSiteChecks(limit = 20): Promise<SiteCheck[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("site_checks")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("Error fetching all site checks:", error);
+    return [];
+  }
+
+  return (data || []) as SiteCheck[];
+}
+
+
+
+========================================
+FILE: ./lib/actions/users.ts
+========================================
+"use server";
+
+import { randomBytes } from "crypto";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth";
+import { sendWelcomeEmail, sendAccountCreatedEmail } from "@/lib/email";
+import { unblockAccount } from "@/lib/login-security";
+import type { Profile } from "@/types/database";
+
+export type UserWithClients = Profile & {
+  clients: { id: string; business_name: string; access_role: string }[];
+};
+
+export type UserFormData = {
+  email: string;
+  full_name: string;
+  phone: string;
+  role: "admin" | "client";
+  client_ids: string[];
+  password?: string;
+  sendEmail?: boolean;
+};
+
+export async function getUsers(): Promise<UserWithClients[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
+  const supabase = await createClient();
+
+  // Single query: fetch all profiles with their client assignments joined
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .returns<Profile[]>();
+
+  if (profilesError || !profiles) {
+    console.error("Error fetching profiles:", profilesError);
+    return [];
+  }
+
+  // Batch fetch all client_users with client details in one query
+  const profileIds = profiles.map((p) => p.id);
+
+  type ClientUserJoined = {
+    user_id: string;
+    access_role: string;
+    clients: { id: string; business_name: string };
+  };
+
+  const { data: allClientUsers } = await supabase
+    .from("client_users")
+    .select("user_id, access_role, clients(id, business_name)")
+    .in("user_id", profileIds)
+    .returns<ClientUserJoined[]>();
+
+  // Group client assignments by user_id
+  const clientsByUser: Record<
+    string,
+    { id: string; business_name: string; access_role: string }[]
+  > = {};
+
+  if (allClientUsers) {
+    for (const cu of allClientUsers) {
+      if (!clientsByUser[cu.user_id]) {
+        clientsByUser[cu.user_id] = [];
+      }
+      clientsByUser[cu.user_id]!.push({
+        id: cu.clients.id,
+        business_name: cu.clients.business_name,
+        access_role: cu.access_role,
+      });
+    }
+  }
+
+  // Combine profiles with their client assignments
+  return profiles.map((profile) => ({
+    ...profile,
+    clients: clientsByUser[profile.id] || [],
+  }));
+}
+
+export async function createUserAction(
+  formData: UserFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const adminClient = createAdminClient();
+
+  // Use provided password or generate a random one
+  const hasPassword = !!formData.password && formData.password.length >= 6;
+  const password = hasPassword
+    ? formData.password!
+    : randomBytes(32).toString("base64url");
+
+  // Create auth user
+  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+    email: formData.email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: formData.full_name,
+    },
+  });
+
+  if (authError || !authData.user) {
+    console.error("Error creating auth user:", authError);
+    return { success: false, error: authError?.message || "Failed to create user" };
+  }
+
+  // Update profile with role and phone
+  const { error: profileError } = await adminClient
+    .from("profiles")
+    .update({
+      role: formData.role,
+      full_name: formData.full_name,
+      phone: formData.phone || null,
+    })
+    .eq("id", authData.user.id);
+
+  if (profileError) {
+    console.error("Error updating profile:", profileError);
+    await adminClient.auth.admin.deleteUser(authData.user.id);
+    return { success: false, error: "Failed to set up user profile. Please try again." };
+  }
+
+  // Assign to clients
+  if (formData.client_ids.length > 0 && formData.role === "client") {
+    for (const clientId of formData.client_ids) {
+      await adminClient.from("client_users").insert({
+        user_id: authData.user.id,
+        client_id: clientId,
+        access_role: "owner",
+      });
+    }
+  }
+
+  // Send email if requested
+  if (formData.sendEmail !== false) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+    if (hasPassword) {
+      // Password was set by admin — send account info email (login URL, no password in email)
+      await sendAccountCreatedEmail(formData.email, {
+        userName: formData.full_name,
+        email: formData.email,
+        loginUrl: `${appUrl}/login`,
+      });
+    } else {
+      // No password — send "set your password" link
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: "recovery",
+        email: formData.email,
+        options: {
+          redirectTo: `${appUrl}/auth/callback?next=/settings`,
+        },
+      });
+
+      let resetUrl = `${appUrl}/settings`;
+      if (!linkError && linkData?.properties?.hashed_token) {
+        resetUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${linkData.properties.hashed_token}&type=recovery&redirect_to=${encodeURIComponent(`${appUrl}/auth/callback?next=/settings`)}`;
+      }
+
+      await sendWelcomeEmail(formData.email, {
+        userName: formData.full_name,
+        email: formData.email,
+        resetUrl,
+      });
+    }
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function updateUserRoleAction(
+  userId: string,
+  role: "admin" | "client"
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ role })
+    .eq("id", userId);
+
+  if (error) {
+    console.error("Error updating user role:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function assignUserToClientAction(
+  userId: string,
+  clientId: string,
+  accessRole: "owner" | "viewer" = "owner"
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Check if already assigned
+  const { data: existing } = await supabase
+    .from("client_users")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (existing) {
+    return { success: false, error: "User already assigned to this client" };
+  }
+
+  const { error } = await supabase.from("client_users").insert({
+    user_id: userId,
+    client_id: clientId,
+    access_role: accessRole,
+  });
+
+  if (error) {
+    console.error("Error assigning user to client:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function removeUserFromClientAction(
+  userId: string,
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("client_users")
+    .delete()
+    .eq("user_id", userId)
+    .eq("client_id", clientId);
+
+  if (error) {
+    console.error("Error removing user from client:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function adminChangePasswordAction(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  if (newPassword.length < 6) {
+    return { success: false, error: "Password must be at least 6 characters" };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { error } = await adminClient.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (error) {
+    console.error("Error changing user password:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function unblockUserAction(
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const adminClient = createAdminClient();
+
+  // Get user email
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("email")
+    .eq("id", userId)
+    .single();
+
+  if (!profile) {
+    return { success: false, error: "User not found" };
+  }
+
+  // Unblock account and clear login attempts
+  const result = await unblockAccount(profile.email);
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function deleteUserAction(
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const adminClient = createAdminClient();
+
+  // Delete from auth (this will cascade to profiles via trigger or we delete manually)
+  const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
+
+  if (authError) {
+    console.error("Error deleting user:", authError);
+    return { success: false, error: authError.message };
+  }
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/website-info.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
+import type { WebsiteInfo } from "@/types/database";
+
+export type WebsiteInfoFormData = {
+  label: string;
+  value: string;
+  is_sensitive: boolean;
+};
+
+export async function getWebsiteInfo(websiteId: string): Promise<WebsiteInfo[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("website_info")
+    .select("*")
+    .eq("website_id", websiteId)
+    .order("created_at", { ascending: true })
+    .returns<WebsiteInfo[]>();
+
+  if (error) {
+    console.error("Error fetching website info:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function addWebsiteInfoAction(
+  websiteId: string,
+  formData: WebsiteInfoFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Get client_id for revalidation
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", websiteId)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase.from("website_info").insert({
+    website_id: websiteId,
+    label: formData.label,
+    value: formData.value,
+    is_sensitive: formData.is_sensitive,
+  });
+
+  if (error) {
+    console.error("Error adding website info:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  return { success: true };
+}
+
+export async function updateWebsiteInfoAction(
+  id: string,
+  formData: WebsiteInfoFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("website_info")
+    .update({
+      label: formData.label,
+      value: formData.value,
+      is_sensitive: formData.is_sensitive,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error updating website info:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function deleteWebsiteInfoAction(
+  id: string,
+  websiteId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Get client_id for revalidation
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", websiteId)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase
+    .from("website_info")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error deleting website info:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/websites.ts
+========================================
+"use server";
+
+import { randomBytes } from "crypto";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth";
+import type { Website } from "@/types/database";
+
+export type WebsiteFormData = {
+  name: string;
+  url: string;
+  source_type: string;
+  git_repo_url?: string;
+  asana_project_url?: string;
+  figma_url?: string;
+};
+
+function generateApiKey(): string {
+  return "wh_" + randomBytes(24).toString("base64url");
+}
+
+function generateWebhookSecret(): string {
+  return "whsec_" + randomBytes(24).toString("base64url");
+}
+
+export async function getWebsitesForClient(clientId: string): Promise<Website[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("websites")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false })
+    .returns<Website[]>();
+
+  if (error) {
+    console.error("Error fetching websites:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function createWebsiteAction(
+  clientId: string,
+  formData: WebsiteFormData
+): Promise<{ success: boolean; error?: string; website?: Website }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const apiKey = generateApiKey();
+  const webhookSecret = generateWebhookSecret();
+
+  const { data, error } = await supabase
+    .from("websites")
+    .insert({
+      client_id: clientId,
+      name: formData.name,
+      url: formData.url,
+      source_type: formData.source_type || "elementor",
+      git_repo_url: formData.git_repo_url || null,
+      asana_project_url: formData.asana_project_url || null,
+      figma_url: formData.figma_url || null,
+      api_key: apiKey,
+      webhook_secret: webhookSecret,
+      is_active: true,
+    })
+    .select()
+    .single<Website>();
+
+  if (error) {
+    console.error("Error creating website:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/clients/${clientId}`);
+  revalidatePath("/admin/websites");
+  return { success: true, website: data };
+}
+
+export async function updateWebsiteAction(
+  id: string,
+  formData: WebsiteFormData
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", id)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({
+      name: formData.name,
+      url: formData.url,
+      source_type: formData.source_type,
+      git_repo_url: formData.git_repo_url || null,
+      asana_project_url: formData.asana_project_url || null,
+      figma_url: formData.figma_url || null,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error updating website:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
+export async function deleteWebsiteAction(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", id)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase.from("websites").delete().eq("id", id);
+
+  if (error) {
+    console.error("Error deleting website:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
+export async function toggleWebsiteActiveAction(
+  id: string,
+  isActive: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ is_active: isActive })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error toggling website:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
+export async function regenerateApiKeyAction(
+  id: string
+): Promise<{ success: boolean; error?: string; apiKey?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const newApiKey = generateApiKey();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ api_key: newApiKey })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error regenerating API key:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/websites");
+  return { success: true, apiKey: newApiKey };
+}
+
+export async function acknowledgeChangesAction(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ has_changes: false })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Error acknowledging changes:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
+
+
+========================================
+FILE: ./lib/actions/wordpress.ts
+========================================
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth";
+import { crawlWordPressSite } from "@/lib/wordpress/crawler";
+import { analyzeWithClaude } from "@/lib/wordpress/ai-analyzer";
+import type {
+  WPSiteConfig,
+  WPAnalysis,
+  WPCrawlResult,
+  AnalysisScores,
+  DashboardAnalyticsData,
+} from "@/types/wordpress";
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+export type AnalyzeResult = {
+  success: boolean;
+  error?: string;
+  analysisId?: string;
+  scores?: AnalysisScores;
+};
+
+export type ConfigResult = {
+  success: boolean;
+  error?: string;
+  config?: WPSiteConfig;
+};
+
+export type AnalysisData = {
+  success: boolean;
+  error?: string;
+  analysis?: WPAnalysis;
+};
+
+// ─── Get website config ──────────────────────────────────────────────
+
+/**
+ * Get the WordPress local path config for a website.
+ */
+export async function getWebsiteConfig(
+  websiteId: string
+): Promise<ConfigResult> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from("wp_site_configs")
+    .select("*")
+    .eq("website_id", websiteId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching WP config:", error);
+    return { success: false, error: error.message };
+  }
+
+  return {
+    success: true,
+    config: (data as WPSiteConfig) ?? undefined,
+  };
+}
+
+// ─── Save website config ─────────────────────────────────────────────
+
+/**
+ * Create or update the WordPress local path config for a website.
+ */
+export async function saveWebsiteConfig(
+  websiteId: string,
+  localPath: string,
+  deployMethod: "none" | "git" | "wp_migrate" = "none"
+): Promise<ConfigResult> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  // Validate path (basic check)
+  if (!localPath.trim()) {
+    return { success: false, error: "Local path is required" };
+  }
+
+  const supabase = createAdminClient();
+
+  // Check if config already exists
+  const { data: existing } = await supabase
+    .from("wp_site_configs")
+    .select("id")
+    .eq("website_id", websiteId)
+    .maybeSingle();
+
+  if (existing) {
+    // Update existing
+    const { data, error } = await supabase
+      .from("wp_site_configs")
+      .update({
+        local_path: localPath.trim(),
+        deploy_method: deployMethod,
+      })
+      .eq("website_id", websiteId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating WP config:", error);
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath(`/admin/websites/${websiteId}`);
+    return { success: true, config: data as WPSiteConfig };
+  } else {
+    // Create new
+    const { data, error } = await supabase
+      .from("wp_site_configs")
+      .insert({
+        website_id: websiteId,
+        local_path: localPath.trim(),
+        deploy_method: deployMethod,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating WP config:", error);
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath(`/admin/websites/${websiteId}`);
+    return { success: true, config: data as WPSiteConfig };
+  }
+}
+
+// ─── Get latest analysis ─────────────────────────────────────────────
+
+/**
+ * Get the most recent analysis for a website.
+ */
+export async function getLatestAnalysis(
+  websiteId: string
+): Promise<AnalysisData> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from("wp_analyses")
+    .select("*")
+    .eq("website_id", websiteId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error && error.code !== "PGRST116") {
+    console.error("Error fetching analysis:", error);
+    return { success: false, error: error.message };
+  }
+
+  return {
+    success: true,
+    analysis: data as WPAnalysis | undefined,
+  };
+}
+
+// ─── Get analysis by ID ──────────────────────────────────────────────
+
+/**
+ * Get a specific analysis by ID (for polling).
+ */
+export async function getAnalysisById(
+  analysisId: string
+): Promise<AnalysisData> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from("wp_analyses")
+    .select("*")
+    .eq("id", analysisId)
+    .single();
+
+  if (error) {
+    console.error("Error fetching analysis by ID:", error);
+    return { success: false, error: error.message };
+  }
+
+  return {
+    success: true,
+    analysis: data as WPAnalysis,
+  };
+}
+
+// ─── Gather dashboard analytics ──────────────────────────────────────
+
+/**
+ * Collect existing analytics data from the dashboard for a website/client.
+ * This enriches the Claude prompt with GA4, GSC, SEO audit, etc.
+ */
+async function gatherDashboardAnalytics(
+  websiteId: string,
+  clientId: string
+): Promise<DashboardAnalyticsData> {
+  const supabase = createAdminClient();
+  const analytics: DashboardAnalyticsData = {};
+
+  try {
+    // Get GA4 cached data
+    const { data: ga4Cache } = await supabase
+      .from("analytics_cache")
+      .select("data")
+      .eq("client_id", clientId)
+      .eq("integration_type", "ga4")
+      .order("fetched_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (ga4Cache?.data) {
+      const ga4 = ga4Cache.data as Record<string, unknown>;
+      const overview = ga4.overview as Record<string, number> | undefined;
+      const topPages = ga4.topPages as Array<Record<string, unknown>> | undefined;
+      const trafficSources = ga4.trafficSources as Array<Record<string, unknown>> | undefined;
+
+      if (overview) {
+        analytics.ga4 = {
+          sessions: overview.sessions || 0,
+          users: overview.totalUsers || 0,
+          pageviews: overview.pageViews || 0,
+          bounce_rate: overview.bounceRate || 0,
+          avg_session_duration: overview.avgSessionDuration || 0,
+          top_pages: (topPages || []).slice(0, 10).map((p) => ({
+            page: String(p.pagePath || ""),
+            views: Number(p.pageViews || 0),
+          })),
+          traffic_sources: (trafficSources || []).slice(0, 10).map((s) => ({
+            source: String(s.channel || ""),
+            sessions: Number(s.sessions || 0),
+          })),
+        };
+      }
+    }
+
+    // Get GSC cached data
+    const { data: gscCache } = await supabase
+      .from("analytics_cache")
+      .select("data")
+      .eq("client_id", clientId)
+      .eq("integration_type", "gsc")
+      .order("fetched_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (gscCache?.data) {
+      const gsc = gscCache.data as Record<string, unknown>;
+      const overview = gsc.overview as Record<string, number> | undefined;
+      const topQueries = gsc.topQueries as Array<Record<string, unknown>> | undefined;
+      const topPages = gsc.topPages as Array<Record<string, unknown>> | undefined;
+
+      if (overview) {
+        analytics.gsc = {
+          clicks: overview.totalClicks || 0,
+          impressions: overview.totalImpressions || 0,
+          ctr: overview.averageCTR || 0,
+          position: overview.averagePosition || 0,
+          top_queries: (topQueries || []).slice(0, 15).map((q) => ({
+            query: String(q.query || ""),
+            clicks: Number(q.clicks || 0),
+            impressions: Number(q.impressions || 0),
+            ctr: Number(q.ctr || 0),
+            position: Number(q.position || 0),
+          })),
+          top_pages: (topPages || []).slice(0, 10).map((p) => ({
+            page: String(p.page || ""),
+            clicks: Number(p.clicks || 0),
+            impressions: Number(p.impressions || 0),
+          })),
+        };
+      }
+    }
+
+    // Get latest SEO audit
+    const { data: seoCheck } = await supabase
+      .from("site_checks")
+      .select("score, summary, results")
+      .eq("website_id", websiteId)
+      .eq("check_type", "seo_audit")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (seoCheck) {
+      analytics.seo_audit = {
+        score: seoCheck.score || 0,
+        checks: (seoCheck.results || []).map((r: Record<string, unknown>) => ({
+          name: String(r.name || r.check || ""),
+          status: String(r.status || r.result || ""),
+          details: r.details ? String(r.details) : undefined,
+        })),
+      };
+    }
+
+    // Get latest broken links check
+    const { data: brokenCheck } = await supabase
+      .from("site_checks")
+      .select("summary, results")
+      .eq("website_id", websiteId)
+      .eq("check_type", "broken_links")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (brokenCheck) {
+      const summary = brokenCheck.summary as Record<string, unknown>;
+      const brokenLinks = (brokenCheck.results || []).filter(
+        (r: Record<string, unknown>) => r.status && Number(r.status) >= 400
+      );
+      analytics.broken_links = {
+        total: Number(summary.total_links || summary.total || 0),
+        broken: brokenLinks.length,
+        links: brokenLinks.slice(0, 10).map((r: Record<string, unknown>) => ({
+          url: String(r.url || ""),
+          status: Number(r.status || 0),
+        })),
+      };
+    }
+
+    // Get latest uptime check
+    const { data: uptimeCheck } = await supabase
+      .from("site_checks")
+      .select("summary")
+      .eq("website_id", websiteId)
+      .eq("check_type", "uptime")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (uptimeCheck) {
+      const summary = uptimeCheck.summary as Record<string, unknown>;
+      analytics.uptime = {
+        response_time_ms: Number(summary.response_time_ms || summary.responseTime || 0),
+        page_size_kb: Number(summary.page_size_kb || summary.pageSize || 0),
+        has_ssl: Boolean(summary.has_ssl ?? summary.ssl ?? false),
+        has_compression: Boolean(summary.has_compression ?? summary.compression ?? false),
+      };
+    }
+  } catch (err) {
+    console.error("Error gathering dashboard analytics:", err);
+    // Non-fatal: we can still run analysis without analytics enrichment
+  }
+
+  return analytics;
+}
+
+// ─── Cancel analysis ─────────────────────────────────────────────────
+
+/**
+ * Cancel a running analysis by marking it as failed/cancelled.
+ */
+export async function cancelAnalysis(
+  analysisId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  const { data: existing } = await supabase
+    .from("wp_analyses")
+    .select("status")
+    .eq("id", analysisId)
+    .single();
+
+  if (!existing) {
+    return { success: false, error: "Analysis not found" };
+  }
+
+  if (existing.status !== "running") {
+    return { success: false, error: "Analysis is not running" };
+  }
+
+  await supabase
+    .from("wp_analyses")
+    .update({
+      status: "failed",
+      error_message: "Cancelled by user",
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", analysisId);
+
+  return { success: true };
+}
+
+// ─── Main analysis action ────────────────────────────────────────────
+
+/**
+ * Run a full WordPress site analysis:
+ * 1. Crawl the local WordPress installation
+ * 2. Gather dashboard analytics (GA4, GSC, SEO audit, etc.)
+ * 3. Send everything to Claude for analysis
+ * 4. Store results in database
+ *
+ * The server action awaits the pipeline (needed for Vercel serverless).
+ * The UI polls via getAnalysisById for progress and can cancel via cancelAnalysis.
+ */
+export async function analyzeWebsite(
+  websiteId: string
+): Promise<AnalyzeResult> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = createAdminClient();
+
+  // 1. Get website + config
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, client_id, name, url")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return { success: false, error: "Website not found" };
+  }
+
+  const { data: config } = await supabase
+    .from("wp_site_configs")
+    .select("local_path")
+    .eq("website_id", websiteId)
+    .single();
+
+  if (!config?.local_path) {
+    return {
+      success: false,
+      error: "WordPress local path not configured. Please set the local path first.",
+    };
+  }
+
+  // Detect Vercel/serverless environment — local file access is not available
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return {
+      success: false,
+      error: "AI Analysis requires access to the local WordPress filesystem. Please run this from your local development server (localhost:3000), not from the deployed Vercel instance.",
+    };
+  }
+
+  // 2. Create analysis record (status: running)
+  const { data: analysis, error: insertError } = await supabase
+    .from("wp_analyses")
+    .insert({
+      website_id: websiteId,
+      client_id: website.client_id,
+      status: "running",
+      started_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !analysis) {
+    console.error("Error creating analysis record:", insertError);
+    return { success: false, error: "Failed to start analysis" };
+  }
+
+  const analysisId = analysis.id as string;
+
+  // 3. Run the full analysis pipeline (awaited — server action stays alive)
+  // The pipeline checks for cancellation at key checkpoints.
+  await runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path);
+
+  return {
+    success: true,
+    analysisId,
+  };
+}
+
+// ─── Cancellation check helper ──────────────────────────────────────
+
+/**
+ * Check if an analysis has been cancelled (status changed to "failed" with
+ * "Cancelled by user" message). Throws if cancelled.
+ */
+async function checkCancelled(analysisId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("wp_analyses")
+    .select("status")
+    .eq("id", analysisId)
+    .single();
+
+  if (data?.status !== "running") {
+    throw new Error("Analysis was cancelled");
+  }
+}
+
+// ─── Analysis pipeline ──────────────────────────────────────────────
+
+const PIPELINE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute hard timeout
+
+async function runAnalysisPipeline(
+  analysisId: string,
+  websiteId: string,
+  clientId: string,
+  localPath: string
+): Promise<void> {
+  const supabase = createAdminClient();
+
+  // Wrap the entire pipeline in a timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Analysis timed out after 5 minutes")), PIPELINE_TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([
+      (async () => {
+        // Step 1: Crawl WordPress site
+        const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
+
+        // Check if user cancelled between steps
+        await checkCancelled(analysisId);
+
+        // Step 2: Gather dashboard analytics
+        const analyticsData = await gatherDashboardAnalytics(websiteId, clientId);
+
+        // Check again before the expensive Claude call
+        await checkCancelled(analysisId);
+
+        // Step 3: Send to Claude for analysis
+        const { result, tokensUsed } = await analyzeWithClaude(crawlData, analyticsData);
+
+        // Final check before writing results
+        await checkCancelled(analysisId);
+
+        // Step 4: Update analysis record with results
+        await supabase
+          .from("wp_analyses")
+          .update({
+            status: "completed",
+            site_data: crawlData as unknown as Record<string, unknown>,
+            recommendations: result.recommendations as unknown as Record<string, unknown>[],
+            scores: result.scores as unknown as Record<string, unknown>,
+            pages_analyzed: crawlData.total_pages,
+            issues_found: result.total_issues,
+            claude_tokens: tokensUsed,
+            summary: result.summary,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", analysisId);
+
+        revalidatePath(`/admin/websites/${websiteId}`);
+      })(),
+      timeoutPromise,
+    ]);
+  } catch (err) {
+    // Extract error message — handle non-Error objects
+    let errorMessage: string;
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    } else if (typeof err === "string") {
+      errorMessage = err;
+    } else {
+      errorMessage = JSON.stringify(err) || "Unknown error during analysis";
+    }
+
+    // Don't overwrite a user-initiated cancel
+    if (errorMessage === "Analysis was cancelled") {
+      return;
+    }
+
+    console.error("Analysis pipeline failed:", errorMessage);
+    console.error("Raw error:", err);
+
+    // Update record with failure
+    await supabase
+      .from("wp_analyses")
+      .update({
+        status: "failed",
+        error_message: errorMessage,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", analysisId);
+  }
+}
+
+
+

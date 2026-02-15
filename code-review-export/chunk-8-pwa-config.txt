@@ -1,0 +1,486 @@
+# CHUNK 8: PWA, Service Worker & Config
+
+========================================
+FILE: public/sw.js
+========================================
+// Service worker for PWA installability and push notifications
+const CACHE_NAME = "client-dashboard-v1";
+const OFFLINE_URL = "/offline.html";
+
+// Static assets to cache
+const PRECACHE_ASSETS = [
+  "/",
+  "/dashboard",
+  "/leads",
+];
+
+// Install event - cache static assets
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
+        console.log("Precache failed (expected in dev):", err);
+      });
+    })
+  );
+  self.skipWaiting();
+});
+
+// Activate event - clean old caches
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+// Fetch event - network first, fallback to cache
+self.addEventListener("fetch", (event) => {
+  // Only handle GET requests
+  if (event.request.method !== "GET") return;
+
+  // Skip API and auth routes
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
+    return;
+  }
+
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Cache successful responses
+        if (response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+        }
+        return response;
+      })
+      .catch(() => {
+        // Return cached response on network failure
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Return offline page for navigation requests
+          if (event.request.mode === "navigate") {
+            return caches.match(OFFLINE_URL);
+          }
+          return new Response("Offline", { status: 503 });
+        });
+      })
+  );
+});
+
+// Push notification event
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  try {
+    const data = event.data.json();
+    const options = {
+      body: data.body || "You have a new notification",
+      icon: "/icon-192x192.png",
+      badge: "/icon-72x72.png",
+      vibrate: [100, 50, 100],
+      data: {
+        url: data.url || "/dashboard",
+        leadId: data.leadId,
+      },
+      actions: [
+        { action: "view", title: "View" },
+        { action: "dismiss", title: "Dismiss" },
+      ],
+      tag: data.tag || "default",
+      renotify: true,
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(data.title || "New Lead", options)
+    );
+  } catch (err) {
+    console.error("Push notification error:", err);
+  }
+});
+
+// Notification click event
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  if (event.action === "dismiss") return;
+
+  const url = event.notification.data?.url || "/dashboard";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Focus existing window if open
+      for (const client of clientList) {
+        if (client.url.includes(url) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      // Open new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(url);
+      }
+    })
+  );
+});
+
+
+
+========================================
+FILE: public/offline.html
+========================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline - Client Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f5f5f5;
+      color: #0a0a0a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      text-align: center;
+      max-width: 400px;
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 24px;
+      opacity: 0.5;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    p {
+      color: #737373;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    button {
+      background-color: #0a0a0a;
+      color: #ffffff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #262626;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+    </svg>
+    <h1>You're Offline</h1>
+    <p>Please check your internet connection and try again.</p>
+    <button onclick="window.location.reload()">Retry</button>
+  </div>
+</body>
+</html>
+
+
+
+========================================
+FILE: app/manifest.ts
+========================================
+import type { MetadataRoute } from "next";
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: "Client Dashboard",
+    short_name: "Dashboard",
+    description: "Client dashboard for leads, analytics, and business insights",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#ffffff",
+    theme_color: "#0a0a0a",
+    orientation: "portrait-primary",
+    icons: [
+      {
+        src: "/icon-72x72.png",
+        sizes: "72x72",
+        type: "image/png",
+      },
+      {
+        src: "/icon-192x192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
+      {
+        src: "/icon-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+      },
+    ],
+  };
+}
+
+
+
+========================================
+FILE: app/globals.css
+========================================
+@import "tailwindcss";
+
+/* ===== Design Tokens (Monochrome: black/white/grey) ===== */
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #0a0a0a;
+  --primary: #0a0a0a;
+  --primary-foreground: #ffffff;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --muted: #262626;
+  --muted-foreground: #a3a3a3;
+  --card: #171717;
+  --card-foreground: #fafafa;
+  --border: #262626;
+  --input: #262626;
+  --ring: #d4d4d4;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  --destructive: #ef4444;
+  --destructive-foreground: #fafafa;
+  --success: #22c55e;
+  --success-foreground: #0a0a0a;
+  --warning: #f59e0b;
+  --warning-foreground: #0a0a0a;
+}
+
+/* ===== Tailwind v4 Theme ===== */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ===== Base Styles ===== */
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 10px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Size overrides (+2px from original) */
+@layer utilities {
+  .text-3xl {
+    font-size: 1.5rem !important;
+    line-height: 2rem !important;
+  }
+
+  .text-2xl {
+    font-size: 1.25rem !important;
+    line-height: 1.625rem !important;
+  }
+
+  .text-xl {
+    font-size: 1.125rem !important;
+    line-height: 1.5rem !important;
+  }
+
+  .text-lg {
+    font-size: 1rem !important;
+    line-height: 1.375rem !important;
+  }
+
+  .text-sm {
+    font-size: 0.925rem !important;
+    line-height: 1.25rem !important;
+  }
+
+  .text-xs {
+    font-size: 0.825rem !important;
+    line-height: 1.075rem !important;
+  }
+
+  .font-medium {
+    font-size: 14px !important;
+  }
+
+  .text-muted-foreground {
+    font-size: 13px !important;
+  }
+}
+
+
+
+========================================
+FILE: app/layout.tsx
+========================================
+import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: {
+    default: "Client Dashboard",
+    template: "%s | Client Dashboard",
+  },
+  description: "Client dashboard for leads, analytics, and business insights",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Dashboard",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#0a0a0a",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} min-h-dvh antialiased`}
+      >
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
+    </html>
+  );
+}
+
+
+
+========================================
+FILE: .env.example
+========================================
+# ===== Supabase =====
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+
+# ===== App =====
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_NAME=Client Dashboard
+
+# ===== Email (Resend) =====
+# RESEND_API_KEY=re_xxxxxxxxx
+# RESEND_FROM_EMAIL=notifications@yourdomain.com
+
+# ===== Push Notifications (Web Push) =====
+# Generate with: npx web-push generate-vapid-keys
+# NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+# VAPID_PRIVATE_KEY=
+# VAPID_SUBJECT=mailto:admin@yourdomain.com
+
+# ===== Google OAuth (Phase 5) =====
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback
+
+# ===== Token Encryption (Phase 5) =====
+# TOKEN_ENCRYPTION_KEY=
+
+# ===== Upstash Redis (Rate Limiting) =====
+# Create free DB at https://upstash.com
+# UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+# UPSTASH_REDIS_REST_TOKEN=xxx
+
+# ===== reCAPTCHA v3 (Login Security) =====
+# Get keys at https://www.google.com/recaptcha/admin (choose v3)
+# NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
+# RECAPTCHA_SECRET_KEY=
+
+# ===== Anthropic API (WordPress AI Analysis) =====
+# ANTHROPIC_API_KEY=sk-ant-xxx
+
+# ===== Vercel Cron (optional) =====
+# CRON_SECRET=your_cron_secret_here
+
+
+

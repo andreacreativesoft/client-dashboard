@@ -1,0 +1,3579 @@
+# CHUNK 6: External Services & Integrations
+
+========================================
+FILE: lib/google.ts
+========================================
+import { google } from "googleapis";
+import type { analyticsdata_v1beta } from "googleapis";
+import type { searchconsole_v1 } from "googleapis";
+import type { businessprofileperformance_v1 } from "googleapis";
+import crypto from "crypto";
+
+// ─── Google API response types (re-exported for consumers) ─────────
+export type GA4ReportResponse = analyticsdata_v1beta.Schema$RunReportResponse;
+export type GA4Row = analyticsdata_v1beta.Schema$Row;
+export type GSCQueryResponse = searchconsole_v1.Schema$SearchAnalyticsQueryResponse;
+export type GSCRow = searchconsole_v1.Schema$ApiDataRow;
+export type GBPMetricsResponse = businessprofileperformance_v1.Schema$FetchMultiDailyMetricsTimeSeriesResponse;
+export type GBPKeywordsResponse = businessprofileperformance_v1.Schema$ListSearchKeywordImpressionsMonthlyResponse;
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI ||
+  `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google/callback`;
+
+const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY;
+
+// Scopes required for GA4, Google Business Profile, and Search Console
+const SCOPES = [
+  "https://www.googleapis.com/auth/analytics.readonly",
+  "https://www.googleapis.com/auth/business.manage",
+  "https://www.googleapis.com/auth/webmasters.readonly",
+];
+
+export function getOAuth2Client() {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google OAuth not configured");
+  }
+
+  return new google.auth.OAuth2(
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI
+  );
+}
+
+export function getAuthUrl(state: string): string {
+  const oauth2Client = getOAuth2Client();
+
+  return oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: SCOPES,
+    state,
+    prompt: "consent",
+  });
+}
+
+export async function getTokensFromCode(
+  code: string
+): Promise<{ access_token: string; refresh_token: string; expiry_date: number }> {
+  const oauth2Client = getOAuth2Client();
+  const { tokens } = await oauth2Client.getToken(code);
+
+  if (!tokens.access_token || !tokens.refresh_token || !tokens.expiry_date) {
+    throw new Error("Invalid token response from Google");
+  }
+
+  return {
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expiry_date: tokens.expiry_date,
+  };
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<{
+  access_token: string;
+  expiry_date: number;
+}> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  const { credentials } = await oauth2Client.refreshAccessToken();
+
+  if (!credentials.access_token || !credentials.expiry_date) {
+    throw new Error("Failed to refresh access token");
+  }
+
+  return {
+    access_token: credentials.access_token,
+    expiry_date: credentials.expiry_date,
+  };
+}
+
+// Token encryption for secure storage (random salt per token)
+export function encryptToken(token: string): string {
+  if (!TOKEN_ENCRYPTION_KEY) {
+    console.warn("TOKEN_ENCRYPTION_KEY not set, storing token in plain text");
+    return token;
+  }
+
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(16);
+  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+
+  let encrypted = cipher.update(token, "utf8", "hex");
+  encrypted += cipher.final("hex");
+
+  // Format: salt:iv:encrypted (3 parts)
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+
+export function decryptToken(encryptedToken: string): string {
+  if (!TOKEN_ENCRYPTION_KEY) {
+    return encryptedToken;
+  }
+
+  const parts = encryptedToken.split(":");
+
+  if (parts.length === 3) {
+    // New format: salt:iv:encrypted
+    const [saltHex, ivHex, encrypted] = parts;
+    if (!saltHex || !ivHex || !encrypted) return encryptedToken;
+
+    const salt = Buffer.from(saltHex, "hex");
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } else if (parts.length === 2) {
+    // Legacy format: iv:encrypted (fixed salt)
+    const [ivHex, encrypted] = parts;
+    if (!ivHex || !encrypted) return encryptedToken;
+
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  }
+
+  return encryptedToken; // Not encrypted
+}
+
+// GA4 Data API — overview metrics by day
+export async function getGA4Data(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+        { name: "screenPageViews" },
+        { name: "bounceRate" },
+        { name: "averageSessionDuration" },
+      ],
+      dimensions: [{ name: "date" }],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — overview totals (no dimension breakdown)
+export async function getGA4Totals(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+        { name: "screenPageViews" },
+        { name: "bounceRate" },
+        { name: "averageSessionDuration" },
+      ],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — custom events (CTA clicks, conversions, etc.)
+export async function getGA4Events(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  // Get all events grouped by event name
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "eventCount" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "eventName" }],
+      orderBys: [
+        { metric: { metricName: "eventCount" }, desc: true },
+      ],
+      limit: "50",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — top pages by views
+export async function getGA4TopPages(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "screenPageViews" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "pagePath" }],
+      orderBys: [
+        { metric: { metricName: "screenPageViews" }, desc: true },
+      ],
+      limit: "10",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — traffic sources
+export async function getGA4TrafficSources(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "sessionDefaultChannelGroup" }],
+      orderBys: [
+        { metric: { metricName: "sessions" }, desc: true },
+      ],
+      limit: "10",
+    },
+  });
+
+  return response.data;
+}
+
+// List GA4 properties for account selection
+export async function listGA4Properties(accessToken: string) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsAdmin = google.analyticsadmin({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsAdmin.accountSummaries.list();
+  return response.data.accountSummaries || [];
+}
+
+// Google Business Profile API
+export async function getGBPLocations(accessToken: string) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const mybusiness = google.mybusinessaccountmanagement({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const accountsResponse = await mybusiness.accounts.list();
+  const accounts = accountsResponse.data.accounts || [];
+  console.log(`GBP: Found ${accounts.length} accounts`, accounts.map(a => ({ name: a.name, accountName: a.accountName })));
+
+  const locations: Array<{
+    accountId: string;
+    accountName: string;
+    locationId: string;
+    locationName: string;
+  }> = [];
+
+  for (const account of accounts) {
+    if (!account.name) continue;
+
+    const accountId = account.name.replace("accounts/", "");
+    const businessInfo = google.mybusinessbusinessinformation({
+      version: "v1",
+      auth: oauth2Client,
+    });
+
+    try {
+      const locationsResponse = await businessInfo.accounts.locations.list({
+        parent: account.name,
+        readMask: "name,title",
+      });
+
+      for (const location of locationsResponse.data.locations || []) {
+        if (location.name && location.title) {
+          locations.push({
+            accountId,
+            accountName: account.accountName || accountId,
+            locationId: location.name.split("/").pop() || "",
+            locationName: location.title,
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to list locations for account ${account.name}:`, err instanceof Error ? err.message : err);
+      continue;
+    }
+  }
+
+  return locations;
+}
+
+// GBP Performance API — fetch daily metrics (direction requests, calls, website clicks, impressions)
+export async function getGBPPerformanceMetrics(
+  accessToken: string,
+  locationId: string,
+  startDate: { year: number; month: number; day: number },
+  endDate: { year: number; month: number; day: number }
+): Promise<GBPMetricsResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const businessPerformance = google.businessprofileperformance({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await businessPerformance.locations.fetchMultiDailyMetricsTimeSeries({
+    location: `locations/${locationId}`,
+    dailyMetrics: [
+      "BUSINESS_DIRECTION_REQUESTS",
+      "CALL_CLICKS",
+      "WEBSITE_CLICKS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+      "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+      "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    ],
+    "dailyRange.startDate.year": startDate.year,
+    "dailyRange.startDate.month": startDate.month,
+    "dailyRange.startDate.day": startDate.day,
+    "dailyRange.endDate.year": endDate.year,
+    "dailyRange.endDate.month": endDate.month,
+    "dailyRange.endDate.day": endDate.day,
+  });
+
+  return response.data;
+}
+
+// ─── Google Search Console API ─────────────────────────────────────────
+
+// List all verified sites in Search Console
+export async function listGSCSites(accessToken: string) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.sites.list();
+  const sites = response.data.siteEntry || [];
+
+  return sites
+    .filter((site) => site.siteUrl && site.permissionLevel !== "siteUnverifiedUser")
+    .map((site) => ({
+      siteUrl: site.siteUrl!,
+      permissionLevel: site.permissionLevel || "unknown",
+    }));
+}
+
+// GSC Search Analytics — overall performance metrics
+export async function getGSCSearchAnalytics(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["date"],
+      rowLimit: 500,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top queries (keywords)
+export async function getGSCTopQueries(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["query"],
+      rowLimit: 20,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top pages
+export async function getGSCTopPages(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["page"],
+      rowLimit: 10,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — performance by device
+export async function getGSCDeviceBreakdown(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["device"],
+      rowLimit: 10,
+    },
+  });
+
+  return response.data;
+}
+
+// GBP Search Keywords — monthly search terms used to find the business
+export async function getGBPSearchKeywords(
+  accessToken: string,
+  locationId: string,
+  startMonth: { year: number; month: number },
+  endMonth: { year: number; month: number }
+): Promise<GBPKeywordsResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const businessPerformance = google.businessprofileperformance({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await businessPerformance.locations.searchkeywords.impressions.monthly.list({
+    parent: `locations/${locationId}`,
+    "monthlyRange.startMonth.year": startMonth.year,
+    "monthlyRange.startMonth.month": startMonth.month,
+    "monthlyRange.endMonth.year": endMonth.year,
+    "monthlyRange.endMonth.month": endMonth.month,
+  });
+
+  return response.data;
+}
+
+
+
+========================================
+FILE: lib/facebook.ts
+========================================
+import crypto from "crypto";
+
+const FACEBOOK_API_VERSION = "v18.0";
+const FACEBOOK_GRAPH_URL = `https://graph.facebook.com/${FACEBOOK_API_VERSION}`;
+
+export interface FacebookConfig {
+  pixelId: string;
+  accessToken: string;
+  testEventCode?: string; // For testing in Events Manager
+}
+
+export interface FacebookEventData {
+  eventName: string;
+  eventTime?: number;
+  eventSourceUrl?: string;
+  actionSource: "website" | "email" | "app" | "phone_call" | "chat" | "other";
+  userData: {
+    email?: string;
+    phone?: string;
+    firstName?: string;
+    lastName?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    zipCode?: string;
+    clientIpAddress?: string;
+    clientUserAgent?: string;
+    fbp?: string; // Facebook browser ID
+    fbc?: string; // Facebook click ID
+  };
+  customData?: Record<string, unknown>;
+}
+
+// Hash user data for privacy (required by Facebook)
+function hashValue(value: string): string {
+  return crypto.createHash("sha256").update(value.toLowerCase().trim()).digest("hex");
+}
+
+function normalizePhone(phone: string): string {
+  // Remove all non-numeric characters
+  return phone.replace(/\D/g, "");
+}
+
+function prepareUserData(userData: FacebookEventData["userData"]) {
+  const prepared: Record<string, string> = {};
+
+  if (userData.email) {
+    prepared.em = hashValue(userData.email);
+  }
+  if (userData.phone) {
+    prepared.ph = hashValue(normalizePhone(userData.phone));
+  }
+  if (userData.firstName) {
+    prepared.fn = hashValue(userData.firstName);
+  }
+  if (userData.lastName) {
+    prepared.ln = hashValue(userData.lastName);
+  }
+  if (userData.city) {
+    prepared.ct = hashValue(userData.city);
+  }
+  if (userData.state) {
+    prepared.st = hashValue(userData.state);
+  }
+  if (userData.country) {
+    prepared.country = hashValue(userData.country);
+  }
+  if (userData.zipCode) {
+    prepared.zp = hashValue(userData.zipCode);
+  }
+  if (userData.clientIpAddress) {
+    prepared.client_ip_address = userData.clientIpAddress;
+  }
+  if (userData.clientUserAgent) {
+    prepared.client_user_agent = userData.clientUserAgent;
+  }
+  if (userData.fbp) {
+    prepared.fbp = userData.fbp;
+  }
+  if (userData.fbc) {
+    prepared.fbc = userData.fbc;
+  }
+
+  return prepared;
+}
+
+export async function sendFacebookConversion(
+  config: FacebookConfig,
+  eventData: FacebookEventData
+): Promise<{ success: boolean; error?: string; eventId?: string }> {
+  try {
+    const eventId = crypto.randomUUID();
+
+    const payload = {
+      data: [
+        {
+          event_name: eventData.eventName,
+          event_time: eventData.eventTime || Math.floor(Date.now() / 1000),
+          event_id: eventId,
+          event_source_url: eventData.eventSourceUrl,
+          action_source: eventData.actionSource,
+          user_data: prepareUserData(eventData.userData),
+          custom_data: eventData.customData,
+        },
+      ],
+      ...(config.testEventCode && { test_event_code: config.testEventCode }),
+    };
+
+    const response = await fetch(
+      `${FACEBOOK_GRAPH_URL}/${config.pixelId}/events?access_token=${config.accessToken}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error("Facebook Conversions API error:", result);
+      return {
+        success: false,
+        error: result.error?.message || "Failed to send conversion",
+      };
+    }
+
+    return {
+      success: true,
+      eventId,
+    };
+  } catch (err) {
+    console.error("Facebook conversion error:", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
+// Predefined event names
+export const FacebookEvents = {
+  LEAD: "Lead",
+  CONTACT: "Contact",
+  COMPLETE_REGISTRATION: "CompleteRegistration",
+  SUBMIT_APPLICATION: "SubmitApplication",
+  PURCHASE: "Purchase",
+  ADD_TO_CART: "AddToCart",
+  INITIATE_CHECKOUT: "InitiateCheckout",
+  SEARCH: "Search",
+  VIEW_CONTENT: "ViewContent",
+  ADD_PAYMENT_INFO: "AddPaymentInfo",
+  ADD_TO_WISHLIST: "AddToWishlist",
+  SCHEDULE: "Schedule",
+  START_TRIAL: "StartTrial",
+  SUBSCRIBE: "Subscribe",
+  CUSTOM: "CustomEvent",
+} as const;
+
+export type FacebookEventName = (typeof FacebookEvents)[keyof typeof FacebookEvents];
+
+
+
+========================================
+FILE: lib/email.ts
+========================================
+import { Resend } from "resend";
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
+
+/** Resolve the app URL at call time (not module load time) so env vars set at runtime are picked up */
+function getAppUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+}
+
+export interface NewLeadEmailData {
+  clientName: string;
+  websiteName: string;
+  leadName: string;
+  leadEmail: string;
+  leadPhone?: string | null;
+  formName?: string | null;
+  message?: string | null;
+  submittedAt: string;
+  dashboardUrl: string;
+}
+
+export async function sendNewLeadNotification(
+  toEmail: string,
+  data: NewLeadEmailData
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping email notification");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject: `New Lead from ${data.websiteName}: ${data.leadName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>New Lead Notification</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <!-- Header -->
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">
+                        New Lead Received
+                      </h1>
+                    </td>
+                  </tr>
+
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 32px;">
+                      <p style="margin: 0 0 24px; color: #737373; font-size: 14px;">
+                        A new lead was submitted on <strong style="color: #0a0a0a;">${data.websiteName}</strong>
+                      </p>
+
+                      <!-- Lead Details Card -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; border-radius: 6px; padding: 20px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                              <tr>
+                                <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
+                                  <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Name</span><br>
+                                  <span style="color: #0a0a0a; font-size: 16px; font-weight: 500;">${data.leadName}</span>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
+                                  <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Email</span><br>
+                                  <a href="mailto:${data.leadEmail}" style="color: #0a0a0a; font-size: 16px; text-decoration: none;">${data.leadEmail}</a>
+                                </td>
+                              </tr>
+                              ${data.leadPhone ? `
+                              <tr>
+                                <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
+                                  <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Phone</span><br>
+                                  <a href="tel:${data.leadPhone}" style="color: #0a0a0a; font-size: 16px; text-decoration: none;">${data.leadPhone}</a>
+                                </td>
+                              </tr>
+                              ` : ""}
+                              ${data.formName ? `
+                              <tr>
+                                <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
+                                  <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Form</span><br>
+                                  <span style="color: #0a0a0a; font-size: 14px;">${data.formName}</span>
+                                </td>
+                              </tr>
+                              ` : ""}
+                              ${data.message ? `
+                              <tr>
+                                <td style="padding: 8px 0;">
+                                  <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Message</span><br>
+                                  <span style="color: #0a0a0a; font-size: 14px; white-space: pre-wrap;">${data.message}</span>
+                                </td>
+                              </tr>
+                              ` : ""}
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td align="center">
+                            <a href="${data.dashboardUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-size: 14px; font-weight: 500;">
+                              View in Dashboard
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Submitted on ${data.submittedAt}<br>
+                        ${data.clientName} Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export interface WelcomeEmailData {
+  userName: string;
+  email: string;
+  resetUrl: string;
+}
+
+export async function sendWelcomeEmail(
+  toEmail: string,
+  data: WelcomeEmailData
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping welcome email");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject: `Your Dashboard Account`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Welcome to Dashboard</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <!-- Header -->
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">
+                        Welcome to the Dashboard
+                      </h1>
+                    </td>
+                  </tr>
+
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 32px;">
+                      <p style="margin: 0 0 16px; color: #0a0a0a; font-size: 16px;">
+                        Hi ${data.userName},
+                      </p>
+                      <p style="margin: 0 0 24px; color: #737373; font-size: 14px; line-height: 1.6;">
+                        Your account has been created. Click the button below to set your password and get started.
+                      </p>
+
+                      <!-- Account Info -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; border-radius: 6px; padding: 20px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0 0 8px; color: #737373; font-size: 12px; text-transform: uppercase;">Your login email</p>
+                            <p style="margin: 0; color: #0a0a0a; font-size: 14px; font-weight: 500;">${data.email}</p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                        <tr>
+                          <td align="center">
+                            <a href="${data.resetUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-size: 14px; font-weight: 500;">
+                              Set Your Password
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <p style="margin: 0; color: #a3a3a3; font-size: 12px;">
+                        This link will expire in 24 hours. If it expires, you can request a new one from the login page using "Forgot password".
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Client Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send welcome email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Welcome email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export async function sendClientEmail(
+  toEmail: string,
+  subject: string,
+  message: string,
+  senderName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping client email");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">${subject}</h1>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 32px;">
+                      <div style="color: #0a0a0a; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Sent by ${senderName} via Client Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send client email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Client email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export interface AccountCreatedEmailData {
+  userName: string;
+  email: string;
+  loginUrl: string;
+}
+
+export async function sendAccountCreatedEmail(
+  toEmail: string,
+  data: AccountCreatedEmailData
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping account created email");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject: `Your Dashboard Account is Ready`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Account Created</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <!-- Header -->
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">
+                        Your Account is Ready
+                      </h1>
+                    </td>
+                  </tr>
+
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 32px;">
+                      <p style="margin: 0 0 16px; color: #0a0a0a; font-size: 16px;">
+                        Hi ${data.userName},
+                      </p>
+                      <p style="margin: 0 0 24px; color: #737373; font-size: 14px; line-height: 1.6;">
+                        Your account has been created. You can log in using the credentials provided by your administrator.
+                      </p>
+
+                      <!-- Account Info -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; border-radius: 6px; padding: 20px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0 0 8px; color: #737373; font-size: 12px; text-transform: uppercase;">Your login email</p>
+                            <p style="margin: 0; color: #0a0a0a; font-size: 14px; font-weight: 500;">${data.email}</p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                        <tr>
+                          <td align="center">
+                            <a href="${data.loginUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-size: 14px; font-weight: 500;">
+                              Go to Dashboard
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <p style="margin: 0; color: #a3a3a3; font-size: 12px;">
+                        You can change your password anytime from Settings after logging in.
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Client Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send account created email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Account created email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export interface InviteEmailData {
+  inviteeName: string;
+  inviterName: string;
+  token: string;
+  expiresAt: string;
+}
+
+export async function sendInviteEmail(
+  toEmail: string,
+  data: InviteEmailData
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping invite email");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  const inviteUrl = `${getAppUrl()}/invite/${data.token}`;
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject: `You're invited to join the Dashboard`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Dashboard Invitation</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <!-- Header -->
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">
+                        You're Invited!
+                      </h1>
+                    </td>
+                  </tr>
+
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 32px;">
+                      <p style="margin: 0 0 16px; color: #0a0a0a; font-size: 16px;">
+                        Hi ${data.inviteeName},
+                      </p>
+                      <p style="margin: 0 0 24px; color: #737373; font-size: 14px; line-height: 1.6;">
+                        ${data.inviterName} has invited you to join the Client Dashboard.
+                        Click the button below to create your account and get started.
+                      </p>
+
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                        <tr>
+                          <td align="center">
+                            <a href="${inviteUrl}" style="display: inline-block; background-color: #0a0a0a; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-size: 14px; font-weight: 500;">
+                              Accept Invitation
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <p style="margin: 0 0 16px; color: #737373; font-size: 13px;">
+                        Or copy and paste this link into your browser:
+                      </p>
+                      <p style="margin: 0 0 24px; color: #0a0a0a; font-size: 12px; word-break: break-all; background-color: #f5f5f5; padding: 12px; border-radius: 4px;">
+                        ${inviteUrl}
+                      </p>
+
+                      <p style="margin: 0; color: #a3a3a3; font-size: 12px;">
+                        This invitation expires on ${data.expiresAt}. If you didn't expect this invitation, you can safely ignore this email.
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Client Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send invite email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Invite email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+
+
+========================================
+FILE: lib/push.ts
+========================================
+import webpush from "web-push";
+
+// Initialize web-push with VAPID keys
+const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
+
+if (vapidPublicKey && vapidPrivateKey) {
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+}
+
+export interface PushSubscriptionData {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+export interface PushNotificationPayload {
+  title: string;
+  body: string;
+  url?: string;
+  leadId?: string;
+  tag?: string;
+}
+
+export async function sendPushNotification(
+  subscription: PushSubscriptionData,
+  payload: PushNotificationPayload
+): Promise<{ success: boolean; error?: string }> {
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    console.warn("VAPID keys not configured, skipping push notification");
+    return { success: false, error: "Push notifications not configured" };
+  }
+
+  try {
+    await webpush.sendNotification(
+      {
+        endpoint: subscription.endpoint,
+        keys: subscription.keys,
+      },
+      JSON.stringify(payload)
+    );
+    return { success: true };
+  } catch (err) {
+    console.error("Push notification error:", err);
+    const error = err instanceof Error ? err.message : "Unknown error";
+
+    // Check if subscription is expired/invalid
+    if (error.includes("410") || error.includes("404")) {
+      return { success: false, error: "subscription_expired" };
+    }
+
+    return { success: false, error };
+  }
+}
+
+export async function sendPushToMultiple(
+  subscriptions: PushSubscriptionData[],
+  payload: PushNotificationPayload
+): Promise<{ sent: number; failed: number; expired: string[] }> {
+  const results = await Promise.allSettled(
+    subscriptions.map((sub) => sendPushNotification(sub, payload))
+  );
+
+  const expired: string[] = [];
+  let sent = 0;
+  let failed = 0;
+
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled" && result.value.success) {
+      sent++;
+    } else {
+      failed++;
+      // Track expired subscriptions for cleanup
+      if (
+        result.status === "fulfilled" &&
+        result.value.error === "subscription_expired"
+      ) {
+        expired.push(subscriptions[index]?.endpoint || "");
+      }
+    }
+  });
+
+  return { sent, failed, expired };
+}
+
+// Generate VAPID keys (run once, save to env)
+export function generateVapidKeys(): { publicKey: string; privateKey: string } {
+  const keys = webpush.generateVAPIDKeys();
+  return {
+    publicKey: keys.publicKey,
+    privateKey: keys.privateKey,
+  };
+}
+
+// Import here to avoid circular dependency issues
+import { createAdminClient } from "@/lib/supabase/admin";
+
+/**
+ * Send push notification to all users associated with a client
+ */
+export async function sendPushToClientUsers(
+  clientId: string,
+  payload: PushNotificationPayload
+): Promise<{ sent: number; failed: number }> {
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    console.warn("VAPID keys not configured, skipping push notifications");
+    return { sent: 0, failed: 0 };
+  }
+
+  const supabase = createAdminClient();
+
+  // Get all users associated with this client
+  const { data: clientUsers } = await supabase
+    .from("client_users")
+    .select("user_id")
+    .eq("client_id", clientId);
+
+  const userIds: string[] = clientUsers?.map((cu) => cu.user_id) || [];
+
+  // Also notify admins
+  const { data: admins } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("role", "admin");
+
+  if (admins) {
+    for (const admin of admins) {
+      if (!userIds.includes(admin.id)) {
+        userIds.push(admin.id);
+      }
+    }
+  }
+
+  if (userIds.length === 0) {
+    return { sent: 0, failed: 0 };
+  }
+
+  // Get push subscriptions for these users
+  const { data: subscriptions } = await supabase
+    .from("push_subscriptions")
+    .select("endpoint, p256dh, auth")
+    .in("user_id", userIds);
+
+  if (!subscriptions || subscriptions.length === 0) {
+    return { sent: 0, failed: 0 };
+  }
+
+  const pushSubs: PushSubscriptionData[] = subscriptions.map((s) => ({
+    endpoint: s.endpoint,
+    keys: {
+      p256dh: s.p256dh,
+      auth: s.auth,
+    },
+  }));
+
+  const result = await sendPushToMultiple(pushSubs, payload);
+
+  // Clean up expired subscriptions
+  if (result.expired.length > 0) {
+    await supabase
+      .from("push_subscriptions")
+      .delete()
+      .in("endpoint", result.expired);
+  }
+
+  return { sent: result.sent, failed: result.failed };
+}
+
+/**
+ * Send new lead push notification
+ */
+export async function sendNewLeadPushNotification(
+  clientId: string,
+  leadName: string,
+  leadId: string,
+  websiteName: string
+): Promise<void> {
+  await sendPushToClientUsers(clientId, {
+    title: "New Lead",
+    body: `${leadName} from ${websiteName}`,
+    url: `/leads/${leadId}`,
+    leadId,
+    tag: `lead-${leadId}`,
+  });
+}
+
+
+
+========================================
+FILE: lib/impersonate.ts
+========================================
+import { cookies } from "next/headers";
+
+const IMPERSONATE_COOKIE = "impersonate_client_id";
+
+export async function getImpersonatedClientId(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(IMPERSONATE_COOKIE)?.value || null;
+}
+
+export async function setImpersonatedClientId(clientId: string | null): Promise<void> {
+  const cookieStore = await cookies();
+
+  if (clientId) {
+    cookieStore.set(IMPERSONATE_COOKIE, clientId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24, // 24 hours
+    });
+  } else {
+    cookieStore.delete(IMPERSONATE_COOKIE);
+  }
+}
+
+
+
+========================================
+FILE: lib/login-security.ts
+========================================
+/**
+ * Login security module.
+ *
+ * Features:
+ * 1. reCAPTCHA v3 verification (server-side)
+ * 2. Login attempt limiting:
+ *    - 3 failed attempts → 30 min pause
+ *    - 3 more failures after pause → account blocked
+ * 3. Forgot-password rate limiting: 1 request per 15 min
+ *
+ * Uses Upstash Redis for persistent tracking across serverless cold starts.
+ * Falls back to in-memory when Redis is not configured (dev).
+ */
+
+import { Redis } from "@upstash/redis";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+// ─── Redis client (singleton) ─────────────────────────────────────────
+
+const hasRedis = !!(
+  process.env.UPSTASH_REDIS_REST_URL &&
+  process.env.UPSTASH_REDIS_REST_TOKEN
+);
+
+const redis = hasRedis
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
+
+// ─── In-memory fallback for dev ───────────────────────────────────────
+
+const memoryStore = new Map<string, { count: number; firstAttempt: number; phase: number }>();
+const memoryResetStore = new Map<string, number>(); // email → last reset request time
+
+// ─── Constants ────────────────────────────────────────────────────────
+
+const LOGIN_MAX_ATTEMPTS_PER_PHASE = 3;
+const LOGIN_PAUSE_MS = 30 * 60 * 1000; // 30 minutes
+const LOGIN_WINDOW_MS = 30 * 60 * 1000; // 30 min window for counting attempts
+const RESET_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const RECAPTCHA_MIN_SCORE = 0.5;
+
+// Redis key prefixes
+const LOGIN_KEY = "login_attempts:";
+const RESET_KEY = "reset_cooldown:";
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+export interface LoginSecurityResult {
+  allowed: boolean;
+  blocked?: boolean;
+  error?: string;
+  waitMinutes?: number;
+  waitUntil?: number;
+}
+
+export interface ResetSecurityResult {
+  allowed: boolean;
+  error?: string;
+  waitMinutes?: number;
+  waitUntil?: number;
+}
+
+// ─── reCAPTCHA v3 verification ────────────────────────────────────────
+
+export async function verifyRecaptcha(token: string): Promise<boolean> {
+  const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+  if (!secretKey) {
+    // If no reCAPTCHA configured, allow through (dev mode)
+    console.warn("reCAPTCHA secret key not configured, skipping verification");
+    return true;
+  }
+
+  try {
+    const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: secretKey,
+        response: token,
+      }),
+    });
+
+    const data = await response.json() as {
+      success: boolean;
+      score?: number;
+      action?: string;
+      "error-codes"?: string[];
+    };
+
+    if (!data.success) {
+      console.warn("reCAPTCHA verification failed:", data["error-codes"]);
+      return false;
+    }
+
+    // v3 returns a score (0.0 - 1.0), higher is more likely human
+    if (data.score !== undefined && data.score < RECAPTCHA_MIN_SCORE) {
+      console.warn(`reCAPTCHA score too low: ${data.score}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("reCAPTCHA verification error:", err);
+    // Fail open on network errors to not lock out users
+    return true;
+  }
+}
+
+// ─── Login attempt tracking ───────────────────────────────────────────
+
+/**
+ * Check if a login attempt is allowed for the given email.
+ * Must be called BEFORE attempting authentication.
+ *
+ * Logic:
+ * - Phase 1: 3 failed attempts → 30 min pause
+ * - Phase 2: 3 more failed attempts after pause → account blocked permanently
+ */
+export async function checkLoginAttempt(email: string): Promise<LoginSecurityResult> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Check if account is blocked in database
+  const adminClient = createAdminClient();
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("is_blocked")
+    .eq("email", normalizedEmail)
+    .single();
+
+  if (profile?.is_blocked) {
+    return {
+      allowed: false,
+      blocked: true,
+      error: "This account has been blocked due to too many failed login attempts. Please contact the administrator to unblock your account.",
+    };
+  }
+
+  // Check attempt count
+  if (redis) {
+    return checkLoginAttemptRedis(normalizedEmail);
+  }
+  return checkLoginAttemptMemory(normalizedEmail);
+}
+
+async function checkLoginAttemptRedis(email: string): Promise<LoginSecurityResult> {
+  const key = `${LOGIN_KEY}${email}`;
+
+  const data = await redis!.hgetall(key) as {
+    count?: string;
+    firstAttempt?: string;
+    phase?: string;
+  } | null;
+
+  if (!data || !data.count) {
+    return { allowed: true };
+  }
+
+  const count = parseInt(data.count, 10);
+  const firstAttempt = parseInt(data.firstAttempt || "0", 10);
+  const phase = parseInt(data.phase || "1", 10);
+  const now = Date.now();
+
+  // If in phase 1 and max attempts reached, check if pause has elapsed
+  if (phase === 1 && count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    const pauseEnd = firstAttempt + LOGIN_PAUSE_MS;
+    if (now < pauseEnd) {
+      const waitMinutes = Math.ceil((pauseEnd - now) / 60000);
+      return {
+        allowed: false,
+        error: `Too many failed login attempts. Please wait ${waitMinutes} minute${waitMinutes !== 1 ? "s" : ""} before trying again.`,
+        waitMinutes,
+        waitUntil: pauseEnd,
+      };
+    }
+    // Pause has elapsed — move to phase 2, reset count
+    await redis!.hset(key, { count: "0", firstAttempt: String(now), phase: "2" });
+    await redis!.expire(key, Math.ceil(LOGIN_WINDOW_MS / 1000));
+    return { allowed: true };
+  }
+
+  // Phase 2: already used up phase 2 attempts → should have been blocked
+  if (phase === 2 && count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    // This shouldn't happen because we block after 3 phase-2 failures
+    // but handle it just in case
+    return {
+      allowed: false,
+      blocked: true,
+      error: "This account has been blocked due to too many failed login attempts. Please contact the administrator to unblock your account.",
+    };
+  }
+
+  return { allowed: true };
+}
+
+function checkLoginAttemptMemory(email: string): LoginSecurityResult {
+  const entry = memoryStore.get(email);
+
+  if (!entry) {
+    return { allowed: true };
+  }
+
+  const now = Date.now();
+
+  if (entry.phase === 1 && entry.count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    const pauseEnd = entry.firstAttempt + LOGIN_PAUSE_MS;
+    if (now < pauseEnd) {
+      const waitMinutes = Math.ceil((pauseEnd - now) / 60000);
+      return {
+        allowed: false,
+        error: `Too many failed login attempts. Please wait ${waitMinutes} minute${waitMinutes !== 1 ? "s" : ""} before trying again.`,
+        waitMinutes,
+        waitUntil: pauseEnd,
+      };
+    }
+    // Pause elapsed, move to phase 2
+    entry.count = 0;
+    entry.firstAttempt = now;
+    entry.phase = 2;
+    return { allowed: true };
+  }
+
+  if (entry.phase === 2 && entry.count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    return {
+      allowed: false,
+      blocked: true,
+      error: "This account has been blocked due to too many failed login attempts. Please contact the administrator to unblock your account.",
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Record a failed login attempt. Call after auth fails.
+ * May block the account if phase 2 attempts are exhausted.
+ */
+export async function recordFailedLogin(email: string): Promise<void> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  if (redis) {
+    await recordFailedLoginRedis(normalizedEmail);
+  } else {
+    recordFailedLoginMemory(normalizedEmail);
+  }
+}
+
+async function recordFailedLoginRedis(email: string): Promise<void> {
+  const key = `${LOGIN_KEY}${email}`;
+
+  const data = await redis!.hgetall(key) as {
+    count?: string;
+    firstAttempt?: string;
+    phase?: string;
+  } | null;
+
+  const now = Date.now();
+  let count = data?.count ? parseInt(data.count, 10) : 0;
+  let firstAttempt = data?.firstAttempt ? parseInt(data.firstAttempt, 10) : now;
+  let phase = data?.phase ? parseInt(data.phase, 10) : 1;
+
+  // If no entry exists, initialize
+  if (!data || !data.count) {
+    firstAttempt = now;
+    phase = 1;
+    count = 0;
+  }
+
+  count += 1;
+
+  await redis!.hset(key, {
+    count: String(count),
+    firstAttempt: String(firstAttempt),
+    phase: String(phase),
+  });
+  // Auto-expire after window (safety net)
+  await redis!.expire(key, Math.ceil((LOGIN_WINDOW_MS * 2) / 1000));
+
+  // If phase 2 and hit the limit → block account in DB
+  if (phase === 2 && count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    await blockAccount(email);
+  }
+}
+
+function recordFailedLoginMemory(email: string): void {
+  const now = Date.now();
+  let entry = memoryStore.get(email);
+
+  if (!entry) {
+    entry = { count: 0, firstAttempt: now, phase: 1 };
+    memoryStore.set(email, entry);
+  }
+
+  entry.count += 1;
+
+  // If phase 2 and hit the limit → block account in DB
+  if (entry.phase === 2 && entry.count >= LOGIN_MAX_ATTEMPTS_PER_PHASE) {
+    blockAccount(email).catch((err) =>
+      console.error("Failed to block account:", err)
+    );
+  }
+}
+
+/**
+ * Clear login attempts after a successful login.
+ */
+export async function clearLoginAttempts(email: string): Promise<void> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  if (redis) {
+    await redis!.del(`${LOGIN_KEY}${normalizedEmail}`);
+  } else {
+    memoryStore.delete(normalizedEmail);
+  }
+}
+
+// ─── Account blocking ─────────────────────────────────────────────────
+
+async function blockAccount(email: string): Promise<void> {
+  const adminClient = createAdminClient();
+  const { error } = await adminClient
+    .from("profiles")
+    .update({ is_blocked: true })
+    .eq("email", email);
+
+  if (error) {
+    console.error("Failed to block account:", error);
+  } else {
+    console.warn(`Account blocked due to excessive failed login attempts: ${email}`);
+  }
+}
+
+/**
+ * Unblock an account (admin action).
+ */
+export async function unblockAccount(email: string): Promise<{ success: boolean; error?: string }> {
+  const normalizedEmail = email.toLowerCase().trim();
+  const adminClient = createAdminClient();
+
+  const { error } = await adminClient
+    .from("profiles")
+    .update({ is_blocked: false })
+    .eq("email", normalizedEmail);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  // Clear attempt counters
+  await clearLoginAttempts(normalizedEmail);
+
+  return { success: true };
+}
+
+// ─── Forgot password rate limiting ────────────────────────────────────
+
+/**
+ * Check if a password reset request is allowed (1 per 15 min).
+ */
+export async function checkResetRateLimit(email: string): Promise<ResetSecurityResult> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  if (redis) {
+    return checkResetRateLimitRedis(normalizedEmail);
+  }
+  return checkResetRateLimitMemory(normalizedEmail);
+}
+
+async function checkResetRateLimitRedis(email: string): Promise<ResetSecurityResult> {
+  const key = `${RESET_KEY}${email}`;
+  const lastRequest = await redis!.get(key) as string | null;
+
+  if (lastRequest) {
+    const lastTime = parseInt(lastRequest, 10);
+    const now = Date.now();
+    const cooldownEnd = lastTime + RESET_COOLDOWN_MS;
+
+    if (now < cooldownEnd) {
+      const waitMinutes = Math.ceil((cooldownEnd - now) / 60000);
+      return {
+        allowed: false,
+        error: `You can only request a password reset once every 15 minutes. Please wait ${waitMinutes} minute${waitMinutes !== 1 ? "s" : ""} before trying again. Check your email inbox and spam folder for the previous reset link.`,
+        waitMinutes,
+        waitUntil: cooldownEnd,
+      };
+    }
+  }
+
+  // Record this request
+  await redis!.set(key, String(Date.now()), { ex: Math.ceil(RESET_COOLDOWN_MS / 1000) });
+
+  return { allowed: true };
+}
+
+function checkResetRateLimitMemory(email: string): ResetSecurityResult {
+  const lastRequest = memoryResetStore.get(email);
+  const now = Date.now();
+
+  if (lastRequest) {
+    const cooldownEnd = lastRequest + RESET_COOLDOWN_MS;
+    if (now < cooldownEnd) {
+      const waitMinutes = Math.ceil((cooldownEnd - now) / 60000);
+      return {
+        allowed: false,
+        error: `You can only request a password reset once every 15 minutes. Please wait ${waitMinutes} minute${waitMinutes !== 1 ? "s" : ""} before trying again. Check your email inbox and spam folder for the previous reset link.`,
+        waitMinutes,
+        waitUntil: cooldownEnd,
+      };
+    }
+  }
+
+  memoryResetStore.set(email, now);
+  return { allowed: true };
+}
+
+
+
+========================================
+FILE: lib/reports/gather-data.ts
+========================================
+import { createAdminClient } from "@/lib/supabase/admin";
+import { startOfMonth, endOfMonth, subMonths, format, eachDayOfInterval } from "date-fns";
+import type { ReportData } from "./types";
+
+type LeadRow = {
+  id: string;
+  status: string;
+  source: string | null;
+  form_name: string | null;
+  website_id: string;
+  created_at: string;
+  website: { name: string } | null;
+};
+
+export async function gatherReportData(
+  clientId: string,
+  periodStart: Date,
+  periodEnd: Date
+): Promise<ReportData | null> {
+  const supabase = createAdminClient();
+
+  // Get client info
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, business_name, logo_url")
+    .eq("id", clientId)
+    .single();
+
+  if (!client) return null;
+
+  // Get leads for the period
+  const { data: leads } = await supabase
+    .from("leads")
+    .select("id, status, source, form_name, website_id, created_at, website:websites(name)")
+    .eq("client_id", clientId)
+    .gte("created_at", periodStart.toISOString())
+    .lte("created_at", periodEnd.toISOString())
+    .returns<LeadRow[]>();
+
+  const leadsData = leads || [];
+
+  // Calculate lead stats
+  const totalLeads = leadsData.length;
+  const newLeads = leadsData.filter((l) => l.status === "new").length;
+  const contactedLeads = leadsData.filter((l) => l.status === "contacted").length;
+  const completedLeads = leadsData.filter((l) => l.status === "done").length;
+
+  // Leads by source
+  const sourceMap = new Map<string, number>();
+  leadsData.forEach((l) => {
+    const source = l.source || "unknown";
+    sourceMap.set(source, (sourceMap.get(source) || 0) + 1);
+  });
+  const leadsBySource = Array.from(sourceMap.entries())
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Leads by website
+  const websiteMap = new Map<string, number>();
+  leadsData.forEach((l) => {
+    const website = l.website?.name || "Unknown";
+    websiteMap.set(website, (websiteMap.get(website) || 0) + 1);
+  });
+  const leadsByWebsite = Array.from(websiteMap.entries())
+    .map(([website, count]) => ({ website, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Leads trend (daily)
+  const days = eachDayOfInterval({ start: periodStart, end: periodEnd });
+  const leadsTrend = days.map((day) => {
+    const dayStr = format(day, "yyyy-MM-dd");
+    const count = leadsData.filter(
+      (l) => format(new Date(l.created_at), "yyyy-MM-dd") === dayStr
+    ).length;
+    return { date: format(day, "MMM d"), count };
+  });
+
+  // Top form names
+  const formMap = new Map<string, number>();
+  leadsData.forEach((l) => {
+    const formName = l.form_name || "Contact Form";
+    formMap.set(formName, (formMap.get(formName) || 0) + 1);
+  });
+  const topFormNames = Array.from(formMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  // Get analytics data if available
+  const { data: analyticsData } = await supabase
+    .from("analytics_cache")
+    .select("data")
+    .eq("client_id", clientId)
+    .eq("integration_type", "ga4")
+    .gte("period_start", format(periodStart, "yyyy-MM-dd"))
+    .lte("period_end", format(periodEnd, "yyyy-MM-dd"))
+    .single();
+
+  let totalVisitors: number | undefined;
+  let totalPageviews: number | undefined;
+  let avgSessionDuration: string | undefined;
+  let bounceRate: string | undefined;
+
+  if (analyticsData?.data) {
+    const data = analyticsData.data as Record<string, unknown>;
+    totalVisitors = data.totalUsers as number | undefined;
+    totalPageviews = data.screenPageViews as number | undefined;
+    avgSessionDuration = data.averageSessionDuration as string | undefined;
+    bounceRate = data.bounceRate as string | undefined;
+  }
+
+  return {
+    clientId: client.id,
+    clientName: client.business_name,
+    clientLogo: client.logo_url || undefined,
+    periodStart,
+    periodEnd,
+    generatedAt: new Date(),
+    totalLeads,
+    newLeads,
+    contactedLeads,
+    completedLeads,
+    leadsBySource,
+    leadsByWebsite,
+    leadsTrend,
+    topFormNames,
+    totalVisitors,
+    totalPageviews,
+    avgSessionDuration,
+    bounceRate,
+  };
+}
+
+export function getLastMonthPeriod(): { start: Date; end: Date } {
+  const lastMonth = subMonths(new Date(), 1);
+  return {
+    start: startOfMonth(lastMonth),
+    end: endOfMonth(lastMonth),
+  };
+}
+
+
+
+========================================
+FILE: lib/reports/generate.ts
+========================================
+import { format } from "date-fns";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { gatherReportData, getLastMonthPeriod } from "./gather-data";
+import { generatePDFBuffer } from "./pdf-template";
+
+export async function generateClientReport(
+  clientId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  options?: { sendEmail?: boolean; agencyName?: string }
+): Promise<{ success: boolean; reportId?: string; error?: string }> {
+  try {
+    const supabase = createAdminClient();
+
+    // Gather report data
+    const reportData = await gatherReportData(clientId, periodStart, periodEnd);
+    if (!reportData) {
+      return { success: false, error: "Client not found" };
+    }
+
+    // Generate PDF
+    const pdfBuffer = await generatePDFBuffer(reportData, options?.agencyName);
+
+    // Upload to Supabase Storage
+    const fileName = `reports/${clientId}/${format(periodStart, "yyyy-MM")}-report.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("reports")
+      .upload(fileName, pdfBuffer, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error("Failed to upload report:", uploadError);
+      return { success: false, error: "Failed to upload report" };
+    }
+
+    // Store report record
+    const { data: report, error: insertError } = await supabase
+      .from("reports")
+      .upsert(
+        {
+          client_id: clientId,
+          period_start: format(periodStart, "yyyy-MM-dd"),
+          period_end: format(periodEnd, "yyyy-MM-dd"),
+          file_path: fileName,
+          file_size: pdfBuffer.length,
+          generated_at: new Date().toISOString(),
+        },
+        { onConflict: "client_id,period_start,period_end" }
+      )
+      .select("id")
+      .single();
+
+    if (insertError) {
+      console.error("Failed to save report record:", insertError);
+      return { success: false, error: "Failed to save report record" };
+    }
+
+    // Send email if requested
+    if (options?.sendEmail) {
+      // Get client users to email
+      const { data: clientUsers } = await supabase
+        .from("client_users")
+        .select("user_id")
+        .eq("client_id", clientId);
+
+      if (clientUsers && clientUsers.length > 0) {
+        const userIds = clientUsers.map((cu) => cu.user_id);
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("email")
+          .in("id", userIds);
+
+        // Get download URL
+        const { data: urlData } = await supabase.storage
+          .from("reports")
+          .createSignedUrl(fileName, 60 * 60 * 24 * 7); // 7 day link
+
+        if (profiles && urlData?.signedUrl) {
+          // Mark as sent
+          await supabase
+            .from("reports")
+            .update({ sent_at: new Date().toISOString() })
+            .eq("id", report.id);
+        }
+      }
+    }
+
+    return { success: true, reportId: report.id };
+  } catch (err) {
+    console.error("Report generation error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+export async function generateAllMonthlyReports(options?: {
+  sendEmail?: boolean;
+  agencyName?: string;
+}): Promise<{ generated: number; failed: number; errors: string[] }> {
+  const supabase = createAdminClient();
+  const { start, end } = getLastMonthPeriod();
+
+  // Get all active clients
+  const { data: clients } = await supabase
+    .from("clients")
+    .select("id, business_name");
+
+  if (!clients || clients.length === 0) {
+    return { generated: 0, failed: 0, errors: [] };
+  }
+
+  let generated = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const client of clients) {
+    const result = await generateClientReport(client.id, start, end, options);
+    if (result.success) {
+      generated++;
+    } else {
+      failed++;
+      errors.push(`${client.business_name}: ${result.error}`);
+    }
+  }
+
+  return { generated, failed, errors };
+}
+
+
+
+========================================
+FILE: lib/reports/pdf-template.ts
+========================================
+import PDFDocument from "pdfkit";
+import { format } from "date-fns";
+import type { ReportData } from "./types";
+
+export async function generatePDFBuffer(
+  data: ReportData,
+  agencyName: string = "Client Dashboard"
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const pageWidth = doc.page.width - 80;
+    const colors = {
+      black: "#0a0a0a",
+      grey: "#737373",
+      lightGrey: "#f5f5f5",
+      border: "#e5e5e5",
+    };
+
+    // Header
+    doc
+      .fontSize(24)
+      .fillColor(colors.black)
+      .text(data.clientName, 40, 40);
+
+    doc
+      .fontSize(12)
+      .fillColor(colors.grey)
+      .text("Monthly Performance Report", 40, 70);
+
+    doc
+      .fontSize(11)
+      .fillColor(colors.grey)
+      .text(format(data.periodStart, "MMMM yyyy"), 40, 40, { align: "right" })
+      .text(
+        `${format(data.periodStart, "MMM d")} - ${format(data.periodEnd, "MMM d, yyyy")}`,
+        40,
+        55,
+        { align: "right" }
+      );
+
+    // Divider
+    doc
+      .moveTo(40, 100)
+      .lineTo(40 + pageWidth, 100)
+      .strokeColor(colors.black)
+      .lineWidth(2)
+      .stroke();
+
+    let y = 130;
+
+    // Section: Lead Summary
+    doc
+      .fontSize(14)
+      .fillColor(colors.black)
+      .text("Lead Summary", 40, y);
+
+    y += 25;
+
+    // Stat boxes
+    const boxWidth = (pageWidth - 30) / 4;
+    const stats = [
+      { label: "TOTAL LEADS", value: data.totalLeads.toString() },
+      { label: "NEW", value: data.newLeads.toString() },
+      { label: "CONTACTED", value: data.contactedLeads.toString() },
+      { label: "COMPLETED", value: data.completedLeads.toString() },
+    ];
+
+    stats.forEach((stat, i) => {
+      const x = 40 + i * (boxWidth + 10);
+      doc
+        .rect(x, y, boxWidth, 60)
+        .fillColor(colors.lightGrey)
+        .fill();
+
+      doc
+        .fontSize(24)
+        .fillColor(colors.black)
+        .text(stat.value, x, y + 12, { width: boxWidth, align: "center" });
+
+      doc
+        .fontSize(8)
+        .fillColor(colors.grey)
+        .text(stat.label, x, y + 42, { width: boxWidth, align: "center" });
+    });
+
+    y += 80;
+
+    // Section: Analytics (if available)
+    if (data.totalVisitors !== undefined) {
+      doc
+        .fontSize(14)
+        .fillColor(colors.black)
+        .text("Website Analytics", 40, y);
+
+      y += 25;
+
+      const analyticsStats = [
+        { label: "VISITORS", value: data.totalVisitors?.toLocaleString() || "-" },
+        { label: "PAGEVIEWS", value: data.totalPageviews?.toLocaleString() || "-" },
+        { label: "AVG. SESSION", value: data.avgSessionDuration || "-" },
+        { label: "BOUNCE RATE", value: data.bounceRate || "-" },
+      ];
+
+      analyticsStats.forEach((stat, i) => {
+        const x = 40 + i * (boxWidth + 10);
+        doc
+          .rect(x, y, boxWidth, 60)
+          .fillColor(colors.lightGrey)
+          .fill();
+
+        doc
+          .fontSize(18)
+          .fillColor(colors.black)
+          .text(stat.value, x, y + 15, { width: boxWidth, align: "center" });
+
+        doc
+          .fontSize(8)
+          .fillColor(colors.grey)
+          .text(stat.label, x, y + 42, { width: boxWidth, align: "center" });
+      });
+
+      y += 80;
+    }
+
+    // Section: Leads Trend (simple bar chart)
+    if (data.leadsTrend.length > 0) {
+      doc
+        .fontSize(14)
+        .fillColor(colors.black)
+        .text("Daily Lead Trend (Last 14 Days)", 40, y);
+
+      y += 25;
+
+      const chartData = data.leadsTrend.slice(-14);
+      const maxCount = Math.max(...chartData.map((d) => d.count), 1);
+      const chartHeight = 80;
+      const barWidth = (pageWidth - 20) / chartData.length - 4;
+
+      chartData.forEach((day, i) => {
+        const x = 40 + i * (barWidth + 4);
+        const barHeight = Math.max((day.count / maxCount) * chartHeight, 2);
+
+        doc
+          .rect(x, y + chartHeight - barHeight, barWidth, barHeight)
+          .fillColor(colors.black)
+          .fill();
+
+        doc
+          .fontSize(6)
+          .fillColor(colors.grey)
+          .text(day.date.split(" ")[1] || "", x, y + chartHeight + 5, {
+            width: barWidth,
+            align: "center",
+          });
+      });
+
+      y += chartHeight + 30;
+    }
+
+    // Section: Leads by Website
+    if (data.leadsByWebsite.length > 0) {
+      doc
+        .fontSize(14)
+        .fillColor(colors.black)
+        .text("Leads by Website", 40, y);
+
+      y += 25;
+
+      // Table header
+      doc
+        .rect(40, y, pageWidth, 25)
+        .fillColor(colors.black)
+        .fill();
+
+      doc
+        .fontSize(9)
+        .fillColor("#ffffff")
+        .text("Website", 50, y + 8)
+        .text("Leads", 40 + pageWidth - 60, y + 8, { width: 50, align: "right" });
+
+      y += 25;
+
+      // Table rows
+      data.leadsByWebsite.slice(0, 5).forEach((item) => {
+        doc
+          .fontSize(10)
+          .fillColor(colors.black)
+          .text(item.website, 50, y + 6)
+          .text(item.count.toString(), 40 + pageWidth - 60, y + 6, {
+            width: 50,
+            align: "right",
+          });
+
+        doc
+          .moveTo(40, y + 22)
+          .lineTo(40 + pageWidth, y + 22)
+          .strokeColor(colors.border)
+          .lineWidth(1)
+          .stroke();
+
+        y += 25;
+      });
+
+      y += 15;
+    }
+
+    // Section: Top Forms
+    if (data.topFormNames.length > 0 && y < 650) {
+      doc
+        .fontSize(14)
+        .fillColor(colors.black)
+        .text("Top Performing Forms", 40, y);
+
+      y += 25;
+
+      // Table header
+      doc
+        .rect(40, y, pageWidth, 25)
+        .fillColor(colors.black)
+        .fill();
+
+      doc
+        .fontSize(9)
+        .fillColor("#ffffff")
+        .text("Form Name", 50, y + 8)
+        .text("Submissions", 40 + pageWidth - 80, y + 8, { width: 70, align: "right" });
+
+      y += 25;
+
+      // Table rows
+      data.topFormNames.slice(0, 5).forEach((item) => {
+        doc
+          .fontSize(10)
+          .fillColor(colors.black)
+          .text(item.name, 50, y + 6, { width: pageWidth - 100 })
+          .text(item.count.toString(), 40 + pageWidth - 80, y + 6, {
+            width: 70,
+            align: "right",
+          });
+
+        doc
+          .moveTo(40, y + 22)
+          .lineTo(40 + pageWidth, y + 22)
+          .strokeColor(colors.border)
+          .lineWidth(1)
+          .stroke();
+
+        y += 25;
+      });
+    }
+
+    // Footer
+    const footerY = doc.page.height - 50;
+    doc
+      .moveTo(40, footerY)
+      .lineTo(40 + pageWidth, footerY)
+      .strokeColor(colors.border)
+      .lineWidth(1)
+      .stroke();
+
+    doc
+      .fontSize(8)
+      .fillColor(colors.grey)
+      .text(
+        `Generated by ${agencyName} on ${format(data.generatedAt, "MMM d, yyyy 'at' h:mm a")}`,
+        40,
+        footerY + 10
+      )
+      .text("Page 1 of 1", 40 + pageWidth - 50, footerY + 10, { width: 50, align: "right" });
+
+    doc.end();
+  });
+}
+
+
+
+========================================
+FILE: lib/reports/types.ts
+========================================
+export interface ReportData {
+  clientId: string;
+  clientName: string;
+  clientLogo?: string;
+  periodStart: Date;
+  periodEnd: Date;
+  generatedAt: Date;
+
+  // Lead stats
+  totalLeads: number;
+  newLeads: number;
+  contactedLeads: number;
+  completedLeads: number;
+  leadsBySource: { source: string; count: number }[];
+  leadsByWebsite: { website: string; count: number }[];
+  leadsTrend: { date: string; count: number }[];
+
+  // Analytics (from GA4 if connected)
+  totalVisitors?: number;
+  totalPageviews?: number;
+  avgSessionDuration?: string;
+  bounceRate?: string;
+  visitorsTrend?: { date: string; count: number }[];
+
+  // Top performing
+  topFormNames: { name: string; count: number }[];
+}
+
+export interface StoredReport {
+  id: string;
+  client_id: string;
+  period_start: string;
+  period_end: string;
+  file_path: string;
+  file_size: number;
+  generated_at: string;
+  sent_at: string | null;
+  created_at: string;
+}
+
+
+
+========================================
+FILE: lib/wordpress/crawler.ts
+========================================
+/**
+ * WordPress site crawler.
+ *
+ * Reads wp-config.php to get database credentials, connects to MySQL,
+ * and extracts SEO-relevant data from all published pages/posts.
+ *
+ * Designed to run on the server (Node.js) against local WordPress installations.
+ */
+
+import { readFile, access, stat, readdir } from "fs/promises";
+import { join, extname, resolve } from "path";
+import mysql from "mysql2/promise";
+import * as cheerio from "cheerio";
+import type {
+  WPCrawlResult,
+  WPPageData,
+  WPImageData,
+  WPPluginData,
+  WPPluginAsset,
+} from "@/types/wordpress";
+
+// ─── Constants ────────────────────────────────────────────────────────
+
+const MAX_PAGES = 100;
+
+// ─── wp-config.php parser ─────────────────────────────────────────────
+
+interface WPDBConfig {
+  host: string;
+  port?: number;
+  user: string;
+  password: string;
+  name: string;
+  prefix: string;
+}
+
+/**
+ * Parse wp-config.php to extract database credentials.
+ */
+export async function parseWPConfig(localPath: string): Promise<WPDBConfig> {
+  // Normalize path for Windows (resolve handles mixed separators)
+  const normalizedPath = resolve(localPath);
+  const configPath = join(normalizedPath, "wp-config.php");
+
+  // Verify file exists
+  try {
+    await access(configPath);
+  } catch {
+    throw new Error(`wp-config.php not found at: ${configPath}`);
+  }
+
+  const content = await readFile(configPath, "utf-8");
+
+  function extractDefine(name: string): string {
+    // Match: define('DB_NAME', 'value'); or define("DB_NAME", "value");
+    const regex = new RegExp(
+      `define\\s*\\(\\s*['"]${name}['"]\\s*,\\s*['"]([^'"]*)['"]\\s*\\)`,
+      "i"
+    );
+    const match = content.match(regex);
+    return match?.[1] || "";
+  }
+
+  function extractPrefix(): string {
+    // Match: $table_prefix = 'wp_';
+    const regex = /\$table_prefix\s*=\s*['"]([^'"]*)['"]/;
+    const match = content.match(regex);
+    return match?.[1] || "wp_";
+  }
+
+  const dbName = extractDefine("DB_NAME");
+  const dbUser = extractDefine("DB_USER");
+  const dbPassword = extractDefine("DB_PASSWORD");
+  const dbHost = extractDefine("DB_HOST");
+
+  if (!dbName || !dbUser) {
+    throw new Error("Could not parse database credentials from wp-config.php");
+  }
+
+  // Detect Local by Flywheel MySQL port
+  let port: number | undefined;
+  try {
+    const localSitesJson = join(
+      process.env.APPDATA || process.env.HOME || "",
+      "Local",
+      "sites.json"
+    );
+    const sitesRaw = await readFile(localSitesJson, "utf-8");
+    const sites = JSON.parse(sitesRaw) as Record<string, {
+      path?: string;
+      services?: {
+        mysql?: {
+          ports?: { MYSQL?: number[] };
+        };
+      };
+    }>;
+
+    // Find the site whose path matches our localPath
+    const normalizedLocal = resolve(localPath).toLowerCase().replace(/\\/g, "/");
+    for (const site of Object.values(sites)) {
+      const sitePath = (site.path || "").toLowerCase().replace(/\\/g, "/");
+      if (normalizedLocal.startsWith(sitePath)) {
+        const mysqlPorts = site.services?.mysql?.ports?.MYSQL;
+        if (mysqlPorts && mysqlPorts.length > 0) {
+          port = mysqlPorts[0];
+        }
+        break;
+      }
+    }
+  } catch {
+    // Not Local by Flywheel or sites.json not found — use default port
+  }
+
+  console.log("[WP Crawler] DB config — host:", dbHost, "port:", port, "user:", dbUser, "db:", dbName);
+
+  return {
+    host: dbHost || "localhost",
+    port,
+    user: dbUser,
+    password: dbPassword,
+    name: dbName,
+    prefix: extractPrefix(),
+  };
+}
+
+// ─── Page content analyzer ────────────────────────────────────────────
+
+function analyzePage(
+  postContent: string,
+  postTitle: string,
+  siteUrl: string,
+  slug: string
+): WPPageData {
+  const $ = cheerio.load(postContent);
+  const fullUrl = `${siteUrl.replace(/\/$/, "")}/${slug}/`;
+
+  // Headings
+  const h1Tags: string[] = [];
+  $("h1").each((_, el) => {
+    const text = $(el).text().trim();
+    if (text) h1Tags.push(text);
+  });
+
+  // Images
+  const images: WPImageData[] = [];
+  $("img").each((_, el) => {
+    const src = $(el).attr("src") || "";
+    const alt = $(el).attr("alt") || null;
+    const loading = $(el).attr("loading");
+    const format = extname(src).replace(".", "").toLowerCase() || "unknown";
+
+    images.push({
+      src,
+      alt: alt && alt.trim() ? alt.trim() : null,
+      size_kb: 0, // Will be estimated from file system if accessible
+      format,
+      lazy: loading === "lazy",
+    });
+  });
+
+  // Links
+  let internalLinks = 0;
+  let externalLinks = 0;
+  const siteDomain = new URL(siteUrl).hostname;
+
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href") || "";
+    try {
+      if (href.startsWith("/") || href.startsWith("#")) {
+        internalLinks++;
+      } else if (href.startsWith("http")) {
+        const linkDomain = new URL(href).hostname;
+        if (linkDomain === siteDomain) {
+          internalLinks++;
+        } else {
+          externalLinks++;
+        }
+      }
+    } catch {
+      // Invalid URL, skip
+    }
+  });
+
+  // Word count (strip HTML)
+  const textContent = $.text().replace(/\s+/g, " ").trim();
+  const wordCount = textContent ? textContent.split(/\s+/).length : 0;
+
+  // Schema markup (JSON-LD)
+  let hasSchema = false;
+  $('script[type="application/ld+json"]').each(() => {
+    hasSchema = true;
+  });
+
+  // Open Graph
+  const hasOgTags = !!($('meta[property="og:title"]').length || $('meta[property="og:description"]').length);
+
+  // Meta description
+  const metaDesc = $('meta[name="description"]').attr("content") || null;
+
+  return {
+    url: fullUrl,
+    title: postTitle,
+    meta_description: metaDesc,
+    h1: h1Tags,
+    h2_count: $("h2").length,
+    h3_count: $("h3").length,
+    word_count: wordCount,
+    images,
+    has_schema: hasSchema,
+    has_og_tags: hasOgTags,
+    internal_links: internalLinks,
+    external_links: externalLinks,
+  };
+}
+
+// ─── Image size estimation ────────────────────────────────────────────
+
+async function estimateImageSize(localPath: string, src: string): Promise<number> {
+  try {
+    // Try to resolve relative image paths to local files
+    if (src.startsWith("/")) {
+      const filePath = join(localPath, src);
+      const s = await stat(filePath);
+      return Math.round(s.size / 1024);
+    }
+    // For wp-content uploads
+    if (src.includes("/wp-content/")) {
+      const relPath = src.split("/wp-content/")[1];
+      if (relPath) {
+        const filePath = join(localPath, "wp-content", relPath);
+        const s = await stat(filePath);
+        return Math.round(s.size / 1024);
+      }
+    }
+  } catch {
+    // File not found locally
+  }
+  return 0;
+}
+
+// ─── Plugin asset analyzer ───────────────────────────────────────────
+
+/**
+ * Scan a plugin's PHP files to find enqueued JS/CSS and where they load.
+ * Looks for wp_enqueue_script, wp_enqueue_style, wp_register_script, wp_register_style.
+ */
+async function analyzePluginAssets(
+  pluginsDir: string,
+  pluginSlug: string,
+  _localPath: string
+): Promise<{ assets: WPPluginAsset[]; loadsOn: "all" | "frontend" | "admin" | "specific" }> {
+  const assets: WPPluginAsset[] = [];
+  let loadsOn: "all" | "frontend" | "admin" | "specific" = "all";
+
+  const pluginDir = join(pluginsDir, pluginSlug);
+
+  try {
+    await access(pluginDir);
+  } catch {
+    return { assets, loadsOn };
+  }
+
+  // Collect all PHP files in plugin dir (max 2 levels deep)
+  const phpFiles: string[] = [];
+  try {
+    const entries = await readdir(pluginDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".php")) {
+        phpFiles.push(join(pluginDir, entry.name));
+      } else if (entry.isDirectory()) {
+        try {
+          const subEntries = await readdir(join(pluginDir, entry.name), { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (sub.isFile() && sub.name.endsWith(".php")) {
+              phpFiles.push(join(pluginDir, entry.name, sub.name));
+            }
+          }
+        } catch {
+          // Skip unreadable subdirectories
+        }
+      }
+    }
+  } catch {
+    return { assets, loadsOn };
+  }
+
+  // Track loading context
+  let hasAdminOnly = false;
+  let hasFrontendOnly = false;
+  let hasGlobalLoad = false;
+
+  for (const filePath of phpFiles.slice(0, 30)) {
+    try {
+      const content = await readFile(filePath, "utf-8");
+
+      // Detect loading context from hooks
+      if (content.includes("is_admin()") || content.includes("admin_enqueue_scripts")) {
+        hasAdminOnly = true;
+      }
+      if (content.includes("wp_enqueue_scripts") && !content.includes("admin_enqueue_scripts")) {
+        hasFrontendOnly = true;
+      }
+      if (content.includes("wp_enqueue_scripts") && content.includes("admin_enqueue_scripts")) {
+        hasGlobalLoad = true;
+      }
+
+      // Find enqueued scripts
+      const scriptMatches = content.matchAll(
+        /wp_(?:enqueue|register)_script\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/g
+      );
+      for (const m of scriptMatches) {
+        const handle = m[1] || "";
+        let src = m[2] || "";
+
+        // Skip empty or inline
+        if (!src || src === "false") continue;
+
+        // Resolve plugin-relative paths
+        if (src.includes("plugins_url") || src.includes("plugin_dir_url")) {
+          // Extract the relative file path from the function call
+          const relMatch = src.match(/['"]([^'"]+\.js)['"]/);
+          if (relMatch?.[1]) src = relMatch[1];
+        }
+
+        // Try to get file size
+        let sizeKb = 0;
+        try {
+          const jsFileName = src.split("/").pop() || "";
+          // Search common locations
+          for (const subDir of ["js", "assets", "assets/js", "dist", "build", ""]) {
+            try {
+              const fullPath = join(pluginDir, subDir, jsFileName);
+              const s = await stat(fullPath);
+              sizeKb = Math.round(s.size / 1024);
+              break;
+            } catch {
+              // Try next
+            }
+          }
+        } catch {
+          // Ignore
+        }
+
+        assets.push({ handle, src, type: "js", size_kb: sizeKb });
+      }
+
+      // Find enqueued styles
+      const styleMatches = content.matchAll(
+        /wp_(?:enqueue|register)_style\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/g
+      );
+      for (const m of styleMatches) {
+        const handle = m[1] || "";
+        let src = m[2] || "";
+
+        if (!src || src === "false") continue;
+
+        if (src.includes("plugins_url") || src.includes("plugin_dir_url")) {
+          const relMatch = src.match(/['"]([^'"]+\.css)['"]/);
+          if (relMatch?.[1]) src = relMatch[1];
+        }
+
+        let sizeKb = 0;
+        try {
+          const cssFileName = src.split("/").pop() || "";
+          for (const subDir of ["css", "assets", "assets/css", "dist", "build", ""]) {
+            try {
+              const fullPath = join(pluginDir, subDir, cssFileName);
+              const s = await stat(fullPath);
+              sizeKb = Math.round(s.size / 1024);
+              break;
+            } catch {
+              // Try next
+            }
+          }
+        } catch {
+          // Ignore
+        }
+
+        assets.push({ handle, src, type: "css", size_kb: sizeKb });
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  // Determine load context
+  if (hasGlobalLoad) {
+    loadsOn = "all";
+  } else if (hasAdminOnly && !hasFrontendOnly) {
+    loadsOn = "admin";
+  } else if (hasFrontendOnly && !hasAdminOnly) {
+    loadsOn = "frontend";
+  } else if (hasAdminOnly && hasFrontendOnly) {
+    loadsOn = "all";
+  }
+
+  return { assets, loadsOn };
+}
+
+// ─── Main crawler ─────────────────────────────────────────────────────
+
+/**
+ * Crawl a local WordPress installation and extract SEO/performance data.
+ */
+export async function crawlWordPressSite(rawPath: string): Promise<WPCrawlResult> {
+  // Normalize path for Windows (handles mixed separators, trailing slashes)
+  const localPath = resolve(rawPath);
+
+  // 1. Parse wp-config.php
+  const dbConfig = await parseWPConfig(localPath);
+
+  // 2. Connect to MySQL
+  const connection = await mysql.createConnection({
+    host: dbConfig.host,
+    port: dbConfig.port || 3306,
+    user: dbConfig.user,
+    password: dbConfig.password,
+    database: dbConfig.name,
+    connectTimeout: 10000,
+  });
+
+  try {
+    const prefix = dbConfig.prefix;
+
+    // 3. Get site URL from wp_options
+    const [siteUrlRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT option_value FROM ${prefix}options WHERE option_name = 'siteurl' LIMIT 1`
+    );
+    const siteUrl = siteUrlRows[0]?.option_value as string || "http://localhost";
+
+    // 4. Get published pages/posts (limit MAX_PAGES)
+    const [postRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT ID, post_title, post_name, post_content, post_type, post_date
+       FROM ${prefix}posts
+       WHERE post_status = 'publish'
+         AND post_type IN ('post', 'page')
+       ORDER BY post_date DESC
+       LIMIT ?`,
+      [MAX_PAGES]
+    );
+
+    // 5. Get post meta (for meta descriptions — Yoast, RankMath, AIOSEO)
+    const postIds = postRows.map((r) => r.ID as number);
+    const metaMap = new Map<number, string>();
+
+    if (postIds.length > 0) {
+      const placeholders = postIds.map(() => "?").join(",");
+      const [metaRows] = await connection.execute<mysql.RowDataPacket[]>(
+        `SELECT post_id, meta_key, meta_value
+         FROM ${prefix}postmeta
+         WHERE post_id IN (${placeholders})
+           AND meta_key IN ('_yoast_wpseo_metadesc', 'rank_math_description', '_aioseo_description', '_genesis_description')`,
+        postIds
+      );
+
+      for (const row of metaRows) {
+        const postId = row.post_id as number;
+        const value = row.meta_value as string;
+        if (value && !metaMap.has(postId)) {
+          metaMap.set(postId, value);
+        }
+      }
+    }
+
+    // 6. Analyze each page
+    const pages: WPPageData[] = [];
+    let totalImages = 0;
+    let missingAlt = 0;
+    let missingMeta = 0;
+
+    for (const post of postRows) {
+      const postId = post.ID as number;
+      const content = post.post_content as string || "";
+      const title = post.post_title as string || "";
+      const slug = post.post_name as string || "";
+
+      const pageData = analyzePage(content, title, siteUrl, slug);
+
+      // Override meta description from SEO plugin if available
+      const seoMeta = metaMap.get(postId);
+      if (seoMeta) {
+        pageData.meta_description = seoMeta;
+      }
+
+      // Estimate image sizes
+      for (const img of pageData.images) {
+        const sizeKb = await estimateImageSize(localPath, img.src);
+        img.size_kb = sizeKb;
+      }
+
+      totalImages += pageData.images.length;
+      missingAlt += pageData.images.filter((img) => !img.alt).length;
+      if (!pageData.meta_description) missingMeta++;
+
+      pages.push(pageData);
+    }
+
+    // 7. Database stats
+    const [revisionRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM ${prefix}posts WHERE post_type = 'revision'`
+    );
+    const revisions = (revisionRows[0]?.count as number) || 0;
+
+    const [transientRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM ${prefix}options WHERE option_name LIKE '_transient_%'`
+    );
+    const transients = (transientRows[0]?.count as number) || 0;
+
+    const [expiredTransientRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM ${prefix}options
+       WHERE option_name LIKE '_transient_timeout_%'
+         AND option_value < UNIX_TIMESTAMP()`
+    );
+    const expiredTransients = (expiredTransientRows[0]?.count as number) || 0;
+
+    const [autoloadRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT SUM(LENGTH(option_value)) as total_bytes FROM ${prefix}options WHERE autoload = 'yes'`
+    );
+    const autoloadKb = Math.round(((autoloadRows[0]?.total_bytes as number) || 0) / 1024);
+
+    const [spamRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM ${prefix}comments WHERE comment_approved = 'spam'`
+    );
+    const spamComments = (spamRows[0]?.count as number) || 0;
+
+    // 8. Plugins
+    const [pluginRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT option_value FROM ${prefix}options WHERE option_name = 'active_plugins' LIMIT 1`
+    );
+    const activePluginSlugs: string[] = [];
+    try {
+      const serialized = pluginRows[0]?.option_value as string || "";
+      // PHP serialized array — extract plugin slugs
+      const matches = serialized.matchAll(/s:\d+:"([^"]+)"/g);
+      for (const m of matches) {
+        if (m[1]) activePluginSlugs.push(m[1]);
+      }
+    } catch {
+      // Failed to parse plugins
+    }
+
+    // Analyze each plugin's assets and loading context
+    const pluginsDir = join(localPath, "wp-content", "plugins");
+    const plugins: WPPluginData[] = [];
+
+    for (const slug of activePluginSlugs) {
+      const parts = slug.split("/");
+      const pluginDir = parts[0] || slug;
+
+      const { assets, loadsOn } = await analyzePluginAssets(pluginsDir, pluginDir, localPath);
+
+      const totalJsKb = assets
+        .filter((a) => a.type === "js")
+        .reduce((sum, a) => sum + a.size_kb, 0);
+      const totalCssKb = assets
+        .filter((a) => a.type === "css")
+        .reduce((sum, a) => sum + a.size_kb, 0);
+
+      plugins.push({
+        name: pluginDir.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        slug: pluginDir,
+        version: "",
+        active: true,
+        loads_on: loadsOn,
+        assets,
+        total_js_kb: totalJsKb,
+        total_css_kb: totalCssKb,
+      });
+    }
+
+    // 9. Theme
+    const [themeRows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT option_name, option_value FROM ${prefix}options
+       WHERE option_name IN ('template', 'stylesheet')
+       LIMIT 2`
+    );
+    let themeName = "Unknown";
+    for (const row of themeRows) {
+      if (row.option_name === "stylesheet") {
+        themeName = row.option_value as string;
+      }
+    }
+
+    // 10. WordPress version
+    let wpVersion = "Unknown";
+    try {
+      const versionFile = join(localPath, "wp-includes", "version.php");
+      const versionContent = await readFile(versionFile, "utf-8");
+      const vMatch = versionContent.match(/\$wp_version\s*=\s*['"]([^'"]+)['"]/);
+      if (vMatch?.[1]) wpVersion = vMatch[1];
+    } catch {
+      // version.php not found
+    }
+
+    // 11. PHP version from wp-config or environment
+    let phpVersion = "Unknown";
+    try {
+      const wpConfigContent = await readFile(join(localPath, "wp-config.php"), "utf-8");
+      // Some configs have PHP version comments
+      const phpMatch = wpConfigContent.match(/PHP\s*(\d+\.\d+)/i);
+      if (phpMatch?.[1]) phpVersion = phpMatch[1];
+    } catch {
+      // Ignore
+    }
+
+    return {
+      site_url: siteUrl,
+      pages,
+      total_pages: pages.length,
+      total_images: totalImages,
+      missing_alt: missingAlt,
+      missing_meta: missingMeta,
+      plugins,
+      theme: {
+        name: themeName,
+        version: "",
+      },
+      database: {
+        revisions,
+        transients,
+        expired_transients: expiredTransients,
+        autoload_kb: autoloadKb,
+        spam_comments: spamComments,
+      },
+      server: {
+        php_version: phpVersion,
+        wp_version: wpVersion,
+      },
+      crawled_at: new Date().toISOString(),
+    };
+  } finally {
+    await connection.end();
+  }
+}
+
+
+
+========================================
+FILE: lib/wordpress/ai-analyzer.ts
+========================================
+/**
+ * Claude API integration for WordPress site analysis.
+ *
+ * Takes WordPress crawl data + dashboard analytics and sends to Claude
+ * for expert SEO, performance, and technical analysis.
+ */
+
+import Anthropic from "@anthropic-ai/sdk";
+import type {
+  WPCrawlResult,
+  DashboardAnalyticsData,
+  AnalysisResult,
+  AIRecommendation,
+  AnalysisScores,
+} from "@/types/wordpress";
+
+// ─── Claude client (singleton) ────────────────────────────────────────
+
+let anthropicClient: Anthropic | null = null;
+
+function getClient(): Anthropic {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+    }
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+
+// ─── System prompt ────────────────────────────────────────────────────
+
+function getSystemPrompt(): string {
+  return `You are an expert WordPress consultant with deep expertise in SEO, web performance, and technical optimization. You are analyzing a WordPress website for an agency that manages multiple client sites.
+
+Your analysis must be:
+- Specific and actionable (not generic advice)
+- Based on the actual data provided (reference specific pages, images, plugins)
+- Prioritized by impact (critical issues first)
+- Practical (consider effort vs. impact)
+
+You will receive:
+1. WordPress site crawl data (pages, images, plugins, database stats)
+2. Google Analytics (GA4) data (if available)
+3. Google Search Console (GSC) data (if available)
+4. Previous SEO audit and site check results (if available)
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "scores": {
+    "seo": <0-100>,
+    "performance": <0-100>,
+    "technical": <0-100>,
+    "overall": <0-100>
+  },
+  "recommendations": [
+    {
+      "id": "rec_1",
+      "category": "seo|performance|technical|content",
+      "priority": "critical|high|medium|low",
+      "title": "Short descriptive title",
+      "description": "Detailed explanation of the issue and why it matters",
+      "current": "What the current state is (be specific, reference actual data)",
+      "ideal": "What it should be changed to",
+      "impact": "Expected improvement if fixed",
+      "effort": "quick|moderate|complex"
+    }
+  ],
+  "summary": "2-3 sentence executive summary of the site's health",
+  "total_issues": <number>
+}
+
+Score guidelines:
+- 90-100: Excellent, minor tweaks only
+- 70-89: Good, some improvements needed
+- 50-69: Needs work, significant issues
+- 0-49: Critical, major problems
+
+Priority guidelines:
+- critical: Directly hurting rankings or user experience NOW
+- high: Will significantly improve results when fixed
+- medium: Good practice, moderate impact
+- low: Nice to have, minor improvement
+
+Generate 8-15 specific recommendations. Always include at least one from each category (seo, performance, technical, content) if issues exist.`;
+}
+
+// ─── User prompt builder ──────────────────────────────────────────────
+
+function buildUserPrompt(
+  crawlData: WPCrawlResult,
+  analyticsData?: DashboardAnalyticsData
+): string {
+  const sections: string[] = [];
+
+  // ─── WordPress Site Data ────────────────────────────────────────
+  sections.push("## WordPress Site Analysis Data");
+  sections.push(`**Site URL:** ${crawlData.site_url}`);
+  sections.push(`**WordPress Version:** ${crawlData.server.wp_version}`);
+  sections.push(`**Theme:** ${crawlData.theme.name}`);
+  sections.push(`**Total Pages Crawled:** ${crawlData.total_pages}`);
+  sections.push(`**Total Images:** ${crawlData.total_images}`);
+  sections.push(`**Images Missing Alt Text:** ${crawlData.missing_alt} of ${crawlData.total_images}`);
+  sections.push(`**Pages Missing Meta Description:** ${crawlData.missing_meta} of ${crawlData.total_pages}`);
+
+  // Active plugins with asset analysis
+  const totalPluginJs = crawlData.plugins.reduce((s, p) => s + (p.total_js_kb || 0), 0);
+  const totalPluginCss = crawlData.plugins.reduce((s, p) => s + (p.total_css_kb || 0), 0);
+  sections.push(`\n### Active Plugins (${crawlData.plugins.length}) — Total JS: ${totalPluginJs}KB, CSS: ${totalPluginCss}KB`);
+  for (const plugin of crawlData.plugins) {
+    const assetInfo = plugin.assets && plugin.assets.length > 0
+      ? ` | JS: ${plugin.total_js_kb || 0}KB, CSS: ${plugin.total_css_kb || 0}KB | Loads: ${plugin.loads_on || "all"}`
+      : "";
+    sections.push(`- ${plugin.name} (${plugin.slug})${assetInfo}`);
+    if (plugin.assets) {
+      for (const asset of plugin.assets) {
+        sections.push(`    ${asset.type.toUpperCase()}: ${asset.handle} → ${asset.src}${asset.size_kb > 0 ? ` (${asset.size_kb}KB)` : ""}`);
+      }
+    }
+  }
+
+  // Database health
+  sections.push("\n### Database Health");
+  sections.push(`- Post revisions: ${crawlData.database.revisions}`);
+  sections.push(`- Transients: ${crawlData.database.transients} (${crawlData.database.expired_transients} expired)`);
+  sections.push(`- Autoloaded options: ${crawlData.database.autoload_kb} KB`);
+  sections.push(`- Spam comments: ${crawlData.database.spam_comments}`);
+
+  // Page details (summarize to keep token count reasonable)
+  sections.push(`\n### Page Analysis (${crawlData.pages.length} pages)`);
+
+  // Pages with issues
+  const noMeta = crawlData.pages.filter((p) => !p.meta_description);
+  if (noMeta.length > 0) {
+    sections.push(`\n**Pages without meta description (${noMeta.length}):**`);
+    for (const p of noMeta.slice(0, 15)) {
+      sections.push(`- ${p.title} (${p.url})`);
+    }
+    if (noMeta.length > 15) sections.push(`  ...and ${noMeta.length - 15} more`);
+  }
+
+  const noH1 = crawlData.pages.filter((p) => p.h1.length === 0);
+  const multiH1 = crawlData.pages.filter((p) => p.h1.length > 1);
+  if (noH1.length > 0) {
+    sections.push(`\n**Pages without H1 (${noH1.length}):**`);
+    for (const p of noH1.slice(0, 10)) {
+      sections.push(`- ${p.title} (${p.url})`);
+    }
+  }
+  if (multiH1.length > 0) {
+    sections.push(`\n**Pages with multiple H1 tags (${multiH1.length}):**`);
+    for (const p of multiH1.slice(0, 10)) {
+      sections.push(`- ${p.title}: ${p.h1.length} H1 tags (${p.url})`);
+    }
+  }
+
+  // Thin content
+  const thinPages = crawlData.pages.filter((p) => p.word_count < 300);
+  if (thinPages.length > 0) {
+    sections.push(`\n**Thin content pages (<300 words): ${thinPages.length}**`);
+    for (const p of thinPages.slice(0, 10)) {
+      sections.push(`- ${p.title}: ${p.word_count} words (${p.url})`);
+    }
+  }
+
+  // Images without alt text
+  const pagesWithMissingAlt = crawlData.pages.filter(
+    (p) => p.images.some((img) => !img.alt)
+  );
+  if (pagesWithMissingAlt.length > 0) {
+    sections.push(`\n**Pages with images missing alt text (${pagesWithMissingAlt.length}):**`);
+    for (const p of pagesWithMissingAlt.slice(0, 10)) {
+      const missing = p.images.filter((img) => !img.alt).length;
+      sections.push(`- ${p.title}: ${missing} images without alt (${p.url})`);
+    }
+  }
+
+  // Schema & OG coverage
+  const noSchema = crawlData.pages.filter((p) => !p.has_schema);
+  const noOg = crawlData.pages.filter((p) => !p.has_og_tags);
+  sections.push(`\n**Schema markup:** ${crawlData.pages.length - noSchema.length}/${crawlData.pages.length} pages have schema`);
+  sections.push(`**Open Graph tags:** ${crawlData.pages.length - noOg.length}/${crawlData.pages.length} pages have OG tags`);
+
+  // Large images
+  const largeImages = crawlData.pages.flatMap((p) =>
+    p.images.filter((img) => img.size_kb > 200).map((img) => ({ ...img, page: p.title }))
+  );
+  if (largeImages.length > 0) {
+    sections.push(`\n**Large images (>200KB): ${largeImages.length}**`);
+    for (const img of largeImages.slice(0, 10)) {
+      sections.push(`- ${img.page}: ${img.src} (${img.size_kb}KB, ${img.format})`);
+    }
+  }
+
+  // Non-lazy images
+  const nonLazy = crawlData.pages.flatMap((p) =>
+    p.images.filter((img) => !img.lazy)
+  );
+  if (nonLazy.length > 0) {
+    sections.push(`\n**Images without lazy loading:** ${nonLazy.length} of ${crawlData.total_images}`);
+  }
+
+  // ─── Google Analytics Data ──────────────────────────────────────
+  if (analyticsData?.ga4) {
+    const ga4 = analyticsData.ga4;
+    sections.push("\n## Google Analytics (GA4) Data");
+    sections.push(`- Sessions: ${ga4.sessions}`);
+    sections.push(`- Users: ${ga4.users}`);
+    sections.push(`- Pageviews: ${ga4.pageviews}`);
+    sections.push(`- Bounce rate: ${ga4.bounce_rate}%`);
+    sections.push(`- Avg session duration: ${ga4.avg_session_duration}s`);
+
+    if (ga4.top_pages.length > 0) {
+      sections.push("\n**Top Pages:**");
+      for (const p of ga4.top_pages.slice(0, 10)) {
+        sections.push(`- ${p.page}: ${p.views} views`);
+      }
+    }
+
+    if (ga4.traffic_sources.length > 0) {
+      sections.push("\n**Traffic Sources:**");
+      for (const s of ga4.traffic_sources) {
+        sections.push(`- ${s.source}: ${s.sessions} sessions`);
+      }
+    }
+  }
+
+  // ─── Google Search Console Data ─────────────────────────────────
+  if (analyticsData?.gsc) {
+    const gsc = analyticsData.gsc;
+    sections.push("\n## Google Search Console Data");
+    sections.push(`- Total clicks: ${gsc.clicks}`);
+    sections.push(`- Total impressions: ${gsc.impressions}`);
+    sections.push(`- Average CTR: ${(gsc.ctr * 100).toFixed(1)}%`);
+    sections.push(`- Average position: ${gsc.position.toFixed(1)}`);
+
+    if (gsc.top_queries.length > 0) {
+      sections.push("\n**Top Search Queries:**");
+      for (const q of gsc.top_queries.slice(0, 15)) {
+        sections.push(`- "${q.query}": ${q.clicks} clicks, ${q.impressions} imp, CTR ${(q.ctr * 100).toFixed(1)}%, pos ${q.position.toFixed(1)}`);
+      }
+    }
+
+    if (gsc.top_pages.length > 0) {
+      sections.push("\n**Top Pages in Search:**");
+      for (const p of gsc.top_pages.slice(0, 10)) {
+        sections.push(`- ${p.page}: ${p.clicks} clicks, ${p.impressions} imp`);
+      }
+    }
+  }
+
+  // ─── Previous SEO Audit ─────────────────────────────────────────
+  if (analyticsData?.seo_audit) {
+    sections.push("\n## Previous SEO Audit Results");
+    sections.push(`**Score:** ${analyticsData.seo_audit.score}/100`);
+    for (const check of analyticsData.seo_audit.checks) {
+      sections.push(`- ${check.name}: ${check.status}${check.details ? ` — ${check.details}` : ""}`);
+    }
+  }
+
+  // ─── Broken Links ───────────────────────────────────────────────
+  if (analyticsData?.broken_links && analyticsData.broken_links.broken > 0) {
+    sections.push("\n## Broken Links");
+    sections.push(`**${analyticsData.broken_links.broken} broken out of ${analyticsData.broken_links.total} links**`);
+    for (const link of analyticsData.broken_links.links.slice(0, 10)) {
+      sections.push(`- ${link.url} (status: ${link.status})`);
+    }
+  }
+
+  // ─── Uptime / Performance ──────────────────────────────────────
+  if (analyticsData?.uptime) {
+    sections.push("\n## Site Performance");
+    sections.push(`- Response time: ${analyticsData.uptime.response_time_ms}ms`);
+    sections.push(`- Page size: ${analyticsData.uptime.page_size_kb}KB`);
+    sections.push(`- SSL: ${analyticsData.uptime.has_ssl ? "Yes" : "No"}`);
+    sections.push(`- Compression: ${analyticsData.uptime.has_compression ? "Enabled" : "Disabled"}`);
+  }
+
+  sections.push("\n---\nAnalyze the above data and provide your expert recommendations in the specified JSON format.");
+
+  return sections.join("\n");
+}
+
+// ─── Main analysis function ───────────────────────────────────────────
+
+/**
+ * Send WordPress crawl data + analytics to Claude for analysis.
+ * Returns structured recommendations with scores.
+ */
+export async function analyzeWithClaude(
+  crawlData: WPCrawlResult,
+  analyticsData?: DashboardAnalyticsData
+): Promise<{ result: AnalysisResult; tokensUsed: number }> {
+  const client = getClient();
+  const userPrompt = buildUserPrompt(crawlData, analyticsData);
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 16000,
+    system: getSystemPrompt(),
+    messages: [
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ],
+  });
+
+  // Calculate tokens used
+  const tokensUsed = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
+
+  // Extract text response
+  const textBlock = response.content.find((block) => block.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("No text response from Claude");
+  }
+
+  // Parse JSON from response (handle potential ```json wrapper)
+  let jsonStr = textBlock.text.trim();
+
+  // Remove markdown code block wrapper if present
+  if (jsonStr.startsWith("```")) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+  }
+
+  let parsed: {
+    scores?: AnalysisScores;
+    recommendations?: AIRecommendation[];
+    summary?: string;
+    total_issues?: number;
+  };
+
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    console.error("Failed to parse Claude response as JSON:", jsonStr.slice(0, 500));
+    throw new Error("Failed to parse AI response. The model returned invalid JSON.");
+  }
+
+  // Validate structure
+  const scores: AnalysisScores = {
+    seo: Math.max(0, Math.min(100, parsed.scores?.seo || 0)),
+    performance: Math.max(0, Math.min(100, parsed.scores?.performance || 0)),
+    technical: Math.max(0, Math.min(100, parsed.scores?.technical || 0)),
+    overall: Math.max(0, Math.min(100, parsed.scores?.overall || 0)),
+  };
+
+  const recommendations: AIRecommendation[] = (parsed.recommendations || []).map(
+    (rec, i) => ({
+      id: rec.id || `rec_${i + 1}`,
+      category: rec.category || "technical",
+      priority: rec.priority || "medium",
+      title: rec.title || "Untitled recommendation",
+      description: rec.description || "",
+      current: rec.current || "",
+      ideal: rec.ideal || "",
+      impact: rec.impact || "",
+      effort: rec.effort || "moderate",
+    })
+  );
+
+  const result: AnalysisResult = {
+    scores,
+    recommendations,
+    summary: parsed.summary || "Analysis complete.",
+    total_issues: parsed.total_issues || recommendations.length,
+  };
+
+  return { result, tokensUsed };
+}
+
+
+

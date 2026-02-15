@@ -9,6 +9,7 @@ import { getIntegrationsForClient } from "@/lib/actions/integrations";
 import { getLeadCountForClient } from "@/lib/actions/leads";
 import { WebsitesList } from "./websites-list";
 import { AdminNotes } from "./admin-notes";
+import { ContactInfo } from "./contact-info";
 import { ActivityLog } from "@/components/activity-log";
 import { formatDate } from "@/lib/utils";
 
@@ -69,44 +70,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contact Info</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {client.contact_email ? (
-                <div>
-                  <p className="text-xs font-medium uppercase text-muted-foreground">
-                    Email
-                  </p>
-                  <a
-                    href={`mailto:${client.contact_email}`}
-                    className="text-sm hover:underline"
-                  >
-                    {client.contact_email}
-                  </a>
-                </div>
-              ) : null}
-              {client.contact_phone ? (
-                <div>
-                  <p className="text-xs font-medium uppercase text-muted-foreground">
-                    Phone
-                  </p>
-                  <a
-                    href={`tel:${client.contact_phone}`}
-                    className="text-sm hover:underline"
-                  >
-                    {client.contact_phone}
-                  </a>
-                </div>
-              ) : null}
-              {!client.contact_email && !client.contact_phone && (
-                <p className="text-sm text-muted-foreground">
-                  No contact info added
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          <ContactInfo
+            clientId={client.id}
+            contactEmail={client.contact_email}
+            contactPhone={client.contact_phone}
+          />
 
           <AdminNotes clientId={client.id} initialNotes={client.notes} />
 

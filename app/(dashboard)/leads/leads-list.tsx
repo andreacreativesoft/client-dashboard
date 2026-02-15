@@ -113,7 +113,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
             <button
               key={status.value}
               onClick={() => handleStatusFilter(status.value)}
-              className={`inline-flex h-9 items-center rounded-lg border px-3 text-sm font-medium transition-colors ${
+              className={`inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors ${
                 currentStatus === status.value
                   ? status.activeColor
                   : status.color + " bg-background"
@@ -192,7 +192,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                             handleStatusChange(lead.id, status.value);
                           }}
                           disabled={updating === lead.id}
-                          className={`flex-1 px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 sm:px-3 sm:py-1.5 sm:text-xs ${
+                          className={`flex-1 cursor-pointer px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 sm:px-3 sm:py-1.5 sm:text-xs ${
                             lead.status === status.value
                               ? status.activeColor
                               : status.color + " bg-background"

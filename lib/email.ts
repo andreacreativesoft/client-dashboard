@@ -261,6 +261,72 @@ export async function sendWelcomeEmail(
   }
 }
 
+export async function sendClientEmail(
+  toEmail: string,
+  subject: string,
+  message: string,
+  senderName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!resend) {
+    console.warn("Resend API key not configured, skipping client email");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+      to: toEmail,
+      subject,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  <tr>
+                    <td style="background-color: #0a0a0a; padding: 24px 32px;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">${subject}</h1>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 32px;">
+                      <div style="color: #0a0a0a; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #e5e5e5; background-color: #fafafa;">
+                      <p style="margin: 0; color: #737373; font-size: 12px; text-align: center;">
+                        Sent by ${senderName} via Client Dashboard
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Failed to send client email:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Client email send error:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
 export interface InviteEmailData {
   inviteeName: string;
   inviterName: string;

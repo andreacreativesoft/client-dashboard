@@ -59,6 +59,27 @@ const dashboardItems = [
   },
 ];
 
+const toolsItems = [
+  {
+    href: "/tools/seo",
+    label: "SEO Analyzer",
+    icon: (
+      <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/tools/broken-links",
+    label: "Broken Links",
+    icon: (
+      <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.181 8.68a4.503 4.503 0 0 1 1.903 6.405m-9.768-2.782L3.56 14.06a4.5 4.5 0 0 0 6.364 6.365l.651-.651m0 0 .379-.38m-.379.38-.312.312m.94-.94a4.503 4.503 0 0 0-1.903-6.405m9.768 2.782 1.756-1.757a4.5 4.5 0 0 0-6.363-6.364l-.651.651m0 0-.38.38m.38-.38.313-.312" />
+      </svg>
+    ),
+  },
+];
+
 const adminItems = [
   {
     href: "/admin",

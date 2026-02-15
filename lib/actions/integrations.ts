@@ -69,6 +69,52 @@ export async function addFacebookIntegration(
   return { success: true };
 }
 
+export async function selectIntegrationAccount(
+  integrationId: string,
+  accountId: string,
+  accountName: string,
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  // Get current integration to update metadata
+  const { data: integration, error: fetchError } = await supabase
+    .from("integrations")
+    .select("metadata")
+    .eq("id", integrationId)
+    .single();
+
+  if (fetchError || !integration) {
+    return { success: false, error: "Integration not found" };
+  }
+
+  // Remove selection flags from metadata, keep the rest
+  const metadata = (integration.metadata || {}) as Record<string, unknown>;
+  delete metadata.needsPropertySelection;
+  delete metadata.needsLocationSelection;
+  delete metadata.needsSiteSelection;
+
+  const { error } = await supabase
+    .from("integrations")
+    .update({
+      account_id: accountId,
+      account_name: accountName,
+      metadata,
+    })
+    .eq("id", integrationId);
+
+  if (error) {
+    console.error("Failed to select integration account:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { success: true };
+}
+
 export async function deleteIntegration(
   integrationId: string,
   clientId?: string

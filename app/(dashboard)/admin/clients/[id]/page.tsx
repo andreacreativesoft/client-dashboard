@@ -7,10 +7,12 @@ import { getWebsitesForClient } from "@/lib/actions/websites";
 import { getClientActivity } from "@/lib/actions/activity";
 import { getIntegrationsForClient } from "@/lib/actions/integrations";
 import { getLeadCountForClient } from "@/lib/actions/leads";
+import { getLatestChecks } from "@/lib/actions/site-checks";
 import { WebsitesList } from "./websites-list";
 import { AdminNotes } from "./admin-notes";
 import { ContactInfo } from "./contact-info";
 import { ActivityLog } from "@/components/activity-log";
+import { ClientTools } from "@/components/tools/client-tools";
 import { formatDate } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -23,17 +25,19 @@ interface PageProps {
 
 export default async function ClientDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const [client, websites, activities, integrations, leadCount] = await Promise.all([
+  const [client, websites, activities, integrations, leadCount, latestChecks] = await Promise.all([
     getClient(id),
     getWebsitesForClient(id),
     getClientActivity(id, 20),
     getIntegrationsForClient(id),
     getLeadCountForClient(id),
+    getLatestChecks(id),
   ]);
 
   const googleConfigured = !!(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
   );
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://your-app.vercel.app";
 
   if (!client) {
     notFound();
@@ -60,13 +64,15 @@ export default async function ClientDetailPage({ params }: PageProps) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
           <WebsitesList
             clientId={client.id}
             websites={websites}
             integrations={integrations}
             googleConfigured={googleConfigured}
+            appUrl={appUrl}
           />
+          <ClientTools websites={websites} latestChecks={latestChecks} />
         </div>
 
         <div className="space-y-6">

@@ -1,5 +1,16 @@
 import { google } from "googleapis";
+import type { analyticsdata_v1beta } from "googleapis";
+import type { searchconsole_v1 } from "googleapis";
+import type { businessprofileperformance_v1 } from "googleapis";
 import crypto from "crypto";
+
+// ─── Google API response types (re-exported for consumers) ─────────
+export type GA4ReportResponse = analyticsdata_v1beta.Schema$RunReportResponse;
+export type GA4Row = analyticsdata_v1beta.Schema$Row;
+export type GSCQueryResponse = searchconsole_v1.Schema$SearchAnalyticsQueryResponse;
+export type GSCRow = searchconsole_v1.Schema$ApiDataRow;
+export type GBPMetricsResponse = businessprofileperformance_v1.Schema$FetchMultiDailyMetricsTimeSeriesResponse;
+export type GBPKeywordsResponse = businessprofileperformance_v1.Schema$ListSearchKeywordImpressionsMonthlyResponse;
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -9,10 +20,11 @@ const GOOGLE_REDIRECT_URI =
 
 const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY;
 
-// Scopes required for GA4 and Google Business Profile
+// Scopes required for GA4, Google Business Profile, and Search Console
 const SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/business.manage",
+  "https://www.googleapis.com/auth/webmasters.readonly",
 ];
 
 export function getOAuth2Client() {
@@ -74,21 +86,23 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   };
 }
 
-// Token encryption for secure storage
+// Token encryption for secure storage (random salt per token)
 export function encryptToken(token: string): string {
   if (!TOKEN_ENCRYPTION_KEY) {
     console.warn("TOKEN_ENCRYPTION_KEY not set, storing token in plain text");
     return token;
   }
 
+  const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(16);
-  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
+  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
   const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
 
   let encrypted = cipher.update(token, "utf8", "hex");
   encrypted += cipher.final("hex");
 
-  return iv.toString("hex") + ":" + encrypted;
+  // Format: salt:iv:encrypted (3 parts)
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
 }
 
 export function decryptToken(encryptedToken: string): string {
@@ -96,28 +110,45 @@ export function decryptToken(encryptedToken: string): string {
     return encryptedToken;
   }
 
-  const [ivHex, encrypted] = encryptedToken.split(":");
-  if (!ivHex || !encrypted) {
-    return encryptedToken; // Not encrypted
+  const parts = encryptedToken.split(":");
+
+  if (parts.length === 3) {
+    // New format: salt:iv:encrypted
+    const [saltHex, ivHex, encrypted] = parts;
+    if (!saltHex || !ivHex || !encrypted) return encryptedToken;
+
+    const salt = Buffer.from(saltHex, "hex");
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, salt, 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } else if (parts.length === 2) {
+    // Legacy format: iv:encrypted (fixed salt)
+    const [ivHex, encrypted] = parts;
+    if (!ivHex || !encrypted) return encryptedToken;
+
+    const iv = Buffer.from(ivHex, "hex");
+    const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
   }
 
-  const iv = Buffer.from(ivHex, "hex");
-  const key = crypto.scryptSync(TOKEN_ENCRYPTION_KEY, "salt", 32);
-  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-
-  return decrypted;
+  return encryptedToken; // Not encrypted
 }
 
-// GA4 Data API
+// GA4 Data API — overview metrics by day
 export async function getGA4Data(
   accessToken: string,
   propertyId: string,
   startDate: string,
   endDate: string
-) {
+): Promise<GA4ReportResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
@@ -138,6 +169,141 @@ export async function getGA4Data(
         { name: "averageSessionDuration" },
       ],
       dimensions: [{ name: "date" }],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — overview totals (no dimension breakdown)
+export async function getGA4Totals(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+        { name: "screenPageViews" },
+        { name: "bounceRate" },
+        { name: "averageSessionDuration" },
+      ],
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — custom events (CTA clicks, conversions, etc.)
+export async function getGA4Events(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  // Get all events grouped by event name
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "eventCount" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "eventName" }],
+      orderBys: [
+        { metric: { metricName: "eventCount" }, desc: true },
+      ],
+      limit: "50",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — top pages by views
+export async function getGA4TopPages(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "screenPageViews" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "pagePath" }],
+      orderBys: [
+        { metric: { metricName: "screenPageViews" }, desc: true },
+      ],
+      limit: "10",
+    },
+  });
+
+  return response.data;
+}
+
+// GA4 Data API — traffic sources
+export async function getGA4TrafficSources(
+  accessToken: string,
+  propertyId: string,
+  startDate: string,
+  endDate: string
+): Promise<GA4ReportResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const analyticsData = google.analyticsdata({
+    version: "v1beta",
+    auth: oauth2Client,
+  });
+
+  const response = await analyticsData.properties.runReport({
+    property: `properties/${propertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      metrics: [
+        { name: "sessions" },
+        { name: "totalUsers" },
+      ],
+      dimensions: [{ name: "sessionDefaultChannelGroup" }],
+      orderBys: [
+        { metric: { metricName: "sessions" }, desc: true },
+      ],
+      limit: "10",
     },
   });
 
@@ -170,6 +336,7 @@ export async function getGBPLocations(accessToken: string) {
 
   const accountsResponse = await mybusiness.accounts.list();
   const accounts = accountsResponse.data.accounts || [];
+  console.log(`GBP: Found ${accounts.length} accounts`, accounts.map(a => ({ name: a.name, accountName: a.accountName })));
 
   const locations: Array<{
     accountId: string;
@@ -203,8 +370,8 @@ export async function getGBPLocations(accessToken: string) {
           });
         }
       }
-    } catch {
-      // Account may not have business profile access
+    } catch (err) {
+      console.error(`Failed to list locations for account ${account.name}:`, err instanceof Error ? err.message : err);
       continue;
     }
   }
@@ -212,31 +379,200 @@ export async function getGBPLocations(accessToken: string) {
   return locations;
 }
 
-export async function getGBPInsights(
+// GBP Performance API — fetch daily metrics (direction requests, calls, website clicks, impressions)
+export async function getGBPPerformanceMetrics(
   accessToken: string,
-  locationName: string,
-  _startDate: string, // eslint-disable-line @typescript-eslint/no-unused-vars
-  _endDate: string // eslint-disable-line @typescript-eslint/no-unused-vars
-) {
+  locationId: string,
+  startDate: { year: number; month: number; day: number },
+  endDate: { year: number; month: number; day: number }
+): Promise<GBPMetricsResponse> {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ access_token: accessToken });
 
-  const businessInfo = google.mybusinessbusinessinformation({
+  const businessPerformance = google.businessprofileperformance({
     version: "v1",
     auth: oauth2Client,
   });
 
-  // Note: The actual insights API has specific requirements
-  // This is a simplified version - real implementation needs proper date handling
-  try {
-    const response = await businessInfo.locations.get({
-      name: locationName,
-      readMask: "name,title,websiteUri,phoneNumbers",
-    });
+  const response = await businessPerformance.locations.fetchMultiDailyMetricsTimeSeries({
+    location: `locations/${locationId}`,
+    dailyMetrics: [
+      "BUSINESS_DIRECTION_REQUESTS",
+      "CALL_CLICKS",
+      "WEBSITE_CLICKS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+      "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+      "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+      "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    ],
+    "dailyRange.startDate.year": startDate.year,
+    "dailyRange.startDate.month": startDate.month,
+    "dailyRange.startDate.day": startDate.day,
+    "dailyRange.endDate.year": endDate.year,
+    "dailyRange.endDate.month": endDate.month,
+    "dailyRange.endDate.day": endDate.day,
+  });
 
-    return response.data;
-  } catch (err) {
-    console.error("GBP insights error:", err);
-    throw err;
-  }
+  return response.data;
+}
+
+// ─── Google Search Console API ─────────────────────────────────────────
+
+// List all verified sites in Search Console
+export async function listGSCSites(accessToken: string) {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.sites.list();
+  const sites = response.data.siteEntry || [];
+
+  return sites
+    .filter((site) => site.siteUrl && site.permissionLevel !== "siteUnverifiedUser")
+    .map((site) => ({
+      siteUrl: site.siteUrl!,
+      permissionLevel: site.permissionLevel || "unknown",
+    }));
+}
+
+// GSC Search Analytics — overall performance metrics
+export async function getGSCSearchAnalytics(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["date"],
+      rowLimit: 500,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top queries (keywords)
+export async function getGSCTopQueries(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["query"],
+      rowLimit: 20,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — top pages
+export async function getGSCTopPages(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["page"],
+      rowLimit: 10,
+    },
+  });
+
+  return response.data;
+}
+
+// GSC Search Analytics — performance by device
+export async function getGSCDeviceBreakdown(
+  accessToken: string,
+  siteUrl: string,
+  startDate: string,
+  endDate: string
+): Promise<GSCQueryResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const searchconsole = google.searchconsole({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions: ["device"],
+      rowLimit: 10,
+    },
+  });
+
+  return response.data;
+}
+
+// GBP Search Keywords — monthly search terms used to find the business
+export async function getGBPSearchKeywords(
+  accessToken: string,
+  locationId: string,
+  startMonth: { year: number; month: number },
+  endMonth: { year: number; month: number }
+): Promise<GBPKeywordsResponse> {
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({ access_token: accessToken });
+
+  const businessPerformance = google.businessprofileperformance({
+    version: "v1",
+    auth: oauth2Client,
+  });
+
+  const response = await businessPerformance.locations.searchkeywords.impressions.monthly.list({
+    parent: `locations/${locationId}`,
+    "monthlyRange.startMonth.year": startMonth.year,
+    "monthlyRange.startMonth.month": startMonth.month,
+    "monthlyRange.endMonth.year": endMonth.year,
+    "monthlyRange.endMonth.month": endMonth.month,
+  });
+
+  return response.data;
 }

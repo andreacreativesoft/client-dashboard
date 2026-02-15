@@ -23,7 +23,9 @@ export const NAV_ITEMS = {
   dashboard: [
     { href: "/dashboard", label: "Overview", icon: "LayoutDashboard" },
     { href: "/leads", label: "Leads", icon: "Users" },
-    { href: "/analytics", label: "Analytics", icon: "BarChart3" },
+    { href: "/analytics", label: "Google Analytics", icon: "BarChart3" },
+    { href: "/search-console", label: "Search Console", icon: "Search" },
+    { href: "/business-profile", label: "Google Business", icon: "Building" },
     { href: "/settings", label: "Settings", icon: "Settings" },
   ],
   admin: [

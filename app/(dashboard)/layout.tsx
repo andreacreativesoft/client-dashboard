@@ -5,6 +5,7 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { SidebarProvider } from "@/components/layout/sidebar-context";
 import { ImpersonateBanner } from "@/components/impersonate-banner";
 import { getImpersonationStatus } from "@/lib/actions/impersonate";
+import { getSelectedClientId } from "@/lib/selected-client";
 import { getProfile } from "@/lib/actions/profile";
 import { updateLastLogin } from "@/lib/actions/alerts";
 
@@ -27,6 +28,9 @@ export default async function DashboardLayout({
   // Check if admin is impersonating a client
   const impersonation = isAdmin ? await getImpersonationStatus() : null;
 
+  // Get selected client for data viewing (separate from impersonation)
+  const selectedClientId = isAdmin ? await getSelectedClientId() : null;
+
   // When impersonating, hide admin features
   const showAsAdmin = isAdmin && !impersonation;
 
@@ -43,6 +47,7 @@ export default async function DashboardLayout({
             isAdmin={isAdmin}
             avatarUrl={profile.avatar_url}
             showClientSwitcher={isAdmin && !impersonation}
+            selectedClientId={selectedClientId}
           />
           <main className="flex-1 pb-20 md:pb-0">{children}</main>
         </div>

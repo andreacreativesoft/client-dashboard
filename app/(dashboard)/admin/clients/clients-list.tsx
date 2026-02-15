@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ClientForm } from "./client-form";
+import { WebsiteForm } from "./[id]/website-form";
 import { deleteClientAction } from "@/lib/actions/clients";
 import type { Client } from "@/types/database";
 
@@ -16,6 +17,7 @@ export function ClientsList({ clients }: ClientsListProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [websiteFormClientId, setWebsiteFormClientId] = useState<string | null>(null);
 
   function handleEdit(client: Client) {
     setEditingClient(client);
@@ -106,7 +108,14 @@ export function ClientsList({ clients }: ClientsListProps) {
                     </div>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setWebsiteFormClientId(client.id)}
+                  >
+                    Add Website
+                  </Button>
                   <Link
                     href={`/admin/clients/${client.id}`}
                     className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:flex-none sm:px-3"
@@ -142,6 +151,14 @@ export function ClientsList({ clients }: ClientsListProps) {
         onClose={handleClose}
         client={editingClient}
       />
+
+      {websiteFormClientId && (
+        <WebsiteForm
+          open={true}
+          onClose={() => setWebsiteFormClientId(null)}
+          clientId={websiteFormClientId}
+        />
+      )}
     </>
   );
 }

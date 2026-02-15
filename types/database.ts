@@ -2,7 +2,11 @@ export type UserRole = "admin" | "client";
 export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
-export type IntegrationType = "ga4" | "gbp" | "facebook";
+export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook";
+export type CheckType = "broken_links" | "seo_audit" | "uptime";
+export type CheckStatus = "running" | "completed" | "failed";
+export type WPAnalysisStatus = "running" | "completed" | "failed";
+export type WPDeployMethod = "none" | "git" | "wp_migrate";
 
 export type Profile = {
   id: string;
@@ -12,6 +16,7 @@ export type Profile = {
   phone: string | null;
   avatar_url: string | null;
   last_login_at: string | null;
+  is_blocked: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -167,6 +172,46 @@ export type ActivityLogWithUser = ActivityLog & {
   user_email: string | null;
 };
 
+export type SiteCheck = {
+  id: string;
+  website_id: string;
+  client_id: string;
+  check_type: CheckType;
+  status: CheckStatus;
+  score: number | null;
+  summary: Record<string, unknown>;
+  results: Record<string, unknown>[];
+  duration_ms: number | null;
+  created_at: string;
+};
+
+export type WPSiteConfigRow = {
+  id: string;
+  website_id: string;
+  local_path: string;
+  deploy_method: WPDeployMethod;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WPAnalysisRow = {
+  id: string;
+  website_id: string;
+  client_id: string;
+  status: WPAnalysisStatus;
+  site_data: Record<string, unknown>;
+  recommendations: Record<string, unknown>[];
+  scores: Record<string, unknown>;
+  pages_analyzed: number;
+  issues_found: number;
+  claude_tokens: number;
+  summary: string | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+};
+
 // Joined view types
 export type LeadFull = Lead & {
   website_name: string;
@@ -279,6 +324,34 @@ export type Database = {
         Row: ActivityLog;
         Insert: Omit<ActivityLog, "id" | "created_at">;
         Update: never;
+        Relationships: [];
+      };
+      site_checks: {
+        Row: SiteCheck;
+        Insert: Omit<SiteCheck, "id" | "created_at">;
+        Update: Partial<Omit<SiteCheck, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_site_configs: {
+        Row: WPSiteConfigRow;
+        Insert: Omit<WPSiteConfigRow, "id" | "created_at" | "updated_at">;
+        Update: Partial<Omit<WPSiteConfigRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_analyses: {
+        Row: WPAnalysisRow;
+        Insert: Omit<WPAnalysisRow, "id" | "created_at" | "site_data" | "recommendations" | "scores" | "pages_analyzed" | "issues_found" | "claude_tokens" | "summary" | "error_message" | "completed_at"> & {
+          site_data?: Record<string, unknown>;
+          recommendations?: Record<string, unknown>[];
+          scores?: Record<string, unknown>;
+          pages_analyzed?: number;
+          issues_found?: number;
+          claude_tokens?: number;
+          summary?: string | null;
+          error_message?: string | null;
+          completed_at?: string | null;
+        };
+        Update: Partial<Omit<WPAnalysisRow, "id" | "created_at">>;
         Relationships: [];
       };
     };

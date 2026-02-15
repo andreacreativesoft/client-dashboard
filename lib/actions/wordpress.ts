@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import { crawlWordPressSite } from "@/lib/wordpress/crawler";
@@ -10,9 +9,7 @@ import type {
   WPSiteConfig,
   WPAnalysis,
   WPCrawlResult,
-  AnalysisResult,
   AnalysisScores,
-  AIRecommendation,
   DashboardAnalyticsData,
 } from "@/types/wordpress";
 
@@ -54,17 +51,16 @@ export async function getWebsiteConfig(
     .from("wp_site_configs")
     .select("*")
     .eq("website_id", websiteId)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== "PGRST116") {
-    // PGRST116 = no rows found
+  if (error) {
     console.error("Error fetching WP config:", error);
     return { success: false, error: error.message };
   }
 
   return {
     success: true,
-    config: data as WPSiteConfig | undefined,
+    config: (data as WPSiteConfig) ?? undefined,
   };
 }
 
@@ -93,7 +89,7 @@ export async function saveWebsiteConfig(
     .from("wp_site_configs")
     .select("id")
     .eq("website_id", websiteId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     // Update existing
@@ -297,7 +293,6 @@ async function gatherDashboardAnalytics(
       .single();
 
     if (seoCheck) {
-      const summary = seoCheck.summary as Record<string, unknown>;
       analytics.seo_audit = {
         score: seoCheck.score || 0,
         checks: (seoCheck.results || []).map((r: Record<string, unknown>) => ({

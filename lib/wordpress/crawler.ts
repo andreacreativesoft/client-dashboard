@@ -247,7 +247,7 @@ async function estimateImageSize(localPath: string, src: string): Promise<number
 async function analyzePluginAssets(
   pluginsDir: string,
   pluginSlug: string,
-  localPath: string
+  _localPath: string
 ): Promise<{ assets: WPPluginAsset[]; loadsOn: "all" | "frontend" | "admin" | "specific" }> {
   const assets: WPPluginAsset[] = [];
   let loadsOn: "all" | "frontend" | "admin" | "specific" = "all";
@@ -441,7 +441,7 @@ export async function crawlWordPressSite(rawPath: string): Promise<WPCrawlResult
 
     // 5. Get post meta (for meta descriptions — Yoast, RankMath, AIOSEO)
     const postIds = postRows.map((r) => r.ID as number);
-    let metaMap = new Map<number, string>();
+    const metaMap = new Map<number, string>();
 
     if (postIds.length > 0) {
       const placeholders = postIds.map(() => "?").join(",");

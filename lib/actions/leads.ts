@@ -374,10 +374,18 @@ export async function addLeadNoteAction(
     return { success: false, error: "Not authenticated" };
   }
 
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return { success: false, error: "Note content is required" };
+  }
+  if (trimmed.length > 5000) {
+    return { success: false, error: "Note content must be under 5,000 characters" };
+  }
+
   const { error } = await supabase.from("lead_notes").insert({
     lead_id: leadId,
     user_id: user.id,
-    content,
+    content: trimmed,
   });
 
   if (error) {

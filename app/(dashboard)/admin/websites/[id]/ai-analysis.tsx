@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -307,7 +306,6 @@ const categories: Array<{ value: RecommendationCategory | "all"; label: string }
 // ─── Main Component ──────────────────────────────────────────────────
 
 export function AIAnalysis({ websiteId }: { websiteId: string }) {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<WPSiteConfig | null>(null);
   const [analysis, setAnalysis] = useState<WPAnalysis | null>(null);

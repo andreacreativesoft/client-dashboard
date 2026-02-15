@@ -6,8 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import { sendWelcomeEmail, sendAccountCreatedEmail } from "@/lib/email";
-import { unblockAccount, clearLoginAttempts } from "@/lib/login-security";
-import type { Profile, Client, ClientUser } from "@/types/database";
+import { unblockAccount } from "@/lib/login-security";
+import type { Profile } from "@/types/database";
 
 export type UserWithClients = Profile & {
   clients: { id: string; business_name: string; access_role: string }[];
@@ -215,7 +215,7 @@ export async function assignUserToClientAction(
     .select("id")
     .eq("user_id", userId)
     .eq("client_id", clientId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     return { success: false, error: "User already assigned to this client" };

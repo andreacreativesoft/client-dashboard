@@ -14,6 +14,9 @@ export type ClientFormData = {
 };
 
 export async function getClients(): Promise<Client[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clients")

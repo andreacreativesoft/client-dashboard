@@ -99,12 +99,14 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
           placeholder="Search leads..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search leads"
           className="w-full sm:w-64"
         />
         <div className="flex gap-2">
           <Button
             variant={currentStatus === "all" ? "default" : "outline"}
             size="sm"
+            aria-pressed={currentStatus === "all"}
             onClick={() => handleStatusFilter("all")}
           >
             All
@@ -113,7 +115,8 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
             <button
               key={status.value}
               onClick={() => handleStatusFilter(status.value)}
-              className={`inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors ${
+              aria-pressed={currentStatus === status.value}
+              className={`inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 currentStatus === status.value
                   ? status.activeColor
                   : status.color + " bg-background"
@@ -192,7 +195,9 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                             handleStatusChange(lead.id, status.value);
                           }}
                           disabled={updating === lead.id}
-                          className={`flex-1 cursor-pointer px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 sm:px-3 sm:py-1.5 sm:text-xs ${
+                          aria-pressed={lead.status === status.value}
+                          aria-label={`Mark as ${status.label}`}
+                          className={`flex-1 cursor-pointer px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:py-1.5 sm:text-xs ${
                             lead.status === status.value
                               ? status.activeColor
                               : status.color + " bg-background"

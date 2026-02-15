@@ -3,6 +3,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { sendClientEmail } from "@/lib/email";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function sendEmailToClientAction(
   clientId: string,
@@ -31,13 +32,13 @@ export async function sendEmailToClientAction(
 
   if (result.success) {
     // Log activity
-    const { createAdminClient } = await import("@/lib/supabase/admin");
     const admin = createAdminClient();
     await admin.from("activity_logs").insert({
       client_id: clientId,
       user_id: auth.userId,
-      action: "email_sent",
+      action_type: "email_sent",
       description: `Sent email to ${toEmail}: "${subject.trim()}"`,
+      metadata: {},
     });
   }
 

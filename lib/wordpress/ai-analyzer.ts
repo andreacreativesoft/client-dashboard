@@ -333,7 +333,7 @@ export async function analyzeWithClaude(
 
   try {
     parsed = JSON.parse(jsonStr);
-  } catch (err) {
+  } catch {
     console.error("Failed to parse Claude response as JSON:", jsonStr.slice(0, 500));
     throw new Error("Failed to parse AI response. The model returned invalid JSON.");
   }

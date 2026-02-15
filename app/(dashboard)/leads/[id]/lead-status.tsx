@@ -34,13 +34,15 @@ export function LeadStatusToggle({ leadId, currentStatus }: LeadStatusProps) {
   }
 
   return (
-    <div className="flex rounded-lg border border-border overflow-hidden">
+    <div className="flex rounded-lg border border-border overflow-hidden" role="group" aria-label="Lead status">
       {STATUS_OPTIONS.map((option) => (
         <button
           key={option.value}
           onClick={() => handleChange(option.value)}
           disabled={loading}
-          className={`px-4 py-2 text-sm font-medium border transition-colors disabled:opacity-50 ${
+          aria-pressed={status === option.value}
+          aria-label={`Mark as ${option.label}`}
+          className={`cursor-pointer px-4 py-2 text-sm font-medium border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             status === option.value
               ? option.activeColor
               : option.color + " bg-background"

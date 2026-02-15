@@ -75,13 +75,15 @@ export function RecentLeads({ leads }: { leads: RecentLead[] }) {
             </p>
           </Link>
           <div className="flex gap-2 sm:gap-0">
-            <div className="flex flex-1 overflow-hidden rounded-lg border border-border">
+            <div className="flex flex-1 overflow-hidden rounded-lg border border-border" role="group" aria-label="Lead status">
               {STATUS_OPTIONS.map((status) => (
                 <button
                   key={status.value}
                   onClick={() => handleStatusChange(lead.id, status.value)}
                   disabled={updating === lead.id}
-                  className={`flex-1 cursor-pointer px-3 py-2 text-sm font-medium border transition-colors disabled:opacity-50 sm:px-2.5 sm:py-1.5 sm:text-xs ${
+                  aria-pressed={lead.status === status.value}
+                  aria-label={`Mark as ${status.label}`}
+                  className={`flex-1 cursor-pointer px-3 py-2 text-sm font-medium border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-2.5 sm:py-1.5 sm:text-xs ${
                     lead.status === status.value
                       ? status.activeColor
                       : status.color + " bg-background"

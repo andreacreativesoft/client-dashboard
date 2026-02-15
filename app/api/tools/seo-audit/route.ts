@@ -26,7 +26,7 @@ type PageAudit = {
 
 // ─── HTML analyzer (works on any page) ──────────────────────────────
 
-function analyzeHtml(html: string, url: string): SeoItem[] {
+function analyzeHtml(html: string, _url: string): SeoItem[] {
   const items: SeoItem[] = [];
 
   // 1. Title tag

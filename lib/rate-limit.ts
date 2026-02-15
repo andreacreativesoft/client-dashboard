@@ -1,33 +1,15 @@
 /**
- * Simple in-memory rate limiter using a sliding window.
- * Suitable for single-instance deployments (Vercel serverless functions
- * restart frequently, so the map resets — this is intentional and provides
- * per-instance burst protection without external dependencies).
+ * Production rate limiter using Upstash Redis.
+ * Falls back to in-memory when Redis is not configured (dev/local).
+ *
+ * Persists across serverless cold starts and Vercel deployments.
+ * Free tier: 10,000 requests/day — more than enough for rate limit checks.
  */
 
-interface RateLimitEntry {
-  timestamps: number[];
-}
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
-const store = new Map<string, RateLimitEntry>();
-
-// Clean up stale entries every 5 minutes to prevent memory leaks
-const CLEANUP_INTERVAL = 5 * 60 * 1000;
-let lastCleanup = Date.now();
-
-function cleanup(windowMs: number) {
-  const now = Date.now();
-  if (now - lastCleanup < CLEANUP_INTERVAL) return;
-  lastCleanup = now;
-
-  const cutoff = now - windowMs;
-  for (const [key, entry] of store) {
-    entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
-    if (entry.timestamps.length === 0) {
-      store.delete(key);
-    }
-  }
-}
+// ─── Types ────────────────────────────────────────────────────────────
 
 interface RateLimitOptions {
   /** Time window in milliseconds */
@@ -42,25 +24,80 @@ interface RateLimitResult {
   resetAt: number;
 }
 
-export function rateLimit(
-  key: string,
-  options: RateLimitOptions
-): RateLimitResult {
+// ─── Redis client (singleton) ─────────────────────────────────────────
+
+const hasRedis = !!(
+  process.env.UPSTASH_REDIS_REST_URL &&
+  process.env.UPSTASH_REDIS_REST_TOKEN
+);
+
+const redis = hasRedis
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
+
+// ─── Limiter cache (one per unique window config) ─────────────────────
+
+const limiterCache = new Map<string, Ratelimit>();
+
+function getOrCreateLimiter(options: RateLimitOptions): Ratelimit {
+  const cacheKey = `${options.windowMs}:${options.maxRequests}`;
+  let limiter = limiterCache.get(cacheKey);
+
+  if (!limiter) {
+    const windowSec = Math.ceil(options.windowMs / 1000);
+    limiter = new Ratelimit({
+      redis: redis!,
+      limiter: Ratelimit.slidingWindow(options.maxRequests, `${windowSec} s`),
+      prefix: "rl",
+      analytics: true,
+    });
+    limiterCache.set(cacheKey, limiter);
+  }
+
+  return limiter;
+}
+
+// ─── In-memory fallback (dev/local without Redis) ─────────────────────
+
+interface MemoryEntry {
+  timestamps: number[];
+}
+
+const memoryStore = new Map<string, MemoryEntry>();
+let lastCleanup = Date.now();
+const CLEANUP_INTERVAL = 5 * 60 * 1000;
+
+function memoryCleanup(windowMs: number) {
+  const now = Date.now();
+  if (now - lastCleanup < CLEANUP_INTERVAL) return;
+  lastCleanup = now;
+
+  const cutoff = now - windowMs;
+  for (const [key, entry] of memoryStore) {
+    entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
+    if (entry.timestamps.length === 0) {
+      memoryStore.delete(key);
+    }
+  }
+}
+
+function memoryRateLimit(key: string, options: RateLimitOptions): RateLimitResult {
   const now = Date.now();
   const { windowMs, maxRequests } = options;
 
-  // Periodic cleanup
-  cleanup(windowMs);
+  memoryCleanup(windowMs);
 
   const cutoff = now - windowMs;
-  let entry = store.get(key);
+  let entry = memoryStore.get(key);
 
   if (!entry) {
     entry = { timestamps: [] };
-    store.set(key, entry);
+    memoryStore.set(key, entry);
   }
 
-  // Remove timestamps outside the window
   entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
 
   if (entry.timestamps.length >= maxRequests) {
@@ -72,7 +109,6 @@ export function rateLimit(
     };
   }
 
-  // Allow the request
   entry.timestamps.push(now);
 
   return {
@@ -80,4 +116,45 @@ export function rateLimit(
     remaining: maxRequests - entry.timestamps.length,
     resetAt: now + windowMs,
   };
+}
+
+// ─── Main export ──────────────────────────────────────────────────────
+
+/**
+ * Rate limit a request by key.
+ * Uses Upstash Redis in production, falls back to in-memory for local dev.
+ */
+export async function rateLimit(
+  key: string,
+  options: RateLimitOptions
+): Promise<RateLimitResult> {
+  // Fallback to in-memory if Redis not configured
+  if (!redis) {
+    return memoryRateLimit(key, options);
+  }
+
+  try {
+    const limiter = getOrCreateLimiter(options);
+    const result = await limiter.limit(key);
+
+    return {
+      allowed: result.success,
+      remaining: result.remaining,
+      resetAt: result.reset,
+    };
+  } catch (err) {
+    // If Redis fails, fall back to in-memory (don't block the request)
+    console.error("Redis rate limit error, falling back to memory:", err instanceof Error ? err.message : err);
+    return memoryRateLimit(key, options);
+  }
+}
+
+// ─── Helper: get IP from request ──────────────────────────────────────
+
+export function getIpFromRequest(request: Request): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+  return "unknown";
 }

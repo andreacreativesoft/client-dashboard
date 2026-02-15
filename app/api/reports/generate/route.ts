@@ -3,9 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { generateClientReport, generateAllMonthlyReports } from "@/lib/reports/generate";
 import { getLastMonthPeriod } from "@/lib/reports/gather-data";
 import { startOfMonth, endOfMonth, parse } from "date-fns";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 5 report generations per minute per IP
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const limit = await rateLimit(`reports:${ip}`, { windowMs: 60_000, maxRequests: 5 });
+    if (!limit.allowed) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
     const supabase = await createClient();
 
     // Verify user is admin
@@ -72,7 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
   } catch (err) {
-    console.error("Report generation error:", err);
+    console.error("Report generation error:", err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: "Failed to generate report" },
       { status: 500 }

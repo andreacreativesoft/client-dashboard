@@ -74,8 +74,25 @@ export async function changePasswordAction(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
-  // Supabase doesn't have a direct "verify current password" API
-  // We need to use the auth API to update password
+  // Verify current password by re-authenticating
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error: verifyError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+
+  if (verifyError) {
+    return { success: false, error: "Current password is incorrect" };
+  }
+
+  // Current password verified — update to new password
   const { error } = await supabase.auth.updateUser({
     password: newPassword,
   });

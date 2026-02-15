@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { createInviteAction, type InviteFormData } from "@/lib/actions/invites";
+import { createUserAction, type UserFormData } from "@/lib/actions/users";
 import type { Client } from "@/types/database";
 
 interface UserFormProps {
@@ -25,6 +26,7 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
   const [success, setSuccess] = useState(false);
   const [role, setRole] = useState<"admin" | "client">("client");
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
+  const [sendEmail, setSendEmail] = useState(true);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -35,31 +37,59 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
     const form = e.currentTarget;
     const email = (form.elements.namedItem("email") as HTMLInputElement).value;
 
-    // Get name and phone only for "add" mode
-    const full_name =
-      mode === "add"
-        ? (form.elements.namedItem("full_name") as HTMLInputElement)?.value
-        : undefined;
-    const phone =
-      mode === "add"
-        ? (form.elements.namedItem("phone") as HTMLInputElement)?.value || undefined
-        : undefined;
+    if (mode === "invite") {
+      // Send Invite mode — use invite system
+      const full_name =
+        (form.elements.namedItem("full_name") as HTMLInputElement)?.value || undefined;
+      const phone =
+        (form.elements.namedItem("phone") as HTMLInputElement)?.value || undefined;
 
-    // Both modes use the invite system now
-    const inviteData: InviteFormData = {
-      email,
-      full_name, // undefined for invite mode, filled for add mode
-      phone,
-      role,
-      client_ids: selectedClients,
-    };
+      const inviteData: InviteFormData = {
+        email,
+        full_name,
+        phone,
+        role,
+        client_ids: selectedClients,
+      };
 
-    const result = await createInviteAction(inviteData);
-    setLoading(false);
+      const result = await createInviteAction(inviteData);
+      setLoading(false);
 
-    if (!result.success) {
-      setError(result.error || "Something went wrong");
-      return;
+      if (!result.success) {
+        setError(result.error || "Something went wrong");
+        return;
+      }
+    } else {
+      // Add Manually mode — create user directly
+      const full_name = (form.elements.namedItem("full_name") as HTMLInputElement).value;
+      const phone =
+        (form.elements.namedItem("phone") as HTMLInputElement)?.value || "";
+      const password =
+        (form.elements.namedItem("password") as HTMLInputElement)?.value || "";
+
+      if (password && password.length < 6) {
+        setLoading(false);
+        setError("Password must be at least 6 characters");
+        return;
+      }
+
+      const userData: UserFormData = {
+        email,
+        full_name,
+        phone,
+        role,
+        client_ids: selectedClients,
+        password: password || undefined,
+        sendEmail,
+      };
+
+      const result = await createUserAction(userData);
+      setLoading(false);
+
+      if (!result.success) {
+        setError(result.error || "Something went wrong");
+        return;
+      }
     }
 
     setSuccess(true);
@@ -72,6 +102,7 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
     setMode("invite");
     setRole("client");
     setSelectedClients([]);
+    setSendEmail(true);
     setError("");
     setSuccess(false);
   }
@@ -115,7 +146,7 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
       <p className="mb-4 text-sm text-muted-foreground">
         {mode === "invite"
           ? "Send an invitation email. The user will complete their profile and set a password."
-          : "Pre-fill user details. They'll receive an email to set their password."}
+          : "Create the user account directly. Optionally set a password or let them set their own."}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -150,6 +181,20 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
                 type="tel"
                 placeholder="+1 (555) 123-4567"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                placeholder="Leave empty to send a set-password link"
+                minLength={6}
+              />
+              <p className="text-xs text-muted-foreground">
+                Min 6 characters. If left empty, the user will receive a link to set their own password.
+              </p>
             </div>
           </>
         )}
@@ -201,10 +246,25 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
           </div>
         )}
 
+        {/* Send email toggle — only for Add Manually mode */}
+        {mode === "add" && (
+          <label className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              checked={sendEmail}
+              onChange={(e) => setSendEmail(e.target.checked)}
+              className="h-4 w-4 rounded"
+            />
+            <span className="text-sm text-foreground">
+              Send email notification to user
+            </span>
+          </label>
+        )}
+
         {error && <p className="text-sm text-destructive">{error}</p>}
         {success && (
           <p className="text-sm text-success">
-            Invitation sent!
+            {mode === "invite" ? "Invitation sent!" : "User created!"}
           </p>
         )}
 
@@ -213,7 +273,13 @@ export function UserForm({ open, onClose, clients }: UserFormProps) {
             Cancel
           </Button>
           <Button type="submit" disabled={loading || success}>
-            {loading ? "Sending..." : "Send Invitation"}
+            {loading
+              ? mode === "invite"
+                ? "Sending..."
+                : "Creating..."
+              : mode === "invite"
+                ? "Send Invitation"
+                : "Create User"}
           </Button>
         </div>
       </form>

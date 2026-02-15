@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
-import { timeAgo, formatNumber } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
+import { RecentLeads } from "./recent-leads";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -153,43 +153,7 @@ export default async function DashboardPage() {
           )}
         </CardHeader>
         <CardContent>
-          {recentLeads.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No leads yet. Leads will appear here when they come in via webhooks.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {recentLeads.map((lead) => (
-                <Link
-                  key={lead.id}
-                  href={`/leads/${lead.id}`}
-                  className="flex items-center justify-between rounded-lg border border-border p-3 transition-colors hover:bg-muted"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate">
-                        {lead.name || lead.email || lead.phone || "Unknown"}
-                      </span>
-                      <Badge
-                        variant={
-                          lead.status === "new"
-                            ? "default"
-                            : lead.status === "contacted"
-                            ? "warning"
-                            : "success"
-                        }
-                      >
-                        {lead.status}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {lead.website_name} • {timeAgo(lead.created_at)}
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
+          <RecentLeads leads={recentLeads} />
         </CardContent>
       </Card>
     </div>

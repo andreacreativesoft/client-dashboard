@@ -49,7 +49,7 @@ export async function createInviteAction(
     .eq("email", formData.email.toLowerCase())
     .is("accepted_at", null)
     .gt("expires_at", new Date().toISOString())
-    .single();
+    .maybeSingle();
 
   if (existingInvite) {
     return { success: false, error: "An invitation has already been sent to this email" };

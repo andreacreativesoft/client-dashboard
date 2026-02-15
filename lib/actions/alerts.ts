@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 
 export type AlertType = "inactive_user" | "uncontacted_leads" | "broken_integration";
 export type AlertSeverity = "warning" | "critical";
@@ -19,6 +20,9 @@ export type ClientAlert = {
 };
 
 export async function getClientAlerts(): Promise<ClientAlert[]> {
+  const auth = await requireAdmin();
+  if (!auth.success) return [];
+
   const supabase = await createClient();
   const alerts: ClientAlert[] = [];
 

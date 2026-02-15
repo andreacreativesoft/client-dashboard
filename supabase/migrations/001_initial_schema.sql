@@ -139,7 +139,7 @@ create table public.integrations (
   id uuid primary key default gen_random_uuid(),
   -- TODO post-MVP: replace CASCADE with application-level cascade when soft-delete is added
   client_id uuid not null references public.clients(id) on delete cascade,
-  type text not null check (type in ('ga4', 'gbp', 'facebook')),
+  type text not null check (type in ('ga4', 'gbp', 'gsc', 'facebook')),
   account_id varchar(255) not null,
   account_name varchar(255),
   access_token_encrypted text,
@@ -160,7 +160,7 @@ create trigger integrations_updated_at
 create table public.analytics_cache (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients(id) on delete cascade,
-  integration_type text not null check (integration_type in ('ga4', 'gbp')),
+  integration_type text not null check (integration_type in ('ga4', 'gbp', 'gsc')),
   metric_type varchar(50) not null,
   period_start date not null,
   period_end date not null,

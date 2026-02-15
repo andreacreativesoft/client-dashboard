@@ -53,7 +53,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("Report download error:", err);
+    console.error("Report download error:", err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: "Failed to get report" },
       { status: 500 }

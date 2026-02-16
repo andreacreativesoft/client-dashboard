@@ -85,18 +85,60 @@ function StatusIcon({ status }: { status: "pass" | "fail" | "warning" }) {
   return <span className="text-warning">&#9888;</span>;
 }
 
-function PageDetail({ page, siteWide, onBack }: { page: PageAudit; siteWide?: SeoItem[]; onBack: () => void }) {
+function PageDetail({ page, siteWide, websiteId, onBack, onPageUpdated }: {
+  page: PageAudit;
+  siteWide?: SeoItem[];
+  websiteId: string;
+  onBack: () => void;
+  onPageUpdated: (updated: PageAudit) => void;
+}) {
+  const [reauditing, setReauditing] = useState(false);
+  const [reauditError, setReauditError] = useState<string | null>(null);
+
+  async function reauditPage() {
+    setReauditing(true);
+    setReauditError(null);
+    try {
+      const res = await fetch("/api/tools/seo-audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId, pageUrl: page.url }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setReauditError(data.error || "Re-audit failed");
+      } else {
+        onPageUpdated(data.page as PageAudit);
+      }
+    } catch {
+      setReauditError("Network error");
+    } finally {
+      setReauditing(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-        </svg>
-        Back to pages
-      </button>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+          Back to pages
+        </button>
+        <Button size="sm" onClick={reauditPage} disabled={reauditing}>
+          {reauditing ? "Checking..." : "Re-audit page"}
+        </Button>
+      </div>
+
+      {reauditError && (
+        <div className="rounded border border-destructive/20 bg-destructive/5 p-2">
+          <p className="text-xs text-destructive">{reauditError}</p>
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border">
@@ -287,7 +329,20 @@ export function SeoAuditor({
           <PageDetail
             page={selectedPage}
             siteWide={displaySiteWide}
+            websiteId={websiteId}
             onBack={() => setSelectedPage(null)}
+            onPageUpdated={(updated) => {
+              setSelectedPage(updated);
+              // Also update the page in the pages list so going back shows fresh data
+              if (result?.pages) {
+                setResult({
+                  ...result,
+                  pages: result.pages.map((p) =>
+                    p.url === updated.url ? updated : p
+                  ),
+                });
+              }
+            }}
           />
         )}
 

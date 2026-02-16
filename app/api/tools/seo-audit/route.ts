@@ -319,7 +319,7 @@ export async function POST(request: NextRequest) {
 
   // Parse request
   const body = await request.json();
-  const { websiteId } = body as { websiteId: string };
+  const { websiteId, pageUrl: singlePageUrl } = body as { websiteId: string; pageUrl?: string };
 
   if (!websiteId) {
     return NextResponse.json({ error: "websiteId required" }, { status: 400 });
@@ -336,6 +336,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Website not found" }, { status: 404 });
   }
 
+  // ── Single-page audit (quick re-check, no DB save) ──────────────
+  if (singlePageUrl) {
+    try {
+      const html = await fetchPage(singlePageUrl);
+      if (!html) {
+        return NextResponse.json({ success: false, error: "Could not fetch page" }, { status: 502 });
+      }
+
+      const items = analyzeHtml(html, singlePageUrl);
+      const score = calcScore(items);
+
+      let path: string;
+      try {
+        path = new URL(singlePageUrl).pathname || "/";
+      } catch {
+        path = singlePageUrl;
+      }
+
+      const page: PageAudit = {
+        url: singlePageUrl,
+        path,
+        items,
+        score,
+        passed: items.filter((i) => i.status === "pass").length,
+        warnings: items.filter((i) => i.status === "warning").length,
+        failed: items.filter((i) => i.status === "fail").length,
+      };
+
+      return NextResponse.json({ success: true, page });
+    } catch (e) {
+      return NextResponse.json({
+        success: false,
+        error: e instanceof Error ? e.message : "Single page audit failed",
+      }, { status: 500 });
+    }
+  }
+
+  // ── Full site audit ────────────────────────────────────────────────
   const startTime = Date.now();
   const admin = createAdminClient();
 

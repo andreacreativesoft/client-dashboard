@@ -37,6 +37,15 @@ function ScoreBadge({ score }: { score: number }) {
   return <Badge variant={variant}>{score}/100</Badge>;
 }
 
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 80 ? "bg-success" : score >= 50 ? "bg-warning" : "bg-destructive";
+  return (
+    <div className="h-1.5 w-full rounded-full bg-muted">
+      <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${score}%` }} />
+    </div>
+  );
+}
+
 function StatusIcon({ status }: { status: "pass" | "fail" | "warning" }) {
   if (status === "pass") {
     return <span className="text-success">&#10003;</span>;
@@ -47,69 +56,63 @@ function StatusIcon({ status }: { status: "pass" | "fail" | "warning" }) {
   return <span className="text-warning">&#9888;</span>;
 }
 
-function PageSection({ page, defaultExpanded = false }: { page: PageAudit; defaultExpanded?: boolean }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-
+function PageDetail({ page, siteWide, onBack }: { page: PageAudit; siteWide?: SeoItem[]; onBack: () => void }) {
   return (
-    <div className="rounded-lg border border-border">
+    <div className="space-y-3">
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-muted/50"
+        onClick={onBack}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
       >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+        </svg>
+        Back to pages
+      </button>
+
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border">
+          <span className="text-base font-bold">{page.score}</span>
+        </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">{page.path}</p>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="truncate text-sm font-medium">{page.path}</p>
+          <p className="text-xs text-muted-foreground">
             {page.passed} passed, {page.warnings} warnings, {page.failed} failed
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <ScoreBadge score={page.score} />
-          <svg
-            className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-          </svg>
-        </div>
-      </button>
-      {expanded && (
-        <div className="space-y-1.5 border-t border-border p-3">
-          {page.items.map((item, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-2 rounded border border-border p-2"
-            >
-              <div className="mt-0.5 shrink-0">
-                <StatusIcon status={item.status} />
-              </div>
+      </div>
+
+      {/* Site-wide checks shown on homepage detail */}
+      {siteWide && siteWide.length > 0 && page.path === "/" && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Site-wide</p>
+          {siteWide.map((item, i) => (
+            <div key={i} className="flex items-start gap-2 rounded border border-border p-2">
+              <div className="mt-0.5 shrink-0"><StatusIcon status={item.status} /></div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium">{item.name}</p>
                 <p className="text-xs text-muted-foreground">{item.details}</p>
-                {item.value && (
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground italic">
-                    {item.value}
-                  </p>
-                )}
+                {item.value && <p className="mt-0.5 truncate text-xs text-muted-foreground italic">{item.value}</p>}
               </div>
-              <Badge
-                variant={
-                  item.status === "pass"
-                    ? "default"
-                    : item.status === "warning"
-                      ? "warning"
-                      : "destructive"
-                }
-                className="shrink-0"
-              >
-                {item.status}
-              </Badge>
+              <Badge variant={item.status === "pass" ? "default" : item.status === "warning" ? "warning" : "destructive"} className="shrink-0">{item.status}</Badge>
             </div>
           ))}
         </div>
       )}
+
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Page checks</p>
+        {page.items.map((item, i) => (
+          <div key={i} className="flex items-start gap-2 rounded border border-border p-2">
+            <div className="mt-0.5 shrink-0"><StatusIcon status={item.status} /></div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium">{item.name}</p>
+              <p className="text-xs text-muted-foreground">{item.details}</p>
+              {item.value && <p className="mt-0.5 truncate text-xs text-muted-foreground italic">{item.value}</p>}
+            </div>
+            <Badge variant={item.status === "pass" ? "default" : item.status === "warning" ? "warning" : "destructive"} className="shrink-0">{item.status}</Badge>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -136,12 +139,13 @@ export function SeoAuditor({
     results: SeoItem[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [selectedPage, setSelectedPage] = useState<PageAudit | null>(null);
 
   async function runCheck() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setSelectedPage(null);
 
     try {
       const res = await fetch("/api/tools/seo-audit", {
@@ -244,115 +248,85 @@ export function SeoAuditor({
           </div>
         )}
 
-        {/* Per-page results (new format) */}
-        {displayPages && displayPages.length > 0 && (
-          <div className="space-y-1">
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              {expanded ? "Hide details" : `Show full audit (${displayPages.length} pages)`}
-            </button>
-            {expanded && (
-              <div className="mt-2 space-y-2">
-                {/* Site-wide checks */}
-                {displaySiteWide && displaySiteWide.length > 0 && (
-                  <div className="rounded-lg border border-border">
-                    <div className="p-3">
-                      <p className="text-xs font-medium">Site-wide checks</p>
-                    </div>
-                    <div className="space-y-1.5 border-t border-border p-3">
-                      {displaySiteWide.map((item, i) => (
-                        <div
-                          key={i}
-                          className="flex items-start gap-2 rounded border border-border p-2"
-                        >
-                          <div className="mt-0.5 shrink-0">
-                            <StatusIcon status={item.status} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">{item.details}</p>
-                            {item.value && (
-                              <p className="mt-0.5 truncate text-xs text-muted-foreground italic">
-                                {item.value}
-                              </p>
-                            )}
-                          </div>
-                          <Badge
-                            variant={
-                              item.status === "pass"
-                                ? "default"
-                                : item.status === "warning"
-                                  ? "warning"
-                                  : "destructive"
-                            }
-                            className="shrink-0"
-                          >
-                            {item.status}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+        {/* Per-page results — detail view for selected page */}
+        {displayPages && displayPages.length > 0 && selectedPage && (
+          <PageDetail
+            page={selectedPage}
+            siteWide={displaySiteWide}
+            onBack={() => setSelectedPage(null)}
+          />
+        )}
 
-                {/* Per-page sections */}
-                {displayPages.map((page, i) => (
-                  <PageSection key={page.url} page={page} defaultExpanded={i === 0} />
-                ))}
-              </div>
-            )}
+        {/* Per-page results — pages list */}
+        {displayPages && displayPages.length > 0 && !selectedPage && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {displayPages.length} pages audited — click to view details
+            </p>
+            {displayPages.map((page) => (
+              <button
+                key={page.url}
+                onClick={() => setSelectedPage(page)}
+                className="flex w-full items-center gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/50"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{page.path}</p>
+                  <div className="mt-1.5">
+                    <ScoreBar score={page.score} />
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    {page.failed > 0 && <span className="text-destructive">{page.failed} fail</span>}
+                    {page.warnings > 0 && <span className="text-warning">{page.warnings} warn</span>}
+                  </div>
+                  <ScoreBadge score={page.score} />
+                  <svg className="h-3 w-3 shrink-0 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                  </svg>
+                </div>
+              </button>
+            ))}
           </div>
         )}
 
         {/* Legacy flat results (old format, backward compat) */}
         {displayResults && displayResults.length > 0 && !displayPages && (
-          <div className="space-y-1">
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              {expanded ? "Hide details" : "Show full audit"}
-            </button>
-            {expanded && (
-              <div className="mt-2 space-y-1.5">
-                {displayResults.map((item, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2 rounded border border-border p-2"
-                  >
-                    <div className="mt-0.5 shrink-0">
-                      <StatusIcon status={item.status} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium">
-                        {item.page && item.page !== "site-wide" ? `[${item.page}] ` : ""}
-                        {item.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{item.details}</p>
-                      {item.value && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground italic">
-                          {item.value}
-                        </p>
-                      )}
-                    </div>
-                    <Badge
-                      variant={
-                        item.status === "pass"
-                          ? "default"
-                          : item.status === "warning"
-                            ? "warning"
-                            : "destructive"
-                      }
-                      className="shrink-0"
-                    >
-                      {item.status}
-                    </Badge>
-                  </div>
-                ))}
+          <div className="space-y-1.5">
+            {displayResults.map((item, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 rounded border border-border p-2"
+              >
+                <div className="mt-0.5 shrink-0">
+                  <StatusIcon status={item.status} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium">
+                    {item.page && item.page !== "site-wide" ? `[${item.page}] ` : ""}
+                    {item.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{item.details}</p>
+                  {item.value && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground italic">
+                      {item.value}
+                    </p>
+                  )}
+                </div>
+                <Badge
+                  variant={
+                    item.status === "pass"
+                      ? "default"
+                      : item.status === "warning"
+                        ? "warning"
+                        : "destructive"
+                  }
+                  className="shrink-0"
+                >
+                  {item.status}
+                </Badge>
               </div>
-            )}
+            ))}
           </div>
         )}
 

@@ -33,7 +33,7 @@ interface SeoAuditorProps {
 }
 
 /** Convert legacy flat SeoItem[] (with page field) into PageAudit[] for the new UI */
-function groupItemsIntoPages(items: SeoItem[]): { pages: PageAudit[]; siteWide: SeoItem[] } {
+function groupItemsIntoPages(items: SeoItem[], baseUrl?: string): { pages: PageAudit[]; siteWide: SeoItem[] } {
   const siteWide: SeoItem[] = [];
   const pageMap = new Map<string, SeoItem[]>();
 
@@ -48,6 +48,9 @@ function groupItemsIntoPages(items: SeoItem[]): { pages: PageAudit[]; siteWide: 
     }
   }
 
+  // Build full URL from path + baseUrl for re-audit support
+  const normalizedBase = baseUrl?.replace(/\/$/, "") || "";
+
   const pages: PageAudit[] = [];
   for (const [path, pageItems] of pageMap) {
     const passed = pageItems.filter(i => i.status === "pass").length;
@@ -55,7 +58,8 @@ function groupItemsIntoPages(items: SeoItem[]): { pages: PageAudit[]; siteWide: 
     const failed = pageItems.filter(i => i.status === "fail").length;
     const total = pageItems.length;
     const score = total > 0 ? Math.round((passed / total) * 100) : 0;
-    pages.push({ url: path, path, items: pageItems, score, passed, warnings, failed });
+    const fullUrl = normalizedBase ? `${normalizedBase}${path.startsWith("/") ? path : `/${path}`}` : path;
+    pages.push({ url: fullUrl, path, items: pageItems, score, passed, warnings, failed });
   }
 
   return { pages, siteWide };
@@ -260,7 +264,7 @@ export function SeoAuditor({
     ? (displayResult?.results || (lastCheck?.results as unknown as SeoItem[] | undefined))
     : undefined;
   const legacyGrouped = legacyItems && legacyItems.length > 0
-    ? groupItemsIntoPages(legacyItems)
+    ? groupItemsIntoPages(legacyItems, websiteUrl)
     : undefined;
 
   const displayPages = displayResult?.pages || legacyGrouped?.pages;

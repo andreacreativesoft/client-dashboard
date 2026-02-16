@@ -32,6 +32,35 @@ interface SeoAuditorProps {
   compact?: boolean;
 }
 
+/** Convert legacy flat SeoItem[] (with page field) into PageAudit[] for the new UI */
+function groupItemsIntoPages(items: SeoItem[]): { pages: PageAudit[]; siteWide: SeoItem[] } {
+  const siteWide: SeoItem[] = [];
+  const pageMap = new Map<string, SeoItem[]>();
+
+  for (const item of items) {
+    const pagePath = item.page || "/";
+    if (pagePath === "site-wide") {
+      siteWide.push(item);
+    } else {
+      const existing = pageMap.get(pagePath) || [];
+      existing.push(item);
+      pageMap.set(pagePath, existing);
+    }
+  }
+
+  const pages: PageAudit[] = [];
+  for (const [path, pageItems] of pageMap) {
+    const passed = pageItems.filter(i => i.status === "pass").length;
+    const warnings = pageItems.filter(i => i.status === "warning").length;
+    const failed = pageItems.filter(i => i.status === "fail").length;
+    const total = pageItems.length;
+    const score = total > 0 ? Math.round((passed / total) * 100) : 0;
+    pages.push({ url: path, path, items: pageItems, score, passed, warnings, failed });
+  }
+
+  return { pages, siteWide };
+}
+
 function ScoreBadge({ score }: { score: number }) {
   const variant = score >= 80 ? "default" : score >= 50 ? "warning" : "destructive";
   return <Badge variant={variant}>{score}/100</Badge>;
@@ -183,12 +212,17 @@ export function SeoAuditor({
     totalChecks?: number;
     pagesAudited?: number;
   } | undefined);
-  const displayPages = displayResult?.pages;
-  const displaySiteWide = displayResult?.siteWide;
-  // Legacy flat results for old data
-  const displayResults = !displayPages
+
+  // Convert legacy flat results into pages format if needed
+  const legacyItems = !displayResult?.pages
     ? (displayResult?.results || (lastCheck?.results as unknown as SeoItem[] | undefined))
     : undefined;
+  const legacyGrouped = legacyItems && legacyItems.length > 0
+    ? groupItemsIntoPages(legacyItems)
+    : undefined;
+
+  const displayPages = displayResult?.pages || legacyGrouped?.pages;
+  const displaySiteWide = displayResult?.siteWide || legacyGrouped?.siteWide;
 
   if (compact) {
     return (
@@ -290,47 +324,7 @@ export function SeoAuditor({
           </div>
         )}
 
-        {/* Legacy flat results (old format, backward compat) */}
-        {displayResults && displayResults.length > 0 && !displayPages && (
-          <div className="space-y-1.5">
-            {displayResults.map((item, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2 rounded border border-border p-2"
-              >
-                <div className="mt-0.5 shrink-0">
-                  <StatusIcon status={item.status} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium">
-                    {item.page && item.page !== "site-wide" ? `[${item.page}] ` : ""}
-                    {item.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{item.details}</p>
-                  {item.value && (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground italic">
-                      {item.value}
-                    </p>
-                  )}
-                </div>
-                <Badge
-                  variant={
-                    item.status === "pass"
-                      ? "default"
-                      : item.status === "warning"
-                        ? "warning"
-                        : "destructive"
-                  }
-                  className="shrink-0"
-                >
-                  {item.status}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!displayResults && !displayPages && !loading && !error && (
+        {!displayPages && !loading && !error && (
           <p className="text-sm text-muted-foreground">
             Click &quot;Run SEO Audit&quot; to check all pages — titles, descriptions, headings, images, and more.
           </p>

@@ -8,6 +8,9 @@ export type CheckStatus = "running" | "completed" | "failed";
 export type WPAnalysisStatus = "running" | "completed" | "failed";
 export type WPDeployMethod = "none" | "git" | "wp_migrate";
 export type AppLanguage = "en" | "fr-BE";
+export type TicketStatus = "open" | "in_progress" | "waiting_on_client" | "closed";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export type TicketCategory = "bug" | "feature_request" | "support" | "billing";
 
 export type Profile = {
   id: string;
@@ -214,6 +217,44 @@ export type WPAnalysisRow = {
   created_at: string;
 };
 
+export type Ticket = {
+  id: string;
+  client_id: string;
+  created_by: string;
+  assigned_to: string | null;
+  subject: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  category: TicketCategory;
+  due_date: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TicketReply = {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  content: string;
+  is_internal: boolean;
+  created_at: string;
+};
+
+export type TicketWithDetails = Ticket & {
+  client_name: string;
+  created_by_name: string;
+  assigned_to_name: string | null;
+  reply_count: number;
+};
+
+export type TicketReplyWithUser = TicketReply & {
+  user_name: string;
+  user_role: UserRole;
+  user_avatar: string | null;
+};
+
 // Joined view types
 export type LeadFull = Lead & {
   website_name: string;
@@ -354,6 +395,22 @@ export type Database = {
           completed_at?: string | null;
         };
         Update: Partial<Omit<WPAnalysisRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      tickets: {
+        Row: Ticket;
+        Insert: Omit<Ticket, "id" | "created_at" | "updated_at" | "closed_at" | "assigned_to" | "due_date"> & {
+          assigned_to?: string | null;
+          due_date?: string | null;
+          closed_at?: string | null;
+        };
+        Update: Partial<Omit<Ticket, "id" | "created_at">>;
+        Relationships: [];
+      };
+      ticket_replies: {
+        Row: TicketReply;
+        Insert: Omit<TicketReply, "id" | "created_at">;
+        Update: Partial<Omit<TicketReply, "id" | "created_at">>;
         Relationships: [];
       };
     };

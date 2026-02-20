@@ -6,9 +6,11 @@ import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/sidebar-context";
 import { useLanguage } from "@/lib/i18n/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
+import type { NavBadgeCounts } from "@/lib/actions/nav-badges";
 
 interface SidebarProps {
   isAdmin: boolean;
+  badgeCounts?: NavBadgeCounts;
   className?: string;
 }
 
@@ -139,7 +141,12 @@ const adminItems: { href: string; labelKey: TranslationKey; exact?: boolean; ico
   },
 ];
 
-export function Sidebar({ isAdmin, className }: SidebarProps) {
+const BADGE_MAP: Record<string, keyof NavBadgeCounts> = {
+  "/leads": "newLeads",
+  "/tickets": "openTickets",
+};
+
+export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
   const { t } = useLanguage();
@@ -196,22 +203,38 @@ export function Sidebar({ isAdmin, className }: SidebarProps) {
         )}
         {dashboardItems.map((item) => {
           const label = t(item.labelKey);
+          const badgeKey = BADGE_MAP[item.href];
+          const badgeCount = badgeKey && badgeCounts ? badgeCounts[badgeKey] : 0;
           return (
             <Link
               key={item.href}
               href={item.href}
               title={collapsed ? label : undefined}
               className={cn(
-                "flex h-12 items-center gap-3 rounded-lg transition-colors",
+                "relative flex h-12 items-center gap-3 rounded-lg transition-colors",
                 collapsed ? "justify-center px-0" : "px-3",
                 isActive(item.href)
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
-              {item.icon}
+              <span className="relative">
+                {item.icon}
+                {collapsed && badgeCount > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                  </span>
+                )}
+              </span>
               {!collapsed && (
-                <span className="truncate text-lg font-medium">{label}</span>
+                <>
+                  <span className="truncate text-lg font-medium">{label}</span>
+                  {badgeCount > 0 && (
+                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                      {badgeCount > 99 ? "99+" : badgeCount}
+                    </span>
+                  )}
+                </>
               )}
             </Link>
           );

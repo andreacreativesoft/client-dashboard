@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTicket, getTicketReplies } from "@/lib/actions/tickets";
+import { getWebsitesForClient } from "@/lib/actions/websites";
 import { getProfile } from "@/lib/actions/profile";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { TicketReplies } from "./ticket-replies";
@@ -57,6 +58,7 @@ export default async function TicketDetailPage({ params }: PageProps) {
   }
 
   const isAdmin = profile?.role === "admin";
+  const websites = isAdmin ? await getWebsitesForClient(ticket.client_id) : [];
 
   return (
     <div className="p-4 md:p-6">
@@ -97,7 +99,7 @@ export default async function TicketDetailPage({ params }: PageProps) {
               <CardTitle>Description</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="whitespace-pre-wrap">{ticket.description}</p>
+              <p className="whitespace-pre-wrap text-sm">{ticket.description}</p>
             </CardContent>
           </Card>
 
@@ -121,6 +123,22 @@ export default async function TicketDetailPage({ params }: PageProps) {
                 <div>
                   <p className="text-xs font-medium uppercase text-muted-foreground">Client</p>
                   <p className="text-sm">{ticket.client_name}</p>
+                </div>
+              )}
+              {isAdmin && websites.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium uppercase text-muted-foreground">Website</p>
+                  {websites.map((w) => (
+                    <a
+                      key={w.id}
+                      href={w.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-sm text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {w.name || w.url}
+                    </a>
+                  ))}
                 </div>
               )}
               <div>

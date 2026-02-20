@@ -9,6 +9,8 @@ import { getImpersonationStatus } from "@/lib/actions/impersonate";
 import { getSelectedClientId } from "@/lib/selected-client";
 import { getProfile } from "@/lib/actions/profile";
 import { updateLastLogin } from "@/lib/actions/alerts";
+import { getNavBadgeCounts } from "@/lib/actions/nav-badges";
+import { TicketNotificationBell } from "@/components/ticket-notification-bell";
 
 export default async function DashboardLayout({
   children,
@@ -33,6 +35,9 @@ export default async function DashboardLayout({
   // Get selected client for data viewing (separate from impersonation)
   const selectedClientId = isAdmin ? await getSelectedClientId() : null;
 
+  // Fetch badge counts for navigation
+  const badgeCounts = await getNavBadgeCounts();
+
   // When impersonating, hide admin features
   const showAsAdmin = isAdmin && !impersonation;
 
@@ -41,7 +46,7 @@ export default async function DashboardLayout({
       <SidebarProvider>
         <div className="flex min-h-dvh">
           {/* Desktop sidebar */}
-          <Sidebar isAdmin={showAsAdmin} className="hidden md:flex" />
+          <Sidebar isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="hidden md:flex" />
 
           {/* Main content */}
           <div className="flex flex-1 flex-col">
@@ -56,7 +61,10 @@ export default async function DashboardLayout({
           </div>
 
           {/* Mobile bottom nav */}
-          <MobileNav isAdmin={showAsAdmin} className="md:hidden" />
+          <MobileNav isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="md:hidden" />
+
+          {/* Floating ticket notification bell */}
+          <TicketNotificationBell count={badgeCounts.openTickets} />
 
           {/* Impersonation banner */}
           {impersonation && (

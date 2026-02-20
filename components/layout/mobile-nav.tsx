@@ -5,13 +5,20 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
+import type { NavBadgeCounts } from "@/lib/actions/nav-badges";
 
 interface MobileNavProps {
   isAdmin: boolean;
+  badgeCounts?: NavBadgeCounts;
   className?: string;
 }
 
-export function MobileNav({ isAdmin, className }: MobileNavProps) {
+const BADGE_MAP: Record<string, keyof NavBadgeCounts> = {
+  "/leads": "newLeads",
+  "/tickets": "openTickets",
+};
+
+export function MobileNav({ isAdmin, badgeCounts, className }: MobileNavProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
 
@@ -100,6 +107,8 @@ export function MobileNav({ isAdmin, className }: MobileNavProps) {
             item.href === "/dashboard"
               ? pathname === "/dashboard"
               : pathname.startsWith(item.href);
+          const badgeKey = BADGE_MAP[item.href];
+          const badgeCount = badgeKey && badgeCounts ? badgeCounts[badgeKey] : 0;
           return (
             <Link
               key={item.href}
@@ -109,7 +118,14 @@ export function MobileNav({ isAdmin, className }: MobileNavProps) {
                 active ? "text-foreground" : "text-muted-foreground"
               )}
             >
-              {item.icon}
+              <span className="relative">
+                {item.icon}
+                {badgeCount > 0 && (
+                  <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                  </span>
+                )}
+              </span>
               {t(item.labelKey)}
             </Link>
           );

@@ -38,7 +38,7 @@ export default async function DashboardPage() {
   const contactedCount = newLeads.filter((l) => l.status === "contacted").length;
   const doneCount = newLeads.filter((l) => l.status === "done").length;
 
-  const firstName = profile?.full_name?.split(" ")[0] || "there";
+  let firstName = profile?.full_name?.split(" ")[0] || "there";
   const isAdmin = profile?.role === "admin";
 
   // Get websites for this user (or impersonated client)
@@ -49,6 +49,16 @@ export default async function DashboardPage() {
     // Check if impersonating
     const impersonatedClientId = await getImpersonatedClientId();
     if (impersonatedClientId) {
+      // Show client name in greeting when impersonating
+      const { data: client } = await supabase
+        .from("clients")
+        .select("business_name")
+        .eq("id", impersonatedClientId)
+        .single();
+      if (client) {
+        firstName = client.business_name;
+      }
+
       const { data } = await supabase
         .from("websites")
         .select("id, name, url")

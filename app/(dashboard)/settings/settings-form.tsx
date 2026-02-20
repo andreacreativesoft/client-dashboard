@@ -59,6 +59,7 @@ export function SettingsForm({ profile }: SettingsFormProps) {
     setPasswordMessage(null);
 
     const form = e.currentTarget;
+    const currentPassword = (form.elements.namedItem("current_password") as HTMLInputElement).value;
     const newPassword = (form.elements.namedItem("new_password") as HTMLInputElement).value;
     const confirmPassword = (form.elements.namedItem("confirm_password") as HTMLInputElement).value;
 
@@ -74,7 +75,7 @@ export function SettingsForm({ profile }: SettingsFormProps) {
       return;
     }
 
-    const result = await changePasswordAction("", newPassword);
+    const result = await changePasswordAction(currentPassword, newPassword);
     setPasswordLoading(false);
 
     if (result.success) {
@@ -179,6 +180,17 @@ export function SettingsForm({ profile }: SettingsFormProps) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="current_password">{t("settings.current_password")}</Label>
+              <Input
+                id="current_password"
+                name="current_password"
+                type="password"
+                required
+                placeholder={t("settings.current_password_placeholder")}
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="new_password">{t("settings.new_password")}</Label>
               <Input

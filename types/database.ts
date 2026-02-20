@@ -2,7 +2,7 @@ export type UserRole = "admin" | "client";
 export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
-export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook";
+export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook" | "wordpress";
 export type CheckType = "broken_links" | "seo_audit" | "uptime";
 export type CheckStatus = "running" | "completed" | "failed";
 export type WPAnalysisStatus = "running" | "completed" | "failed";
@@ -253,6 +253,34 @@ export type TicketReplyWithUser = TicketReply & {
   user_name: string;
   user_role: UserRole;
   user_avatar: string | null;
+};
+
+// WordPress debug log types
+export type WPDebugLogLevel = "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
+
+export type WPDebugLogEntry = {
+  timestamp: string;
+  level: WPDebugLogLevel;
+  message: string;
+  file?: string;
+  line?: number;
+  raw: string;
+};
+
+export type WPDebugLogSummary = {
+  website_id: string;
+  website_name: string;
+  client_id: string;
+  client_name: string;
+  site_url: string;
+  total: number;
+  fatal: number;
+  errors: number;
+  warnings: number;
+  notices: number;
+  deprecated: number;
+  last_checked: string;
+  entries: WPDebugLogEntry[];
 };
 
 // Joined view types

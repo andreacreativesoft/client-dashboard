@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AIAnalysis } from "./ai-analysis";
+import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
 import type { Website, Client } from "@/types/database";
 
 export const metadata: Metadata = {
@@ -103,6 +104,11 @@ export default async function WebsiteDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Debug Log */}
+      <div className="mb-6">
+        <DebugLogViewer websiteId={id} />
+      </div>
 
       {/* AI Analysis */}
       <AIAnalysis websiteId={id} />

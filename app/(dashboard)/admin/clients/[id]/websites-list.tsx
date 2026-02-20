@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { WebsiteForm } from "./website-form";
 import { InfoBoard } from "./info-board";
 import { Modal } from "@/components/ui/modal";
+import { WPConnectForm } from "@/components/wordpress/wp-connect-form";
 import { deleteWebsiteAction, regenerateApiKeyAction, acknowledgeChangesAction } from "@/lib/actions/websites";
 import { addFacebookIntegration, deleteIntegration, selectIntegrationAccount } from "@/lib/actions/integrations";
 import { timeAgo } from "@/lib/utils";
@@ -249,7 +250,9 @@ function IntegrationItem({
         ? "GA4"
         : integration.type === "gsc"
           ? "GSC"
-          : "GBP";
+          : integration.type === "wordpress"
+            ? "WordPress"
+            : "GBP";
 
   async function handleDelete() {
     if (!confirm(`Remove this ${typeLabel} integration?`)) return;
@@ -374,21 +377,25 @@ function FacebookPixelForm({
 
 function WebsiteIntegrations({
   clientId,
+  siteUrl,
   integrations,
   googleConfigured,
   appUrl,
 }: {
   clientId: string;
+  siteUrl: string;
   integrations: Integration[];
   googleConfigured: boolean;
   appUrl: string;
 }) {
   const [showFbForm, setShowFbForm] = useState(false);
+  const [showWpForm, setShowWpForm] = useState(false);
 
   const ga4 = integrations.filter((i) => i.type === "ga4");
   const gbp = integrations.filter((i) => i.type === "gbp");
   const gsc = integrations.filter((i) => i.type === "gsc");
   const fb = integrations.filter((i) => i.type === "facebook");
+  const wp = integrations.filter((i) => i.type === "wordpress");
 
   return (
     <div className="mt-4 border-t border-border pt-3">
@@ -398,7 +405,7 @@ function WebsiteIntegrations({
 
       <div className="space-y-1.5">
         {/* Existing integrations */}
-        {[...ga4, ...gbp, ...gsc, ...fb].map((i) => (
+        {[...wp, ...ga4, ...gbp, ...gsc, ...fb].map((i) => (
           <IntegrationItem key={i.id} integration={i} clientId={clientId} />
         ))}
 
@@ -438,6 +445,17 @@ function WebsiteIntegrations({
               Connect GSC
             </a>
           )}
+          {wp.length === 0 && !showWpForm && (
+            <button
+              onClick={() => setShowWpForm(true)}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zM3.443 12c0-.735.097-1.447.277-2.128l3.04 8.327A8.574 8.574 0 0 1 3.443 12zm8.557 8.557c-.725 0-1.426-.09-2.098-.26l2.229-6.478 2.283 6.257a.726.726 0 0 0 .056.103 8.507 8.507 0 0 1-2.47.378zm1.001-12.593c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.73 0-1.958-.095-1.958-.095-.401-.023-.448.591-.047.614 0 0 .378.047.778.071l1.155 3.166-1.622 4.868L7.45 8.036c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.14 0-.305-.004-.478-.01A8.546 8.546 0 0 1 12 3.443c2.096 0 4.008.757 5.492 2.011-.035-.002-.069-.007-.105-.007-.73 0-1.246.636-1.246 1.317 0 .612.354 1.129.73 1.74.283.495.614 1.129.614 2.046 0 .636-.177 1.426-.518 2.39l-.68 2.27-2.459-7.317.002.001zm3.086 10.843l2.25-6.503c.42-1.052.56-1.893.56-2.641 0-.272-.018-.524-.05-.763a8.554 8.554 0 0 1 .711 3.1c0 2.551-1.134 4.835-2.921 6.393l-.55.414z"/>
+              </svg>
+              Connect WordPress
+            </button>
+          )}
           {!showFbForm && (
             <button
               onClick={() => setShowFbForm(true)}
@@ -450,6 +468,14 @@ function WebsiteIntegrations({
             </button>
           )}
         </div>
+
+        {showWpForm && (
+          <WPConnectForm
+            clientId={clientId}
+            siteUrl={siteUrl}
+            onDone={() => setShowWpForm(false)}
+          />
+        )}
 
         {showFbForm && (
           <FacebookPixelForm
@@ -699,6 +725,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                   {/* Integrations for this website/client */}
                   <WebsiteIntegrations
                     clientId={clientId}
+                    siteUrl={website.url}
                     integrations={integrations}
                     googleConfigured={googleConfigured}
                     appUrl={appUrl}

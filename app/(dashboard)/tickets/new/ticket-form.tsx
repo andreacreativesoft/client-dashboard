@@ -22,7 +22,7 @@ export function TicketForm({ clients, adminUsers, isAdmin, defaultClientId }: Ti
   const router = useRouter();
   const { t } = useLanguage();
 
-  const [clientId, setClientId] = useState(defaultClientId || "");
+  const [clientId, setClientId] = useState(defaultClientId || (!isAdmin && clients[0] ? clients[0].id : ""));
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TicketPriority>("medium");
@@ -61,28 +61,30 @@ export function TicketForm({ clients, adminUsers, isAdmin, defaultClientId }: Ti
     <Card className="max-w-2xl">
       <CardContent className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Client */}
-          <div className="space-y-2">
-            <Label htmlFor="client">{t("tickets.client")}</Label>
-            {clients.length === 1 ? (
-              <p className="text-sm font-medium">{clients[0]!.business_name}</p>
-            ) : (
-              <select
-                id="client"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                required
-                className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="">{t("tickets.select_client")}</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.business_name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+          {/* Client — only admins see the selector */}
+          {isAdmin && (
+            <div className="space-y-2">
+              <Label htmlFor="client">{t("tickets.client")}</Label>
+              {clients.length === 1 ? (
+                <p className="text-sm font-medium">{clients[0]!.business_name}</p>
+              ) : (
+                <select
+                  id="client"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  required
+                  className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">{t("tickets.select_client")}</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.business_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           {/* Subject */}
           <div className="space-y-2">

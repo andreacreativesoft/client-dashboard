@@ -117,10 +117,12 @@ export default async function TicketDetailPage({ params }: PageProps) {
               <CardTitle>Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div>
-                <p className="text-xs font-medium uppercase text-muted-foreground">Client</p>
-                <p className="text-sm">{ticket.client_name}</p>
-              </div>
+              {isAdmin && (
+                <div>
+                  <p className="text-xs font-medium uppercase text-muted-foreground">Client</p>
+                  <p className="text-sm">{ticket.client_name}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs font-medium uppercase text-muted-foreground">Category</p>
                 <p className="text-sm">{CATEGORY_LABELS[ticket.category] || ticket.category}</p>

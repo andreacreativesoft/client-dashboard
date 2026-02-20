@@ -51,9 +51,9 @@ export default async function DashboardLayout({
           {/* Main content */}
           <div className="flex flex-1 flex-col">
             <Header
-              userName={profile.full_name || profile.email || "User"}
-              isAdmin={isAdmin}
-              avatarUrl={profile.avatar_url}
+              userName={impersonation ? impersonation.clientName : (profile.full_name || profile.email || "User")}
+              isAdmin={isAdmin && !impersonation}
+              avatarUrl={impersonation ? null : profile.avatar_url}
               showClientSwitcher={isAdmin && !impersonation}
               selectedClientId={selectedClientId}
             />

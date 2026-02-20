@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { ReportDownloadButton } from "./report-download-button";
 import { GenerateReportButton } from "./generate-report-button";
 import { getProfile } from "@/lib/actions/profile";
+import { t } from "@/lib/i18n/translations";
 
 export const metadata: Metadata = {
   title: "Reports",
@@ -26,6 +27,7 @@ type ReportWithClient = {
 export default async function ReportsPage() {
   const profile = await getProfile();
   const isAdmin = profile?.role === "admin";
+  const lang = profile?.language || "en";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
 
   const supabase = await createClient();
@@ -57,7 +59,7 @@ export default async function ReportsPage() {
   return (
     <div className="p-4 md:p-6">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Reports</h1>
+        <h1 className="text-2xl font-bold">{t(lang, "reports.title")}</h1>
         {isAdmin && !impersonatedClientId && clients.length > 0 && (
           <GenerateReportButton clients={clients} />
         )}
@@ -80,7 +82,7 @@ export default async function ReportsPage() {
               />
             </svg>
             <p className="text-muted-foreground">
-              No reports yet. Monthly reports will appear here automatically.
+              {t(lang, "reports.no_reports")}
             </p>
           </CardContent>
         </Card>
@@ -101,18 +103,18 @@ export default async function ReportsPage() {
               <CardContent>
                 <div className="mb-4 space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Period</span>
+                    <span className="text-muted-foreground">{t(lang, "reports.period")}</span>
                     <span>
                       {format(new Date(report.period_start), "MMM d")} -{" "}
                       {format(new Date(report.period_end), "MMM d, yyyy")}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Generated</span>
+                    <span className="text-muted-foreground">{t(lang, "reports.generated")}</span>
                     <span>{format(new Date(report.generated_at), "MMM d, yyyy")}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Size</span>
+                    <span className="text-muted-foreground">{t(lang, "reports.size")}</span>
                     <span>{(report.file_size / 1024).toFixed(1)} KB</span>
                   </div>
                 </div>

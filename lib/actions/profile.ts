@@ -3,11 +3,12 @@
 import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/types/database";
+import type { AppLanguage, Profile } from "@/types/database";
 
 export type ProfileFormData = {
   full_name: string;
   phone: string;
+  language: AppLanguage;
 };
 
 /**
@@ -55,6 +56,7 @@ export async function updateProfileAction(
     .update({
       full_name: formData.full_name,
       phone: formData.phone || null,
+      language: formData.language || "en",
     })
     .eq("id", user.id);
 
@@ -65,6 +67,34 @@ export async function updateProfileAction(
 
   revalidatePath("/settings");
   revalidatePath("/dashboard");
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function updateLanguageAction(
+  language: AppLanguage
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ language })
+    .eq("id", user.id);
+
+  if (error) {
+    console.error("Error updating language:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/", "layout");
   return { success: true };
 }
 

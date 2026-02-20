@@ -7,6 +7,7 @@ export type CheckType = "broken_links" | "seo_audit" | "uptime";
 export type CheckStatus = "running" | "completed" | "failed";
 export type WPAnalysisStatus = "running" | "completed" | "failed";
 export type WPDeployMethod = "none" | "git" | "wp_migrate";
+export type AppLanguage = "en" | "fr-BE";
 
 export type Profile = {
   id: string;
@@ -17,6 +18,7 @@ export type Profile = {
   avatar_url: string | null;
   last_login_at: string | null;
   is_blocked: boolean;
+  language: AppLanguage;
   created_at: string;
   updated_at: string;
 };
@@ -225,7 +227,7 @@ export type Database = {
     Tables: {
       profiles: {
         Row: Profile;
-        Insert: Omit<Profile, "created_at" | "updated_at">;
+        Insert: Omit<Profile, "created_at" | "updated_at" | "language"> & { language?: AppLanguage };
         Update: Partial<Omit<Profile, "id" | "created_at">>;
         Relationships: [];
       };

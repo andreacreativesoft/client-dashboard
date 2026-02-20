@@ -6,17 +6,19 @@ import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import { formatNumber } from "@/lib/utils";
+import { t } from "@/lib/i18n/translations";
 import { RecentLeads } from "./recent-leads";
+import type { AppLanguage } from "@/types/database";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-function getGreeting(): string {
+function getGreeting(lang: AppLanguage): string {
   const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+  if (hour < 12) return t(lang, "dashboard.greeting_morning");
+  if (hour < 18) return t(lang, "dashboard.greeting_afternoon");
+  return t(lang, "dashboard.greeting_evening");
 }
 
 function getThirtyDaysAgo(): string {
@@ -27,6 +29,7 @@ export default async function DashboardPage() {
   const profile = await getProfile();
   const leads = await getLeads();
   const recentLeads = leads.slice(0, 5);
+  const lang = profile?.language || "en";
 
   // Calculate stats
   const thirtyDaysAgo = getThirtyDaysAgo();
@@ -74,7 +77,7 @@ export default async function DashboardPage() {
   return (
     <div className="p-4 md:p-6">
       <h1 className="mb-6 text-2xl font-bold">
-        {getGreeting()}, {firstName}
+        {getGreeting(lang)}, {firstName}
       </h1>
 
       {/* Stat cards */}
@@ -82,29 +85,29 @@ export default async function DashboardPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{formatNumber(newLeads.length)}</p>
-            <p className="text-sm font-medium">Total Leads</p>
-            <p className="text-xs text-muted-foreground">Last 30 days</p>
+            <p className="text-sm font-medium">{t(lang, "dashboard.total_leads")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.last_30_days")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{formatNumber(newCount)}</p>
-            <p className="text-sm font-medium">New</p>
-            <p className="text-xs text-muted-foreground">Awaiting contact</p>
+            <p className="text-sm font-medium">{t(lang, "dashboard.new")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.awaiting_contact")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{formatNumber(contactedCount)}</p>
-            <p className="text-sm font-medium">Contacted</p>
-            <p className="text-xs text-muted-foreground">In progress</p>
+            <p className="text-sm font-medium">{t(lang, "dashboard.contacted")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.in_progress")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{formatNumber(doneCount)}</p>
-            <p className="text-sm font-medium">Done</p>
-            <p className="text-xs text-muted-foreground">Completed</p>
+            <p className="text-sm font-medium">{t(lang, "dashboard.done")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.completed")}</p>
           </CardContent>
         </Card>
       </div>
@@ -113,7 +116,7 @@ export default async function DashboardPage() {
       {websites.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Your Websites</CardTitle>
+            <CardTitle>{t(lang, "dashboard.your_websites")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
@@ -130,7 +133,7 @@ export default async function DashboardPage() {
                   </svg>
                   <div className="text-left">
                     <span className="text-sm font-medium">{website.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">WP Admin</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{t(lang, "dashboard.wp_admin")}</span>
                   </div>
                   <svg className="ml-1 h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
@@ -145,10 +148,10 @@ export default async function DashboardPage() {
       {/* Recent leads */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Recent Leads</CardTitle>
+          <CardTitle>{t(lang, "dashboard.recent_leads")}</CardTitle>
           {leads.length > 0 && (
             <Link href="/leads" className="text-sm font-medium hover:underline">
-              View all
+              {t(lang, "dashboard.view_all")}
             </Link>
           )}
         </CardHeader>

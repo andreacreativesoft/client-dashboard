@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTicket, getTicketReplies } from "@/lib/actions/tickets";
 import { getWebsitesForClient } from "@/lib/actions/websites";
 import { getProfile } from "@/lib/actions/profile";
+import { getImpersonatedClientId } from "@/lib/impersonate";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { TicketReplies } from "./ticket-replies";
 import { TicketStatusControl } from "./ticket-status-control";
@@ -57,7 +58,8 @@ export default async function TicketDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const isAdmin = profile?.role === "admin";
+  const impersonatedClientId = profile?.role === "admin" ? await getImpersonatedClientId() : null;
+  const isAdmin = profile?.role === "admin" && !impersonatedClientId;
   const websites = isAdmin ? await getWebsitesForClient(ticket.client_id) : [];
 
   return (

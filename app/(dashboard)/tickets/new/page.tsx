@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getProfile } from "@/lib/actions/profile";
 import { getClientsForTickets, getAdminUsers } from "@/lib/actions/tickets";
+import { getImpersonatedClientId } from "@/lib/impersonate";
 import { TicketForm } from "./ticket-form";
 
 export const metadata: Metadata = {
@@ -10,7 +11,8 @@ export const metadata: Metadata = {
 
 export default async function NewTicketPage() {
   const profile = await getProfile();
-  const isAdmin = profile?.role === "admin";
+  const impersonatedClientId = profile?.role === "admin" ? await getImpersonatedClientId() : null;
+  const isAdmin = profile?.role === "admin" && !impersonatedClientId;
 
   const clients = await getClientsForTickets();
   const adminUsers = isAdmin ? await getAdminUsers() : [];
@@ -32,7 +34,7 @@ export default async function NewTicketPage() {
         clients={clients}
         adminUsers={adminUsers}
         isAdmin={isAdmin}
-        defaultClientId={clients.length === 1 ? clients[0]!.id : undefined}
+        defaultClientId={impersonatedClientId || (clients.length === 1 ? clients[0]!.id : undefined)}
       />
     </div>
   );

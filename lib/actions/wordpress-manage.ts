@@ -57,9 +57,23 @@ export async function connectWordPress(
 
   const connectionTest = await testClient.testConnection();
   if (!connectionTest.success) {
+    // If auth failed, run diagnostics to find out exactly why
+    const diagnostics = await testClient.diagnoseConnection();
+    const failedSteps = diagnostics.steps
+      .filter((s) => s.status === "fail")
+      .map((s) => {
+        let msg = `[${s.step}] ${s.message}`;
+        if (s.detail) msg += `\n${s.detail}`;
+        return msg;
+      });
+
+    const diagnosticDetails = failedSteps.length > 0
+      ? failedSteps.join("\n\n")
+      : connectionTest.error || "Could not reach WordPress REST API";
+
     return {
       success: false,
-      error: `Connection failed: ${connectionTest.error || "Could not reach WordPress REST API"}`,
+      error: diagnosticDetails,
     };
   }
 

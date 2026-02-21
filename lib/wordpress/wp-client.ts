@@ -204,18 +204,20 @@ export class WPClient {
 
     // Step 2: REST API availability — hit /wp-json/
     let restApiAvailable = false;
+    let serverSoftware = "";
     try {
       const restResp = await fetch(`${this.siteUrl}/wp-json/`, {
         signal: AbortSignal.timeout(10000),
         headers: { Accept: "application/json" },
       });
       const contentType = restResp.headers.get("content-type") || "";
+      serverSoftware = restResp.headers.get("server") || "";
 
       if (restResp.ok && contentType.includes("json")) {
         steps.push({
           step: "rest_api_available",
           status: "pass",
-          message: "WordPress REST API is accessible",
+          message: `WordPress REST API is accessible (Server: ${serverSoftware || "unknown"})`,
         });
         restApiAvailable = true;
       } else if (restResp.status === 404) {
@@ -332,20 +334,61 @@ export class WPClient {
 
         if (authResp.status === 401) {
           if (code === "rest_not_logged_in") {
+            const isApache = /apache/i.test(serverSoftware);
+            const isLiteSpeed = /litespeed/i.test(serverSoftware);
+            const isNginx = /nginx/i.test(serverSoftware);
+            const serverNote = serverSoftware
+              ? `Detected server: ${serverSoftware}`
+              : "Could not detect server software";
+
+            let detail =
+              `${serverNote}\n\n` +
+              "WordPress received the request but did not see any credentials. " +
+              "The Authorization header is being stripped before PHP can read it.\n\n";
+
+            if (isApache || isLiteSpeed) {
+              detail +=
+                `This is a known issue with ${isApache ? "Apache" : "LiteSpeed"} hosting.\n\n` +
+                "THE FIX — do ONE of these (try in order):\n\n" +
+                "Option A: Install the mu-plugin FIRST (recommended)\n" +
+                "  1. Download dashboard-connector.php from the button below\n" +
+                "  2. Upload it to: wp-content/mu-plugins/dashboard-connector.php\n" +
+                "     (create the mu-plugins folder if it doesn't exist)\n" +
+                "  3. Then click 'Connect & Save' again — the mu-plugin has a\n" +
+                "     built-in workaround that reads the X-WP-Auth fallback header\n\n" +
+                "Option B: Fix .htaccess\n" +
+                "  Add this line to .htaccess BEFORE the WordPress rules:\n" +
+                "  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n" +
+                "Option C: Fix wp-config.php (for CGI/FastCGI)\n" +
+                "  Add this line near the top of wp-config.php:\n" +
+                "  $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';";
+            } else if (isNginx) {
+              detail +=
+                "This is unusual for Nginx — it typically passes auth headers.\n\n" +
+                "Possible causes:\n" +
+                "- A reverse proxy in front of Nginx is stripping headers\n" +
+                "- fastcgi_pass_header is not configured\n" +
+                "- A security plugin is blocking Application Passwords\n\n" +
+                "THE FIX:\n" +
+                "1. Install the mu-plugin (dashboard-connector.php) — it has a\n" +
+                "   built-in workaround using the X-WP-Auth fallback header\n" +
+                "2. Or add to your Nginx config (in the PHP location block):\n" +
+                "   fastcgi_pass_header Authorization;";
+            } else {
+              detail +=
+                "THE FIX — install the mu-plugin FIRST:\n" +
+                "  1. Download dashboard-connector.php from the button below\n" +
+                "  2. Upload it to: wp-content/mu-plugins/dashboard-connector.php\n" +
+                "  3. Then click 'Connect & Save' again\n\n" +
+                "The mu-plugin restores credentials from a fallback header (X-WP-Auth)\n" +
+                "that bypasses the server's header stripping.";
+            }
+
             steps.push({
               step: "authentication",
               status: "fail",
-              message: "401 — WordPress says 'not logged in' (credentials not received)",
-              detail:
-                "WordPress received the request but did not see any credentials. " +
-                "This is the classic Apache Authorization header stripping issue.\n\n" +
-                "Fixes (try in order):\n" +
-                "1. Ensure the mu-plugin (dashboard-connector.php) is installed in wp-content/mu-plugins/ — " +
-                "it restores auth from the X-WP-Auth fallback header\n" +
-                "2. Add to .htaccess (before WordPress rules):\n" +
-                "   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n" +
-                "3. Add to wp-config.php (for CGI/FastCGI):\n" +
-                "   $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';",
+              message: `401 — Authorization header stripped by server (${serverSoftware || "unknown"})`,
+              detail,
             });
           } else if (code === "invalid_application_password" || code === "incorrect_password") {
             steps.push({

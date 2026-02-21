@@ -533,6 +533,33 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
         </div>
       </CardHeader>
       <CardContent>
+        {/* Pre-flight: Install mu-plugin first notice */}
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
+          <p className="mb-1.5 text-sm font-medium text-amber-900 dark:text-amber-200">
+            Before connecting: install the mu-plugin on WordPress
+          </p>
+          <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
+            Most hosting providers (Apache, LiteSpeed) strip auth headers, which prevents the connection from working.
+            Installing the mu-plugin first solves this automatically.
+          </p>
+          <ol className="mb-2 list-inside list-decimal space-y-1 text-xs text-amber-800 dark:text-amber-300">
+            <li>Download the plugin file below</li>
+            <li>Upload it to <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">wp-content/mu-plugins/dashboard-connector.php</code></li>
+            <li>Create the <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">mu-plugins</code> folder if it doesn&apos;t exist</li>
+            <li>Then fill in the form below and click Connect &amp; Save</li>
+          </ol>
+          <a
+            href="/mu-plugins/dashboard-connector.php"
+            download="dashboard-connector.php"
+            className="inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Download dashboard-connector.php
+          </a>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="wp_site_url">Site URL</Label>
@@ -662,8 +689,23 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
           )}
 
           {error && (
-            <div className="rounded border border-destructive/30 bg-destructive/5 p-3">
-              <p className="whitespace-pre-line text-sm text-destructive">{error}</p>
+            <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm font-medium text-destructive">Connection Failed</p>
+              <pre className="whitespace-pre-wrap text-xs text-destructive/90">{error}</pre>
+              {error.includes("header") && error.includes("stripped") && (
+                <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950">
+                  <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                    Quick fix: Download and install the mu-plugin first, then try again.
+                  </p>
+                  <a
+                    href="/mu-plugins/dashboard-connector.php"
+                    download="dashboard-connector.php"
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+                  >
+                    Download dashboard-connector.php
+                  </a>
+                </div>
+              )}
             </div>
           )}
 

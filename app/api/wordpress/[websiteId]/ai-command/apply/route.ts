@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { WPClient } from "@/lib/wordpress/wp-client";
 import { createClient } from "@/lib/supabase/server";
+import { checkBatchConflicts } from "@/lib/wordpress/queue-processor";
 
 interface ChangeToApply {
   id: string;
@@ -28,6 +29,33 @@ export async function POST(
 
   if (!changes || !Array.isArray(changes)) {
     return NextResponse.json({ error: "Changes array required" }, { status: 400 });
+  }
+
+  // Check for conflicts before processing
+  const selectedChanges = changes.filter((c) => c.selected);
+  const conflicts = await checkBatchConflicts(
+    websiteId,
+    selectedChanges.map((c) => ({
+      resource_type: c.resource_type,
+      resource_id: c.resource_id,
+    }))
+  );
+
+  if (conflicts.size > 0) {
+    const conflictDetails = Array.from(conflicts.entries()).map(([key, action]) => ({
+      resource: key,
+      conflicting_action: action.action_type,
+      status: action.status,
+      initiated_at: action.created_at,
+    }));
+
+    return NextResponse.json(
+      {
+        error: "Resource conflict detected. Another action is in progress for one or more resources.",
+        conflicts: conflictDetails,
+      },
+      { status: 409 }
+    );
   }
 
   const client = await WPClient.fromWebsiteId(websiteId);

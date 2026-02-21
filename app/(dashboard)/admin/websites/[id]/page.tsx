@@ -9,6 +9,7 @@ import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
 import { SiteHealthDashboard } from "@/components/wordpress/site-health/site-health-dashboard";
 import { AICommandPanel } from "@/components/wordpress/ai-command/ai-command-panel";
 import { QuickActions } from "@/components/wordpress/quick-actions";
+import { ActiveUsers } from "@/components/wordpress/active-users";
 import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
 import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
@@ -28,6 +29,8 @@ export default async function WebsiteDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: website } = await supabase
     .from("websites")
@@ -125,6 +128,13 @@ export default async function WebsiteDetailPage({
       {/* WordPress Management (only if connected) */}
       {wpStatus.connected && (
         <>
+          {/* Active Users Presence */}
+          {user && (
+            <div className="mb-6">
+              <ActiveUsers websiteId={id} currentUserId={user.id} />
+            </div>
+          )}
+
           {/* Site Health Dashboard */}
           <div className="mb-6">
             <SiteHealthDashboard websiteId={id} />

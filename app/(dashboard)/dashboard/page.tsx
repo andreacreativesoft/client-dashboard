@@ -160,7 +160,10 @@ export default async function DashboardPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{t(lang, "dashboard.recent_leads")}</CardTitle>
           {leads.length > 0 && (
-            <Link href="/leads" className="text-sm font-medium hover:underline">
+            <Link
+              href="/leads"
+              className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
               {t(lang, "dashboard.view_all")}
             </Link>
           )}

@@ -209,7 +209,7 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">
+                      <span className="text-lg font-semibold">
                         {user.full_name || "No name"}
                       </span>
                       <Badge variant={user.role === "admin" ? "default" : "secondary"}>

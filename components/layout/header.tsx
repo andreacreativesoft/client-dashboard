@@ -111,7 +111,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
         <button
           onClick={handleSignOut}
           disabled={signingOut}
-          className="h-[38px] rounded-lg bg-accent px-3 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-50"
+          className="h-[38px] rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
           {signingOut ? "..." : t("header.sign_out")}
         </button>

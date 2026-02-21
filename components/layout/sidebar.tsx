@@ -171,13 +171,6 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
         {!collapsed && (
           <Link href="/dashboard" className="flex flex-1 items-center gap-2">
             <Image
-              src="/logo-icon.svg"
-              alt="Logo"
-              width={32}
-              height={32}
-              className="shrink-0"
-            />
-            <Image
               src="/logo.svg"
               alt="VotreSitePro"
               width={130}

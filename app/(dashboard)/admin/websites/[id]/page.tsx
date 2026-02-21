@@ -10,7 +10,6 @@ import { SiteHealthDashboard } from "@/components/wordpress/site-health/site-hea
 import { AICommandPanel } from "@/components/wordpress/ai-command/ai-command-panel";
 import { QuickActions } from "@/components/wordpress/quick-actions";
 import { ActiveUsers } from "@/components/wordpress/active-users";
-import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
 import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
 
@@ -116,18 +115,28 @@ export default async function WebsiteDetailPage({
         </CardContent>
       </Card>
 
-      {/* WordPress Connection */}
-      <div className="mb-6">
-        <ConnectWordPressForm
-          websiteId={id}
-          siteUrl={typedWebsite.url}
-          status={wpStatus}
-        />
-      </div>
-
-      {/* WordPress Management (only if connected) */}
-      {wpStatus.connected && (
+      {/* WordPress Management */}
+      {wpStatus.connected ? (
         <>
+          {/* Connection status bar */}
+          <div className="mb-6 flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm">
+            <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+            <span className="text-muted-foreground">
+              WordPress connected{wpStatus.username ? ` as ${wpStatus.username}` : ""}
+              {wpStatus.mu_plugin_installed && (
+                <span className="ml-1 text-xs">(mu-plugin {wpStatus.mu_plugin_version || "active"})</span>
+              )}
+            </span>
+            {typedWebsite.client && (
+              <Link
+                href={`/admin/clients/${typedWebsite.client.id}`}
+                className="ml-auto text-xs text-muted-foreground hover:underline"
+              >
+                Manage in Integrations
+              </Link>
+            )}
+          </div>
+
           {/* Active Users Presence */}
           {user && (
             <div className="mb-6">
@@ -155,6 +164,20 @@ export default async function WebsiteDetailPage({
             <DebugLogViewer websiteId={id} />
           </div>
         </>
+      ) : (
+        <Card className="mb-6">
+          <CardContent className="p-4 text-center text-sm text-muted-foreground">
+            <p>WordPress is not connected for this site.</p>
+            {typedWebsite.client && (
+              <Link
+                href={`/admin/clients/${typedWebsite.client.id}`}
+                className="mt-1 inline-block text-foreground underline"
+              >
+                Connect via Integrations
+              </Link>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* AI Analysis */}

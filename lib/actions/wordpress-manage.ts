@@ -9,6 +9,7 @@ import { decryptToken } from "@/lib/google";
 import { deployMuPlugin } from "@/lib/wordpress/deploy-mu-plugin";
 import { logActivity } from "@/lib/actions/activity";
 import { ActivityTypes } from "@/lib/constants/activity";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { ConnectWordPressInput, WordPressCredentialsEncrypted, DebugLogResponse } from "@/types/wordpress";
 import type { Integration } from "@/types/database";
 
@@ -320,25 +321,97 @@ export async function getWordPressStatus(websiteId: string): Promise<{
     .eq("integration_id", wpIntegration.id)
     .single();
 
-  if (!creds) return { connected: false };
-
-  const typedCreds = creds as Pick<
-    WordPressCredentialsEncrypted,
-    "site_url" | "mu_plugin_installed" | "mu_plugin_version" | "last_health_check"
-  >;
-
   const metadata = wpIntegration.metadata;
+
+  if (creds) {
+    const typedCreds = creds as Pick<
+      WordPressCredentialsEncrypted,
+      "site_url" | "mu_plugin_installed" | "mu_plugin_version" | "last_health_check"
+    >;
+
+    return {
+      connected: true,
+      integration_id: wpIntegration.id,
+      site_url: typedCreds.site_url,
+      username: wpIntegration.account_name ?? undefined,
+      mu_plugin_installed: typedCreds.mu_plugin_installed,
+      mu_plugin_version: typedCreds.mu_plugin_version ?? undefined,
+      last_health_check: typedCreds.last_health_check ?? undefined,
+      connected_at: (metadata?.connected_at as string) ?? undefined,
+    };
+  }
+
+  // Auto-bridge: integration exists but wordpress_credentials doesn't.
+  // This happens when WordPress was connected via the Integrations tab
+  // (simple flow) which only writes to the integrations table.
+  // Create the wordpress_credentials record from the integration data.
+  const bridged = await bridgeIntegrationCredentials(wpIntegration.id);
+  if (!bridged) return { connected: false };
+
+  const siteUrl = (metadata?.site_url as string) || "";
 
   return {
     connected: true,
     integration_id: wpIntegration.id,
-    site_url: typedCreds.site_url,
+    site_url: siteUrl,
     username: wpIntegration.account_name ?? undefined,
-    mu_plugin_installed: typedCreds.mu_plugin_installed,
-    mu_plugin_version: typedCreds.mu_plugin_version ?? undefined,
-    last_health_check: typedCreds.last_health_check ?? undefined,
+    mu_plugin_installed: false,
     connected_at: (metadata?.connected_at as string) ?? undefined,
   };
+}
+
+/**
+ * Bridge a simple WordPress integration (integrations table only)
+ * to the full credentials system (wordpress_credentials table).
+ * Called automatically when getWordPressStatus detects a gap.
+ */
+async function bridgeIntegrationCredentials(
+  integrationId: string
+): Promise<boolean> {
+  const supabase = createAdminClient();
+
+  // Get the full integration record with encrypted credentials
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, account_name, access_token_encrypted, metadata")
+    .eq("id", integrationId)
+    .single();
+
+  if (!integration || !integration.access_token_encrypted) return false;
+
+  const metadata = integration.metadata as Record<string, unknown>;
+  const siteUrl = (metadata?.site_url as string) || "";
+  const username = integration.account_name || "";
+
+  if (!siteUrl || !username) return false;
+
+  // Decrypt the app password from the integration, re-encrypt for credentials table
+  const appPassword = decryptToken(integration.access_token_encrypted);
+  const sharedSecret = randomBytes(32).toString("hex");
+
+  const encrypted = encryptCredentials({
+    username,
+    app_password: appPassword,
+    shared_secret: sharedSecret,
+  });
+
+  const { error } = await supabase
+    .from("wordpress_credentials")
+    .insert({
+      integration_id: integrationId,
+      site_url: siteUrl.replace(/\/+$/, ""),
+      username_encrypted: encrypted.username_encrypted,
+      app_password_encrypted: encrypted.app_password_encrypted,
+      shared_secret_encrypted: encrypted.shared_secret_encrypted,
+      mu_plugin_installed: false,
+    });
+
+  if (error) {
+    console.error("Failed to bridge WordPress credentials:", error);
+    return false;
+  }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------

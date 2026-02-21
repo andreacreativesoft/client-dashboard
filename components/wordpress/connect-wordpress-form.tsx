@@ -128,28 +128,39 @@ function ConnectedState({
             <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
               The mu-plugin is required for debug logs, site health, cache clearing, and advanced features.
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              disabled={isPending}
-              onClick={() => {
-                setDeploying(true);
-                setTestResult(null);
-                startTransition(async () => {
-                  const result = await deployMuPluginAction(websiteId);
-                  setDeploying(false);
-                  if (result.success) {
-                    setTestResult({ type: "success", message: result.message });
-                    router.refresh();
-                  } else {
-                    setTestResult({ type: "error", message: result.message });
-                  }
-                });
-              }}
-            >
-              {deploying ? "Deploying..." : "Deploy via SSH"}
-            </Button>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                onClick={() => {
+                  setDeploying(true);
+                  setTestResult(null);
+                  startTransition(async () => {
+                    const result = await deployMuPluginAction(websiteId);
+                    setDeploying(false);
+                    if (result.success) {
+                      setTestResult({ type: "success", message: result.message });
+                      router.refresh();
+                    } else {
+                      setTestResult({ type: "error", message: result.message });
+                    }
+                  });
+                }}
+              >
+                {deploying ? "Deploying..." : "Deploy via SSH"}
+              </Button>
+              <a
+                href="/mu-plugins/dashboard-connector.php"
+                download="dashboard-connector.php"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download Plugin
+              </a>
+            </div>
           </div>
         )}
 
@@ -294,10 +305,21 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
           </div>
 
           {!connectResult.mu_plugin_installed && (
-            <p className="text-xs text-muted-foreground">
-              The mu-plugin is required for debug logs, site health, and advanced features.
-              Deploy it manually or via SSH in the next phase.
-            </p>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                The mu-plugin is required for debug logs, site health, and advanced features.
+              </p>
+              <a
+                href="/mu-plugins/dashboard-connector.php"
+                download="dashboard-connector.php"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download Plugin
+              </a>
+            </div>
           )}
 
           <Button size="sm" onClick={() => router.refresh()}>

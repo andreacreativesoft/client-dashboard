@@ -72,9 +72,21 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
     >
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium">Connect WordPress</p>
-        <Badge variant="outline" className="text-[10px]">
-          Requires mu-plugin
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px]">
+            Requires mu-plugin
+          </Badge>
+          <a
+            href="/mu-plugins/dashboard-connector.php"
+            download="dashboard-connector.php"
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-muted"
+          >
+            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Download
+          </a>
+        </div>
       </div>
 
       <div className="space-y-1">

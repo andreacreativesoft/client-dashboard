@@ -55,6 +55,8 @@ export type Website = {
   webhook_secret: string;
   source_type: string;
   git_repo_url: string | null;
+  asana_project_url: string | null;
+  figma_url: string | null;
   content_hash: string | null;
   last_checked_at: string | null;
   has_changes: boolean;
@@ -386,6 +388,8 @@ export type Database = {
           webhook_secret: string;
           source_type: string;
           git_repo_url?: string | null;
+          asana_project_url?: string | null;
+          figma_url?: string | null;
           content_hash?: string | null;
           last_checked_at?: string | null;
           has_changes?: boolean;

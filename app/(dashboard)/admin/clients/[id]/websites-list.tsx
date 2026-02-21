@@ -757,6 +757,46 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                           <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
                         )}
                       </div>
+                      <div className="flex items-center justify-between rounded border p-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" />
+                          </svg>
+                          <p className="truncate text-xs font-medium">
+                            Asana:{" "}
+                            {website.asana_project_url ? (
+                              <a href={website.asana_project_url} target="_blank" rel="noopener noreferrer" className="font-normal text-muted-foreground hover:text-foreground hover:underline">
+                                {website.asana_project_url.replace(/^https?:\/\//, "")}
+                              </a>
+                            ) : (
+                              <span className="font-normal text-muted-foreground">Not set</span>
+                            )}
+                          </p>
+                        </div>
+                        {website.asana_project_url && (
+                          <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between rounded border p-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" />
+                          </svg>
+                          <p className="truncate text-xs font-medium">
+                            Figma:{" "}
+                            {website.figma_url ? (
+                              <a href={website.figma_url} target="_blank" rel="noopener noreferrer" className="font-normal text-muted-foreground hover:text-foreground hover:underline">
+                                {website.figma_url.replace(/^https?:\/\//, "")}
+                              </a>
+                            ) : (
+                              <span className="font-normal text-muted-foreground">Not set</span>
+                            )}
+                          </p>
+                        </div>
+                        {website.figma_url && (
+                          <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
 

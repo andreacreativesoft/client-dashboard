@@ -229,6 +229,177 @@ export class WPClient {
     return this.request("/db-health", { isCustomEndpoint: true });
   }
 
+  // ─── Plugin/Theme/Core Updates (mu-plugin required) ──────────────
+
+  async updatePlugin(plugin: string): Promise<{
+    success: boolean;
+    plugin: string;
+    old_version: string;
+    new_version: string;
+  }> {
+    return this.request("/plugins/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { plugin },
+      confirmAction: true,
+    });
+  }
+
+  async getThemes(): Promise<Array<{
+    slug: string;
+    name: string;
+    version: string;
+    active: boolean;
+    is_child_theme: boolean;
+    parent_theme: string | null;
+    author: string;
+    update_available: boolean;
+    update_version: string | null;
+  }>> {
+    return this.request("/themes", { isCustomEndpoint: true });
+  }
+
+  async updateTheme(theme: string): Promise<{
+    success: boolean;
+    theme: string;
+    old_version: string;
+    new_version: string;
+  }> {
+    return this.request("/themes/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { theme },
+      confirmAction: true,
+    });
+  }
+
+  async updateCore(): Promise<{
+    success: boolean;
+    old_version?: string;
+    new_version?: string;
+    message?: string;
+  }> {
+    return this.request("/core/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: {},
+      confirmAction: true,
+    });
+  }
+
+  // ─── WooCommerce (mu-plugin required) ───────────────────────────
+
+  async getWcOrders(params?: {
+    per_page?: number;
+    page?: number;
+    status?: string;
+  }): Promise<{
+    orders: Array<{
+      id: number;
+      status: string;
+      total: string;
+      currency: string;
+      date_created: string | null;
+      customer_name: string;
+      customer_email: string;
+      payment_method: string;
+      items: Array<{ name: string; quantity: number; total: string }>;
+      items_count: number;
+    }>;
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    return this.request("/woocommerce/orders", {
+      isCustomEndpoint: true,
+      params: {
+        per_page: String(params?.per_page || 10),
+        page: String(params?.page || 1),
+        ...(params?.status && { status: params.status }),
+      },
+    });
+  }
+
+  async getWcOrder(id: number): Promise<Record<string, unknown>> {
+    return this.request(`/woocommerce/order/${id}`, { isCustomEndpoint: true });
+  }
+
+  async getWcStats(): Promise<{
+    today_orders: number;
+    today_revenue: number;
+    month_orders: number;
+    month_revenue: number;
+    currency: string;
+    orders_by_status: Record<string, number>;
+    low_stock: Array<{ id: number; name: string; stock: number; sku: string }>;
+    total_products: number;
+  }> {
+    return this.request("/woocommerce/stats", { isCustomEndpoint: true });
+  }
+
+  // ─── User Management (mu-plugin required) ───────────────────────
+
+  async getWpUsers(): Promise<Array<{
+    id: number;
+    username: string;
+    email: string;
+    display_name: string;
+    first_name: string;
+    last_name: string;
+    role: string;
+    registered: string;
+    last_login: string | null;
+  }>> {
+    return this.request("/users", { isCustomEndpoint: true });
+  }
+
+  async createWpUser(data: {
+    username: string;
+    email: string;
+    role?: string;
+    password?: string;
+    first_name?: string;
+    last_name?: string;
+  }): Promise<{
+    success: boolean;
+    user_id: number;
+    username: string;
+    email: string;
+    role: string;
+  }> {
+    return this.request("/users/create", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: data as Record<string, unknown>,
+      confirmAction: true,
+    });
+  }
+
+  async updateWpUser(
+    userId: number,
+    data: Record<string, unknown>
+  ): Promise<{ success: boolean; user_id: number }> {
+    return this.request("/users/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId, ...data },
+      confirmAction: true,
+    });
+  }
+
+  async deleteWpUser(
+    userId: number,
+    reassign: number = 1
+  ): Promise<{ success: boolean; user_id: number; reassigned_to: number }> {
+    return this.request("/users/delete", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId, reassign },
+      confirmAction: true,
+    });
+  }
+
   // ─── Standard WP REST API ─────────────────────────────────────────
 
   async getMedia(params?: {

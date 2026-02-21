@@ -114,6 +114,104 @@ class Dashboard_Connector {
             'callback'            => [$this, 'get_db_health'],
             'permission_callback' => [$this, 'check_permissions'],
         ]);
+
+        register_rest_route($this->namespace, '/plugins/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_plugin'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'plugin' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/themes', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_themes'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/themes/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_theme'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'theme' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/core/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_core'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/woocommerce/orders', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wc_orders'],
+            'permission_callback' => [$this, 'check_permissions'],
+            'args' => [
+                'per_page' => ['default' => 10, 'sanitize_callback' => 'absint'],
+                'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
+                'status'   => ['default' => 'any', 'sanitize_callback' => 'sanitize_text_field'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/woocommerce/order/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wc_order'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/woocommerce/stats', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wc_stats'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/users', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wp_users'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/users/create', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'create_wp_user'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'username' => ['required' => true, 'sanitize_callback' => 'sanitize_user'],
+                'email'    => ['required' => true, 'sanitize_callback' => 'sanitize_email'],
+                'role'     => ['default' => 'subscriber', 'sanitize_callback' => 'sanitize_text_field'],
+                'password' => ['sanitize_callback' => 'sanitize_text_field'],
+                'first_name' => ['sanitize_callback' => 'sanitize_text_field'],
+                'last_name'  => ['sanitize_callback' => 'sanitize_text_field'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/users/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_wp_user'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'user_id' => ['required' => true, 'sanitize_callback' => 'absint'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/users/delete', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'delete_wp_user'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'user_id'  => ['required' => true, 'sanitize_callback' => 'absint'],
+                'reassign' => ['default' => 1, 'sanitize_callback' => 'absint'],
+            ],
+        ]);
     }
 
     // ═══════════════════════════════════════════
@@ -610,6 +708,505 @@ class Dashboard_Connector {
             'db_size_mb'         => $db_size . ' MB',
             'total_posts'        => $total_posts,
             'total_pages'        => $total_pages,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: UPDATE PLUGIN
+    // ═══════════════════════════════════════════
+
+    public function update_plugin(WP_REST_Request $request) {
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/misc.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+        $plugin_file = $request->get_param('plugin');
+
+        $all_plugins = get_plugins();
+        if (!isset($all_plugins[$plugin_file])) {
+            return new WP_Error('plugin_not_found', 'Plugin not found.', ['status' => 404]);
+        }
+
+        $skin = new WP_Ajax_Upgrader_Skin();
+        $upgrader = new Plugin_Upgrader($skin);
+        $result = $upgrader->upgrade($plugin_file);
+
+        if (is_wp_error($result)) {
+            return new WP_Error('update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        if ($result === false) {
+            $errors = $skin->get_errors();
+            $msg = is_wp_error($errors) ? $errors->get_error_message() : 'Update failed — plugin may already be up to date.';
+            return new WP_Error('update_failed', $msg, ['status' => 500]);
+        }
+
+        // Get new version
+        $updated_plugins = get_plugins();
+        $new_version = $updated_plugins[$plugin_file]['Version'] ?? 'unknown';
+
+        return rest_ensure_response([
+            'success'     => true,
+            'plugin'      => $plugin_file,
+            'old_version' => $all_plugins[$plugin_file]['Version'],
+            'new_version' => $new_version,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: THEMES
+    // ═══════════════════════════════════════════
+
+    public function get_themes(WP_REST_Request $request) {
+        $themes = wp_get_themes();
+        $active = get_stylesheet();
+        $update_themes = get_site_transient('update_themes');
+
+        $result = [];
+        foreach ($themes as $slug => $theme) {
+            $has_update = isset($update_themes->response[$slug]);
+            $result[] = [
+                'slug'             => $slug,
+                'name'             => $theme->get('Name'),
+                'version'          => $theme->get('Version'),
+                'active'           => ($slug === $active),
+                'is_child_theme'   => (bool) $theme->parent(),
+                'parent_theme'     => $theme->parent() ? $theme->parent()->get('Name') : null,
+                'author'           => $theme->get('Author'),
+                'update_available' => $has_update,
+                'update_version'   => $has_update ? ($update_themes->response[$slug]['new_version'] ?? null) : null,
+            ];
+        }
+
+        return rest_ensure_response($result);
+    }
+
+    public function update_theme(WP_REST_Request $request) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/misc.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+        $theme_slug = $request->get_param('theme');
+        $theme = wp_get_theme($theme_slug);
+
+        if (!$theme->exists()) {
+            return new WP_Error('theme_not_found', 'Theme not found.', ['status' => 404]);
+        }
+
+        $old_version = $theme->get('Version');
+
+        $skin = new WP_Ajax_Upgrader_Skin();
+        $upgrader = new Theme_Upgrader($skin);
+        $result = $upgrader->upgrade($theme_slug);
+
+        if (is_wp_error($result)) {
+            return new WP_Error('update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        if ($result === false) {
+            $errors = $skin->get_errors();
+            $msg = is_wp_error($errors) ? $errors->get_error_message() : 'Update failed — theme may already be up to date.';
+            return new WP_Error('update_failed', $msg, ['status' => 500]);
+        }
+
+        $updated_theme = wp_get_theme($theme_slug);
+        return rest_ensure_response([
+            'success'     => true,
+            'theme'       => $theme_slug,
+            'old_version' => $old_version,
+            'new_version' => $updated_theme->get('Version'),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: CORE UPDATE
+    // ═══════════════════════════════════════════
+
+    public function update_core(WP_REST_Request $request) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/misc.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+        require_once ABSPATH . 'wp-admin/includes/update.php';
+
+        $old_version = get_bloginfo('version');
+
+        wp_version_check();
+        $updates = get_core_updates();
+
+        if (empty($updates) || !is_array($updates) || $updates[0]->response === 'latest') {
+            return rest_ensure_response([
+                'success' => true,
+                'message' => 'WordPress is already up to date.',
+                'version' => $old_version,
+            ]);
+        }
+
+        $skin = new WP_Ajax_Upgrader_Skin();
+        $upgrader = new Core_Upgrader($skin);
+        $result = $upgrader->upgrade($updates[0]);
+
+        if (is_wp_error($result)) {
+            return new WP_Error('update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        return rest_ensure_response([
+            'success'     => true,
+            'old_version' => $old_version,
+            'new_version' => is_string($result) ? $result : get_bloginfo('version'),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: WOOCOMMERCE ORDERS
+    // ═══════════════════════════════════════════
+
+    public function get_wc_orders(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('wc_not_active', 'WooCommerce is not installed or active.', ['status' => 404]);
+        }
+
+        $per_page = min($request->get_param('per_page') ?: 10, 100);
+        $page = $request->get_param('page') ?: 1;
+        $status = $request->get_param('status') ?: 'any';
+
+        $args = [
+            'limit'   => $per_page,
+            'page'    => $page,
+            'orderby' => 'date',
+            'order'   => 'DESC',
+            'return'  => 'objects',
+        ];
+
+        if ($status !== 'any') {
+            $args['status'] = $status;
+        }
+
+        $orders = wc_get_orders($args);
+        $result = [];
+
+        foreach ($orders as $order) {
+            $items = [];
+            foreach ($order->get_items() as $item) {
+                $items[] = [
+                    'name'     => $item->get_name(),
+                    'quantity' => $item->get_quantity(),
+                    'total'    => $item->get_total(),
+                ];
+            }
+
+            $result[] = [
+                'id'               => $order->get_id(),
+                'status'           => $order->get_status(),
+                'total'            => $order->get_total(),
+                'currency'         => $order->get_currency(),
+                'date_created'     => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i:s') : null,
+                'customer_name'    => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                'customer_email'   => $order->get_billing_email(),
+                'payment_method'   => $order->get_payment_method_title(),
+                'items'            => $items,
+                'items_count'      => count($items),
+            ];
+        }
+
+        // Total count
+        $count_args = ['return' => 'ids', 'limit' => -1];
+        if ($status !== 'any') $count_args['status'] = $status;
+        $total = count(wc_get_orders($count_args));
+
+        return rest_ensure_response([
+            'orders'      => $result,
+            'total'       => $total,
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total_pages' => ceil($total / $per_page),
+        ]);
+    }
+
+    public function get_wc_order(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('wc_not_active', 'WooCommerce is not installed or active.', ['status' => 404]);
+        }
+
+        $order_id = $request->get_param('id');
+        $order = wc_get_order($order_id);
+
+        if (!$order) {
+            return new WP_Error('order_not_found', 'Order not found.', ['status' => 404]);
+        }
+
+        $items = [];
+        foreach ($order->get_items() as $item) {
+            $product = $item->get_product();
+            $items[] = [
+                'name'       => $item->get_name(),
+                'product_id' => $item->get_product_id(),
+                'sku'        => $product ? $product->get_sku() : '',
+                'quantity'   => $item->get_quantity(),
+                'subtotal'   => $item->get_subtotal(),
+                'total'      => $item->get_total(),
+                'tax'        => $item->get_total_tax(),
+            ];
+        }
+
+        return rest_ensure_response([
+            'id'               => $order->get_id(),
+            'status'           => $order->get_status(),
+            'total'            => $order->get_total(),
+            'subtotal'         => $order->get_subtotal(),
+            'total_tax'        => $order->get_total_tax(),
+            'total_shipping'   => $order->get_shipping_total(),
+            'discount_total'   => $order->get_discount_total(),
+            'currency'         => $order->get_currency(),
+            'date_created'     => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i:s') : null,
+            'date_modified'    => $order->get_date_modified() ? $order->get_date_modified()->format('Y-m-d H:i:s') : null,
+            'payment_method'   => $order->get_payment_method_title(),
+            'transaction_id'   => $order->get_transaction_id(),
+            'customer_note'    => $order->get_customer_note(),
+            'billing' => [
+                'first_name' => $order->get_billing_first_name(),
+                'last_name'  => $order->get_billing_last_name(),
+                'email'      => $order->get_billing_email(),
+                'phone'      => $order->get_billing_phone(),
+                'address_1'  => $order->get_billing_address_1(),
+                'city'       => $order->get_billing_city(),
+                'state'      => $order->get_billing_state(),
+                'postcode'   => $order->get_billing_postcode(),
+                'country'    => $order->get_billing_country(),
+            ],
+            'shipping' => [
+                'first_name' => $order->get_shipping_first_name(),
+                'last_name'  => $order->get_shipping_last_name(),
+                'address_1'  => $order->get_shipping_address_1(),
+                'city'       => $order->get_shipping_city(),
+                'state'      => $order->get_shipping_state(),
+                'postcode'   => $order->get_shipping_postcode(),
+                'country'    => $order->get_shipping_country(),
+            ],
+            'items' => $items,
+            'notes' => $this->get_order_notes($order),
+        ]);
+    }
+
+    private function get_order_notes($order) {
+        $notes = wc_get_order_notes(['order_id' => $order->get_id(), 'limit' => 20]);
+        $result = [];
+        foreach ($notes as $note) {
+            $result[] = [
+                'id'           => $note->id,
+                'content'      => $note->content,
+                'customer_note' => $note->customer_note,
+                'added_by'     => $note->added_by,
+                'date_created' => $note->date_created ? $note->date_created->format('Y-m-d H:i:s') : null,
+            ];
+        }
+        return $result;
+    }
+
+    public function get_wc_stats(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('wc_not_active', 'WooCommerce is not installed or active.', ['status' => 404]);
+        }
+
+        // Today's stats
+        $today_start = date('Y-m-d 00:00:00');
+        $today_orders = wc_get_orders([
+            'date_created' => '>=' . $today_start,
+            'status'       => ['wc-completed', 'wc-processing', 'wc-on-hold'],
+            'return'       => 'objects',
+        ]);
+
+        $today_revenue = 0;
+        foreach ($today_orders as $order) {
+            $today_revenue += (float) $order->get_total();
+        }
+
+        // This month
+        $month_start = date('Y-m-01 00:00:00');
+        $month_orders = wc_get_orders([
+            'date_created' => '>=' . $month_start,
+            'status'       => ['wc-completed', 'wc-processing', 'wc-on-hold'],
+            'return'       => 'objects',
+        ]);
+
+        $month_revenue = 0;
+        foreach ($month_orders as $order) {
+            $month_revenue += (float) $order->get_total();
+        }
+
+        // Orders by status
+        $statuses = ['processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed'];
+        $by_status = [];
+        foreach ($statuses as $status) {
+            $count = count(wc_get_orders(['status' => 'wc-' . $status, 'return' => 'ids', 'limit' => -1]));
+            if ($count > 0) {
+                $by_status[$status] = $count;
+            }
+        }
+
+        // Low stock (if inventory management enabled)
+        $low_stock = [];
+        $low_stock_products = wc_get_products([
+            'status'     => 'publish',
+            'limit'      => 10,
+            'orderby'    => 'meta_value_num',
+            'order'      => 'ASC',
+            'meta_key'   => '_stock',
+            'stock_status' => 'instock',
+            'manage_stock' => true,
+        ]);
+
+        foreach ($low_stock_products as $product) {
+            $stock = $product->get_stock_quantity();
+            if ($stock !== null && $stock <= 5) {
+                $low_stock[] = [
+                    'id'    => $product->get_id(),
+                    'name'  => $product->get_name(),
+                    'stock' => $stock,
+                    'sku'   => $product->get_sku(),
+                ];
+            }
+        }
+
+        return rest_ensure_response([
+            'today_orders'     => count($today_orders),
+            'today_revenue'    => round($today_revenue, 2),
+            'month_orders'     => count($month_orders),
+            'month_revenue'    => round($month_revenue, 2),
+            'currency'         => get_woocommerce_currency(),
+            'orders_by_status' => $by_status,
+            'low_stock'        => $low_stock,
+            'total_products'   => (int) wp_count_posts('product')->publish,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: USER MANAGEMENT
+    // ═══════════════════════════════════════════
+
+    public function get_wp_users(WP_REST_Request $request) {
+        $users = get_users([
+            'orderby' => 'registered',
+            'order'   => 'DESC',
+            'number'  => 100,
+        ]);
+
+        $result = [];
+        foreach ($users as $user) {
+            $result[] = [
+                'id'           => $user->ID,
+                'username'     => $user->user_login,
+                'email'        => $user->user_email,
+                'display_name' => $user->display_name,
+                'first_name'   => $user->first_name,
+                'last_name'    => $user->last_name,
+                'role'         => !empty($user->roles) ? $user->roles[0] : 'none',
+                'registered'   => $user->user_registered,
+                'last_login'   => get_user_meta($user->ID, 'last_login', true) ?: null,
+            ];
+        }
+
+        return rest_ensure_response($result);
+    }
+
+    public function create_wp_user(WP_REST_Request $request) {
+        $username = $request->get_param('username');
+        $email = $request->get_param('email');
+        $role = $request->get_param('role') ?: 'subscriber';
+        $password = $request->get_param('password') ?: wp_generate_password(16, true, true);
+        $first_name = $request->get_param('first_name') ?: '';
+        $last_name = $request->get_param('last_name') ?: '';
+
+        if (username_exists($username)) {
+            return new WP_Error('username_exists', 'Username already exists.', ['status' => 409]);
+        }
+        if (email_exists($email)) {
+            return new WP_Error('email_exists', 'Email already exists.', ['status' => 409]);
+        }
+
+        $user_id = wp_insert_user([
+            'user_login' => $username,
+            'user_email' => $email,
+            'user_pass'  => $password,
+            'role'       => $role,
+            'first_name' => $first_name,
+            'last_name'  => $last_name,
+        ]);
+
+        if (is_wp_error($user_id)) {
+            return new WP_Error('create_failed', $user_id->get_error_message(), ['status' => 500]);
+        }
+
+        return rest_ensure_response([
+            'success'  => true,
+            'user_id'  => $user_id,
+            'username' => $username,
+            'email'    => $email,
+            'role'     => $role,
+        ]);
+    }
+
+    public function update_wp_user(WP_REST_Request $request) {
+        $user_id = $request->get_param('user_id');
+        $user = get_user_by('id', $user_id);
+
+        if (!$user) {
+            return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+        }
+
+        $data = ['ID' => $user_id];
+        $params = $request->get_json_params();
+
+        if (isset($params['email'])) $data['user_email'] = sanitize_email($params['email']);
+        if (isset($params['first_name'])) $data['first_name'] = sanitize_text_field($params['first_name']);
+        if (isset($params['last_name'])) $data['last_name'] = sanitize_text_field($params['last_name']);
+        if (isset($params['display_name'])) $data['display_name'] = sanitize_text_field($params['display_name']);
+        if (isset($params['password'])) $data['user_pass'] = $params['password'];
+
+        $result = wp_update_user($data);
+
+        if (is_wp_error($result)) {
+            return new WP_Error('update_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        // Handle role change separately
+        if (isset($params['role'])) {
+            $user = new WP_User($user_id);
+            $user->set_role(sanitize_text_field($params['role']));
+        }
+
+        return rest_ensure_response([
+            'success' => true,
+            'user_id' => $user_id,
+        ]);
+    }
+
+    public function delete_wp_user(WP_REST_Request $request) {
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+
+        $user_id = $request->get_param('user_id');
+        $reassign = $request->get_param('reassign') ?: 1;
+
+        $user = get_user_by('id', $user_id);
+        if (!$user) {
+            return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+        }
+
+        // Prevent deleting the current user
+        if ($user_id === get_current_user_id()) {
+            return new WP_Error('cannot_delete_self', 'Cannot delete your own account.', ['status' => 403]);
+        }
+
+        $result = wp_delete_user($user_id, $reassign);
+
+        if (!$result) {
+            return new WP_Error('delete_failed', 'Failed to delete user.', ['status' => 500]);
+        }
+
+        return rest_ensure_response([
+            'success'  => true,
+            'user_id'  => $user_id,
+            'reassigned_to' => $reassign,
         ]);
     }
 

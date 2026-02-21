@@ -235,10 +235,222 @@ export const wpAITools: Tool[] = [
       required: ["menu_id", "title"],
     },
   },
+  // ─── Plugin/Theme/Core Updates ──────────────────────────────────
+
+  {
+    name: "update_plugin",
+    description:
+      "Update a WordPress plugin to its latest version. Requires the mu-plugin. Use list_plugins first to see which plugins have updates available.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        plugin: {
+          type: "string",
+          description: 'Plugin file path (e.g., "akismet/akismet.php"). Get this from list_plugins.',
+        },
+      },
+      required: ["plugin"],
+    },
+  },
+  {
+    name: "list_themes",
+    description:
+      "List all installed themes with activation status, version, and update availability.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "update_theme",
+    description:
+      "Update a WordPress theme to its latest version. Use list_themes first to check for updates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        theme: {
+          type: "string",
+          description: "Theme slug (directory name)",
+        },
+      },
+      required: ["theme"],
+    },
+  },
+  {
+    name: "update_core",
+    description:
+      "Update WordPress core to the latest version. Use get_site_health first to check current version.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+
+  // ─── WooCommerce ─────────────────────────────────────────────────
+
+  {
+    name: "get_wc_orders",
+    description:
+      "List WooCommerce orders. Returns order ID, status, total, customer, items. Requires WooCommerce to be active.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        per_page: { type: "number", description: "Orders per page (max 100)", default: 10 },
+        page: { type: "number", description: "Page number", default: 1 },
+        status: {
+          type: "string",
+          description: "Filter by status: processing, on-hold, completed, cancelled, refunded, failed, or any",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_wc_order",
+    description:
+      "Get full details of a single WooCommerce order including items, billing, shipping, and order notes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "The order ID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_wc_stats",
+    description:
+      "Get WooCommerce store stats: today/month orders and revenue, orders by status, low stock products, total products.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+
+  // ─── User Management ─────────────────────────────────────────────
+
+  {
+    name: "list_wp_users",
+    description:
+      "List all WordPress users with their roles, emails, and registration dates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "create_wp_user",
+    description:
+      "Create a new WordPress user. Generates a secure password if not provided.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        username: { type: "string", description: "Login username" },
+        email: { type: "string", description: "Email address" },
+        role: {
+          type: "string",
+          description: "WordPress role: administrator, editor, author, contributor, subscriber, shop_manager, customer",
+          default: "subscriber",
+        },
+        password: { type: "string", description: "Password (auto-generated if omitted)" },
+        first_name: { type: "string" },
+        last_name: { type: "string" },
+      },
+      required: ["username", "email"],
+    },
+  },
+  {
+    name: "update_wp_user",
+    description:
+      "Update an existing WordPress user's email, name, role, or password.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "The user ID" },
+        email: { type: "string" },
+        first_name: { type: "string" },
+        last_name: { type: "string" },
+        display_name: { type: "string" },
+        role: { type: "string" },
+        password: { type: "string" },
+      },
+      required: ["user_id"],
+    },
+  },
+  {
+    name: "delete_wp_user",
+    description:
+      "Delete a WordPress user and reassign their content to another user.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "User ID to delete" },
+        reassign: { type: "number", description: "User ID to reassign content to (default: 1 = admin)" },
+      },
+      required: ["user_id"],
+    },
+  },
+
+  // ─── Debug & Maintenance ─────────────────────────────────────────
+
+  {
+    name: "get_debug_log",
+    description:
+      "Read the WordPress debug.log file. Returns parsed entries with severity levels (fatal, warning, notice, deprecated). Use to diagnose site issues.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        lines: {
+          type: "number",
+          description: "Number of recent log lines to fetch (max 2000)",
+          default: 200,
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_db_health",
+    description:
+      "Get WordPress database health: revisions count, transients, autoload size, spam comments. Use to diagnose performance issues.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "clear_cache",
+    description:
+      "Clear all WordPress caches: object cache, page cache plugins (WP Rocket, W3TC, LiteSpeed, etc.), and transients.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "toggle_maintenance",
+    description: "Enable or disable WordPress maintenance mode.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        enable: { type: "boolean", description: "true to enable, false to disable" },
+      },
+      required: ["enable"],
+    },
+  },
+
+  // ─── Proposals ───────────────────────────────────────────────────
+
   {
     name: "propose_changes",
     description:
-      "When you have determined what changes need to be made, use this tool to propose them to the user for review. The user will see a table of proposed changes and can select which ones to apply. ALWAYS use this tool instead of directly making changes.",
+      "When you have determined what changes need to be made, use this tool to propose them to the user for review. The user will see a table of proposed changes and can select which ones to apply. ALWAYS use this tool for content changes (pages, posts, media ALT text). Direct action tools (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, clear_cache, toggle_maintenance) execute immediately without proposals.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -253,7 +465,7 @@ export const wpAITools: Tool[] = [
             properties: {
               resource_type: {
                 type: "string",
-                description: "Type: media, page, post, plugin, menu_item",
+                description: "Type: media, page, post, plugin, theme, menu_item, user",
               },
               resource_id: { type: "string", description: "Resource ID" },
               resource_title: {

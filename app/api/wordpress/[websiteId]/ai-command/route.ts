@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireAdmin } from "@/lib/auth";
 import { WPClient } from "@/lib/wordpress/wp-client";
@@ -58,6 +59,7 @@ export async function POST(
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let finalProposal: Record<string, unknown> | null = null;
+    const seenToolUseIds = new Set<string>();
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const response = await anthropic.messages.create({
@@ -98,7 +100,23 @@ export async function POST(
 
       // Tool use — execute tools and continue
       if (response.stop_reason === "tool_use") {
-        const assistantContent = response.content;
+        // Deep-clone content blocks and deduplicate tool_use IDs to avoid
+        // "tool_use ids must be unique" errors across multi-turn conversations
+        const assistantContent: Anthropic.ContentBlockParam[] = response.content.map((block) => {
+          if (block.type === "tool_use") {
+            let id = block.id;
+            if (seenToolUseIds.has(id)) {
+              id = `toolu_${randomUUID().replace(/-/g, "")}`;
+            }
+            seenToolUseIds.add(id);
+            return { type: "tool_use" as const, id, name: block.name, input: block.input as Record<string, unknown> };
+          }
+          if (block.type === "text") {
+            return { type: "text" as const, text: block.text };
+          }
+          return block;
+        });
+
         messages.push({ role: "assistant", content: assistantContent });
 
         const toolResults: Anthropic.ToolResultBlockParam[] = [];

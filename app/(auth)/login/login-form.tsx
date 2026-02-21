@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useRecaptcha } from "@/components/recaptcha-provider";
 import { loginAction } from "@/lib/actions/auth";
 
@@ -89,9 +90,8 @@ export function LoginForm() {
             Forgot password?
           </Link>
         </div>
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
           placeholder="Your password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

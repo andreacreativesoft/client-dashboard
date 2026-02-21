@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PushNotificationToggle } from "@/components/push-notification-toggle";
@@ -182,10 +183,9 @@ export function SettingsForm({ profile }: SettingsFormProps) {
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="current_password">{t("settings.current_password")}</Label>
-              <Input
+              <PasswordInput
                 id="current_password"
                 name="current_password"
-                type="password"
                 required
                 placeholder={t("settings.current_password_placeholder")}
               />
@@ -193,10 +193,9 @@ export function SettingsForm({ profile }: SettingsFormProps) {
 
             <div className="space-y-2">
               <Label htmlFor="new_password">{t("settings.new_password")}</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
                 name="new_password"
-                type="password"
                 minLength={8}
                 required
                 placeholder={t("settings.min_8_chars")}
@@ -205,10 +204,9 @@ export function SettingsForm({ profile }: SettingsFormProps) {
 
             <div className="space-y-2">
               <Label htmlFor="confirm_password">{t("settings.confirm_password")}</Label>
-              <Input
+              <PasswordInput
                 id="confirm_password"
                 name="confirm_password"
-                type="password"
                 minLength={8}
                 required
                 placeholder={t("settings.confirm_new_password")}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -70,9 +70,8 @@ function ChangePasswordSection({ userId }: { userId: string }) {
           {success && <p className="text-xs text-green-600">Password changed successfully!</p>}
           <div className="space-y-1">
             <Label htmlFor="edit_new_password" className="text-xs">New Password</Label>
-            <Input
+            <PasswordInput
               id="edit_new_password"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
@@ -83,9 +82,8 @@ function ChangePasswordSection({ userId }: { userId: string }) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="edit_confirm_password" className="text-xs">Confirm Password</Label>
-            <Input
+            <PasswordInput
               id="edit_confirm_password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required

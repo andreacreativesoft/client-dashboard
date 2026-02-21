@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["ssh2", "node-ssh"],
+
   images: {
     remotePatterns: [
       {

@@ -8,7 +8,7 @@ import { WPClient, encryptCredentials, decryptCredentials } from "@/lib/wordpres
 import { deployMuPlugin } from "@/lib/wordpress/deploy-mu-plugin";
 import { logActivity } from "@/lib/actions/activity";
 import { ActivityTypes } from "@/lib/constants/activity";
-import type { ConnectWordPressInput, WordPressCredentialsEncrypted } from "@/types/wordpress";
+import type { ConnectWordPressInput, WordPressCredentialsEncrypted, DebugLogResponse } from "@/types/wordpress";
 import type { Integration } from "@/types/database";
 
 // ---------------------------------------------------------------------------
@@ -373,4 +373,65 @@ export async function deployMuPluginAction(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch debug log via WPClient (new flow — uses mu-plugin endpoint)
+// ---------------------------------------------------------------------------
+
+export async function getDebugLogAction(
+  websiteId: string,
+  lines: number = 200
+): Promise<{
+  success: boolean;
+  error?: string;
+  data?: DebugLogResponse;
+}> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  try {
+    const client = await WPClient.fromWebsiteId(websiteId);
+    const data = await client.getDebugLog(lines);
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Toggle debug mode via WPClient
+// ---------------------------------------------------------------------------
+
+export async function toggleDebugModeAction(
+  websiteId: string,
+  enable: boolean
+): Promise<{ success: boolean; error?: string; debug?: boolean }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  try {
+    const client = await WPClient.fromWebsiteId(websiteId);
+    const result = await client.toggleDebugMode(enable);
+
+    const supabase = await createClient();
+    const { data: website } = await supabase
+      .from("websites")
+      .select("id, client_id")
+      .eq("id", websiteId)
+      .single();
+
+    if (website) {
+      await logActivity({
+        clientId: website.client_id,
+        actionType: ActivityTypes.WORDPRESS_CONNECTION_TESTED,
+        description: `Debug mode ${enable ? "enabled" : "disabled"} on website`,
+        metadata: { website_id: websiteId, debug: result.debug },
+      });
+    }
+
+    return { success: true, debug: result.debug };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
 }

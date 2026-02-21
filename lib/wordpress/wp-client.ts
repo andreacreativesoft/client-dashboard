@@ -71,7 +71,7 @@ export class WPClient {
 
     const { data: integration } = await supabase
       .from("integrations")
-      .select("id")
+      .select("id, account_name, access_token_encrypted, metadata")
       .eq("client_id", website.client_id)
       .eq("type", "wordpress")
       .eq("is_active", true)
@@ -80,15 +80,38 @@ export class WPClient {
 
     if (!integration) throw new Error("WordPress integration not found");
 
+    // Try dedicated credentials table first
     const { data: creds } = await supabase
       .from("wordpress_credentials")
       .select("*")
       .eq("integration_id", integration.id)
       .single();
 
-    if (!creds) throw new Error("WordPress credentials not found");
+    if (creds) {
+      return new WPClient(decryptCredentials(creds as WordPressCredentialsEncrypted));
+    }
 
-    return new WPClient(decryptCredentials(creds as WordPressCredentialsEncrypted));
+    // Fallback: build credentials from integrations table
+    // (connected via Integrations tab which only writes to integrations)
+    const metadata = integration.metadata as Record<string, unknown> | null;
+    const siteUrl = (metadata?.site_url as string) || "";
+    const username = integration.account_name || "";
+    const encryptedPassword = integration.access_token_encrypted || "";
+
+    if (!siteUrl || !username || !encryptedPassword) {
+      throw new Error("WordPress credentials incomplete in integration record");
+    }
+
+    return new WPClient({
+      id: integration.id,
+      integration_id: integration.id,
+      site_url: siteUrl,
+      username,
+      app_password: decryptToken(encryptedPassword),
+      shared_secret: "",
+      ssh_port: 22,
+      mu_plugin_installed: false,
+    });
   }
 
   get integrationIdValue(): string {

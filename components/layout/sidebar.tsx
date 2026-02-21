@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/sidebar-context";
@@ -160,18 +161,35 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex-col border-r border-border bg-card transition-all duration-300 ease-in-out",
+        "flex-col border-r border-sidebar-bg/10 bg-sidebar-bg transition-all duration-300 ease-in-out",
         collapsed ? "w-[68px]" : "w-72",
         className
       )}
     >
-      {/* Header with toggle */}
-      <div className="flex h-16 items-center border-b border-border px-3">
-        {!collapsed && <div className="flex-1" />}
+      {/* Header with logo + toggle */}
+      <div className="flex h-16 items-center border-b border-sidebar-muted px-3">
+        {!collapsed && (
+          <Link href="/dashboard" className="flex flex-1 items-center gap-2">
+            <Image
+              src="/logo-icon.svg"
+              alt="Logo"
+              width={32}
+              height={32}
+              className="shrink-0"
+            />
+            <Image
+              src="/logo.svg"
+              alt="VotreSitePro"
+              width={130}
+              height={26}
+              className="shrink-0 brightness-0 invert"
+            />
+          </Link>
+        )}
         <button
           onClick={toggle}
           className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/60 transition-colors hover:bg-sidebar-muted hover:text-sidebar-foreground",
             collapsed && "mx-auto"
           )}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -193,11 +211,16 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
             />
           </svg>
         </button>
+        {collapsed && (
+          <Link href="/dashboard" className="hidden">
+            <span className="sr-only">Dashboard</span>
+          </Link>
+        )}
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-hidden p-2">
         {!collapsed && (
-          <p className="mb-1 px-3 text-base font-medium uppercase tracking-wider text-muted-foreground">
+          <p className="mb-1 px-3 text-base font-medium uppercase tracking-wider text-sidebar-foreground/50">
             {t("nav.main")}
           </p>
         )}
@@ -214,14 +237,14 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
                 "relative flex h-12 items-center gap-3 rounded-lg transition-colors",
                 collapsed ? "justify-center px-0" : "px-3",
                 isActive(item.href)
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "bg-sidebar-active text-sidebar-active-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-muted hover:text-sidebar-foreground"
               )}
             >
               <span className="relative">
                 {item.icon}
                 {collapsed && badgeCount > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
                     {badgeCount > 99 ? "99+" : badgeCount}
                   </span>
                 )}
@@ -230,7 +253,7 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
                 <>
                   <span className="truncate text-lg font-medium">{label}</span>
                   {badgeCount > 0 && (
-                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-xs font-bold text-white">
                       {badgeCount > 99 ? "99+" : badgeCount}
                     </span>
                   )}
@@ -243,11 +266,11 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
         {isAdmin && (
           <>
             {!collapsed ? (
-              <p className="mb-1 mt-6 px-3 text-base font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1 mt-6 px-3 text-base font-medium uppercase tracking-wider text-sidebar-foreground/50">
                 {t("nav.admin_section")}
               </p>
             ) : (
-              <div className="my-3 border-t border-border" />
+              <div className="my-3 border-t border-sidebar-muted" />
             )}
             {adminItems.map((item) => {
               const label = t(item.labelKey);
@@ -260,8 +283,8 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
                     "flex h-12 items-center gap-3 rounded-lg transition-colors",
                     collapsed ? "justify-center px-0" : "px-3",
                     isActive(item.href, item.exact)
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-sidebar-active text-sidebar-active-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-muted hover:text-sidebar-foreground"
                   )}
                 >
                   {item.icon}

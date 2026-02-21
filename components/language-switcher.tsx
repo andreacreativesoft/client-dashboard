@@ -45,7 +45,7 @@ export function LanguageSwitcher() {
         onClick={() => setOpen(!open)}
         disabled={updating}
         className={cn(
-          "flex h-9 items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50",
+          "flex h-[38px] items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50",
           open && "bg-primary/20"
         )}
         title={language === "fr-BE" ? "Changer de langue" : "Change language"}

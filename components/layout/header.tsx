@@ -73,7 +73,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
       <div className="flex items-center gap-3">
 
         <div className="text-right hidden sm:block">
-          <p className="text-sm font-medium leading-none">{userName}</p>
+          <p className="text-[0.938rem] font-medium leading-none">{userName}</p>
           {isAdmin && (
             <p className="mt-0.5 text-xs text-muted-foreground">{t("header.admin")}</p>
           )}
@@ -111,7 +111,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
         <button
           onClick={handleSignOut}
           disabled={signingOut}
-          className="h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="h-9 rounded-lg bg-accent px-3 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
           {signingOut ? "..." : t("header.sign_out")}
         </button>

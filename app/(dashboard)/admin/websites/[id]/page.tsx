@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AIAnalysis } from "./ai-analysis";
 import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
+import { SiteHealthDashboard } from "@/components/wordpress/site-health/site-health-dashboard";
 import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
 import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
@@ -119,11 +120,19 @@ export default async function WebsiteDetailPage({
         />
       </div>
 
-      {/* Debug Log (only if connected) */}
+      {/* WordPress Management (only if connected) */}
       {wpStatus.connected && (
-        <div className="mb-6">
-          <DebugLogViewer websiteId={id} />
-        </div>
+        <>
+          {/* Site Health Dashboard */}
+          <div className="mb-6">
+            <SiteHealthDashboard websiteId={id} />
+          </div>
+
+          {/* Debug Log */}
+          <div className="mb-6">
+            <DebugLogViewer websiteId={id} />
+          </div>
+        </>
       )}
 
       {/* AI Analysis */}

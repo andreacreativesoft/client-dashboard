@@ -138,7 +138,11 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
       {testResult && (
         <p className="text-xs text-green-600">{testResult}</p>
       )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && (
+        <div className="rounded border border-destructive/30 bg-destructive/5 p-2">
+          <p className="whitespace-pre-line text-xs text-destructive">{error}</p>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <Button

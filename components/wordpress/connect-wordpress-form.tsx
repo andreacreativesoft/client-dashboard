@@ -165,13 +165,13 @@ function ConnectedState({
         )}
 
         {testResult && (
-          <p
-            className={`text-sm ${
-              testResult.type === "success" ? "text-green-600" : "text-destructive"
-            }`}
-          >
-            {testResult.message}
-          </p>
+          testResult.type === "success" ? (
+            <p className="text-sm text-green-600">{testResult.message}</p>
+          ) : (
+            <div className="rounded border border-destructive/30 bg-destructive/5 p-3">
+              <p className="whitespace-pre-line text-sm text-destructive">{testResult.message}</p>
+            </div>
+          )
         )}
 
         <div className="flex gap-2">
@@ -432,7 +432,11 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
             </div>
           )}
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <div className="rounded border border-destructive/30 bg-destructive/5 p-3">
+              <p className="whitespace-pre-line text-sm text-destructive">{error}</p>
+            </div>
+          )}
 
           <Button
             type="submit"

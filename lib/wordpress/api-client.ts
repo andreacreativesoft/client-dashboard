@@ -55,6 +55,50 @@ function normalizeUrl(siteUrl: string): string {
   return siteUrl.replace(/\/+$/, "");
 }
 
+/**
+ * Parse a WordPress REST API error response and return a user-friendly message.
+ */
+function parseWPError(status: number, body: string): string {
+  try {
+    const json = JSON.parse(body) as { code?: string; message?: string };
+    const code = json.code || "";
+
+    if (code === "rest_not_logged_in" || (status === 401 && body.includes("rest_not_logged_in"))) {
+      return (
+        "Authentication failed — WordPress is not receiving the credentials. " +
+        "This usually means your hosting (Apache) strips the Authorization header. " +
+        "Fix: add this line to your .htaccess file (before the WordPress rules):\n" +
+        'RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n' +
+        "Also verify:\n" +
+        "- The username exists and has Administrator role\n" +
+        "- The Application Password is correct (no extra spaces)\n" +
+        "- No security plugin is blocking Application Passwords"
+      );
+    }
+
+    if (code === "invalid_application_password" || code === "incorrect_password") {
+      return "Invalid Application Password. Generate a new one in WordPress: Users → Profile → Application Passwords.";
+    }
+
+    if (code === "invalid_username") {
+      return "WordPress username not found. Check that you entered the correct username (not email).";
+    }
+
+    if (code === "rest_forbidden") {
+      return "Access denied — the WordPress user does not have sufficient permissions. An Administrator role is required.";
+    }
+
+    // Fallback: use the WP message if available
+    if (json.message) {
+      return `WordPress error: ${json.message} (${code || status})`;
+    }
+  } catch {
+    // Not JSON — fall through
+  }
+
+  return `HTTP ${status}: ${body.slice(0, 200)}`;
+}
+
 export async function wpApiFetch<T>(
   credentials: WPApiCredentials,
   endpoint: string,
@@ -78,7 +122,7 @@ export async function wpApiFetch<T>(
       const errorText = await response.text().catch(() => "Unknown error");
       return {
         success: false,
-        error: `HTTP ${response.status}: ${errorText}`,
+        error: parseWPError(response.status, errorText),
         status: response.status,
       };
     }

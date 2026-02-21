@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { BrokenLinksChecker } from "@/components/tools/broken-links-checker";
 import { SeoAuditor } from "@/components/tools/seo-auditor";
 import { UptimeChecker } from "@/components/tools/uptime-checker";
 import { SecurityChecker } from "@/components/tools/security-checker";
+import { Badge } from "@/components/ui/badge";
 import type { Client, Website, SiteCheck } from "@/types/database";
 
 interface ClientData {
@@ -19,9 +20,29 @@ interface ToolsDashboardProps {
 
 type ToolTab = "broken_links" | "seo_audit" | "uptime" | "security";
 
+function ScoreBadge({ score }: { score: number }) {
+  const variant = score >= 80 ? "success" : score >= 50 ? "warning" : "destructive";
+  return <Badge variant={variant}>{score}/100</Badge>;
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
 export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
   const [activeTab, setActiveTab] = useState<ToolTab>("broken_links");
   const [selectedWebsiteId, setSelectedWebsiteId] = useState<string>("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Flatten all websites with client info
   const allWebsites = clientData.flatMap((cd) =>
@@ -39,6 +60,26 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
     return null;
   }
 
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback((ids: string[]) => {
+    setExpandedIds(new Set(ids));
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setExpandedIds(new Set());
+  }, []);
+
   const tabs: { key: ToolTab; label: string }[] = [
     { key: "broken_links", label: "Broken Links" },
     { key: "seo_audit", label: "SEO Audit" },
@@ -49,6 +90,8 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
   const websitesToShow = selectedWebsiteId
     ? allWebsites.filter((w) => w.id === selectedWebsiteId)
     : allWebsites;
+
+  const allExpanded = websitesToShow.length > 0 && websitesToShow.every((w) => expandedIds.has(w.id));
 
   return (
     <div>
@@ -69,8 +112,8 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
         ))}
       </div>
 
-      {/* Website filter */}
-      <div className="mb-4">
+      {/* Website filter + expand/collapse */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <select
           value={selectedWebsiteId}
           onChange={(e) => setSelectedWebsiteId(e.target.value)}
@@ -87,51 +130,104 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
             </optgroup>
           ))}
         </select>
+
+        {websitesToShow.length > 1 && (
+          <button
+            onClick={() =>
+              allExpanded ? collapseAll() : expandAll(websitesToShow.map((w) => w.id))
+            }
+            className="rounded border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
+          >
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        )}
       </div>
 
-      {/* Tool cards */}
+      {/* Accordion website cards */}
       {allWebsites.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No websites found. Add websites to clients first.
         </p>
       ) : (
-        <div className="space-y-4">
-          {websitesToShow.map((website) => (
-            <div key={website.id}>
-              {activeTab === "broken_links" && (
-                <BrokenLinksChecker
-                  websiteId={website.id}
-                  websiteName={`${website.clientName} — ${website.name}`}
-                  websiteUrl={website.url}
-                  lastCheck={getLatestCheck(website.id, "broken_links")}
-                />
-              )}
-              {activeTab === "seo_audit" && (
-                <SeoAuditor
-                  websiteId={website.id}
-                  websiteName={`${website.clientName} — ${website.name}`}
-                  websiteUrl={website.url}
-                  lastCheck={getLatestCheck(website.id, "seo_audit")}
-                />
-              )}
-              {activeTab === "uptime" && (
-                <UptimeChecker
-                  websiteId={website.id}
-                  websiteName={`${website.clientName} — ${website.name}`}
-                  websiteUrl={website.url}
-                  lastCheck={getLatestCheck(website.id, "uptime")}
-                />
-              )}
-              {activeTab === "security" && (
-                <SecurityChecker
-                  websiteId={website.id}
-                  websiteName={`${website.clientName} — ${website.name}`}
-                  websiteUrl={website.url}
-                  lastCheck={getLatestCheck(website.id, "security")}
-                />
-              )}
-            </div>
-          ))}
+        <div className="space-y-2">
+          {websitesToShow.map((website) => {
+            const isOpen = expandedIds.has(website.id);
+            const lastCheck = getLatestCheck(website.id, activeTab);
+
+            return (
+              <div
+                key={website.id}
+                className="rounded-lg border border-border overflow-hidden"
+              >
+                {/* Accordion header */}
+                <button
+                  onClick={() => toggleExpanded(website.id)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                >
+                  <ChevronIcon open={isOpen} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate">
+                        {website.clientName} — {website.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate hidden sm:inline">
+                        {website.url}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {lastCheck?.score != null && (
+                      <ScoreBadge score={Math.round(lastCheck.score)} />
+                    )}
+                    {lastCheck && !lastCheck.score && lastCheck.status === "completed" && (
+                      <Badge variant="secondary">Checked</Badge>
+                    )}
+                    {!lastCheck && (
+                      <Badge variant="outline">Not checked</Badge>
+                    )}
+                  </div>
+                </button>
+
+                {/* Accordion content */}
+                {isOpen && (
+                  <div className="border-t border-border">
+                    {activeTab === "broken_links" && (
+                      <BrokenLinksChecker
+                        websiteId={website.id}
+                        websiteName={`${website.clientName} — ${website.name}`}
+                        websiteUrl={website.url}
+                        lastCheck={lastCheck}
+                      />
+                    )}
+                    {activeTab === "seo_audit" && (
+                      <SeoAuditor
+                        websiteId={website.id}
+                        websiteName={`${website.clientName} — ${website.name}`}
+                        websiteUrl={website.url}
+                        lastCheck={lastCheck}
+                      />
+                    )}
+                    {activeTab === "uptime" && (
+                      <UptimeChecker
+                        websiteId={website.id}
+                        websiteName={`${website.clientName} — ${website.name}`}
+                        websiteUrl={website.url}
+                        lastCheck={lastCheck}
+                      />
+                    )}
+                    {activeTab === "security" && (
+                      <SecurityChecker
+                        websiteId={website.id}
+                        websiteName={`${website.clientName} — ${website.name}`}
+                        websiteUrl={website.url}
+                        lastCheck={lastCheck}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -255,6 +255,72 @@ export type TicketReplyWithUser = TicketReply & {
   user_avatar: string | null;
 };
 
+// WordPress credentials row type
+export type WordPressCredentialsRow = {
+  id: string;
+  integration_id: string;
+  site_url: string;
+  username_encrypted: string;
+  app_password_encrypted: string;
+  shared_secret_encrypted: string;
+  ssh_host_encrypted: string | null;
+  ssh_user_encrypted: string | null;
+  ssh_key_encrypted: string | null;
+  ssh_port: number;
+  mu_plugin_installed: boolean;
+  mu_plugin_version: string | null;
+  last_health_check: string | null;
+  last_health_status: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// Action queue row type
+export type WPActionQueueRow = {
+  id: string;
+  website_id: string;
+  integration_id: string;
+  initiated_by: string;
+  action_type: string;
+  action_payload: Record<string, unknown>;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  status: "pending" | "processing" | "completed" | "failed" | "rolled_back";
+  error_message: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  priority: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+// AI usage row type
+export type WPAIUsageRow = {
+  id: string;
+  website_id: string;
+  user_id: string;
+  action_type: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost_usd: number;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+// Active session row type
+export type WPActiveSessionRow = {
+  id: string;
+  website_id: string;
+  user_id: string;
+  action_description: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  last_heartbeat: string;
+  created_at: string;
+};
+
 // WordPress debug log types
 export type WPDebugLogLevel = "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
 
@@ -439,6 +505,58 @@ export type Database = {
         Row: TicketReply;
         Insert: Omit<TicketReply, "id" | "created_at">;
         Update: Partial<Omit<TicketReply, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wordpress_credentials: {
+        Row: WordPressCredentialsRow;
+        Insert: Omit<WordPressCredentialsRow, "id" | "created_at" | "updated_at" | "mu_plugin_installed" | "mu_plugin_version" | "last_health_check" | "last_health_status" | "ssh_host_encrypted" | "ssh_user_encrypted" | "ssh_key_encrypted" | "ssh_port"> & {
+          mu_plugin_installed?: boolean;
+          mu_plugin_version?: string | null;
+          last_health_check?: string | null;
+          last_health_status?: Record<string, unknown> | null;
+          ssh_host_encrypted?: string | null;
+          ssh_user_encrypted?: string | null;
+          ssh_key_encrypted?: string | null;
+          ssh_port?: number;
+        };
+        Update: Partial<Omit<WordPressCredentialsRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_action_queue: {
+        Row: WPActionQueueRow;
+        Insert: Omit<WPActionQueueRow, "id" | "created_at" | "before_state" | "after_state" | "error_message" | "resource_type" | "resource_id" | "started_at" | "completed_at" | "priority"> & {
+          before_state?: Record<string, unknown> | null;
+          after_state?: Record<string, unknown> | null;
+          error_message?: string | null;
+          resource_type?: string | null;
+          resource_id?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          priority?: number;
+        };
+        Update: Partial<Omit<WPActionQueueRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_ai_usage: {
+        Row: WPAIUsageRow;
+        Insert: Omit<WPAIUsageRow, "id" | "created_at" | "input_tokens" | "output_tokens" | "estimated_cost_usd" | "metadata"> & {
+          input_tokens?: number;
+          output_tokens?: number;
+          estimated_cost_usd?: number;
+          metadata?: Record<string, unknown> | null;
+        };
+        Update: Partial<Omit<WPAIUsageRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_active_sessions: {
+        Row: WPActiveSessionRow;
+        Insert: Omit<WPActiveSessionRow, "id" | "created_at" | "last_heartbeat" | "action_description" | "resource_type" | "resource_id"> & {
+          last_heartbeat?: string;
+          action_description?: string | null;
+          resource_type?: string | null;
+          resource_id?: string | null;
+        };
+        Update: Partial<Omit<WPActiveSessionRow, "id" | "created_at">>;
         Relationships: [];
       };
     };

@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AIAnalysis } from "./ai-analysis";
 import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
+import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
+import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
 
 export const metadata: Metadata = {
@@ -33,6 +35,9 @@ export default async function WebsiteDetailPage({
   if (!website) notFound();
 
   const typedWebsite = website as WebsiteWithClient;
+
+  // Check WordPress connection status
+  const wpStatus = await getWordPressStatus(id);
 
   return (
     <div className="p-4 md:p-6">
@@ -105,10 +110,21 @@ export default async function WebsiteDetailPage({
         </CardContent>
       </Card>
 
-      {/* Debug Log */}
+      {/* WordPress Connection */}
       <div className="mb-6">
-        <DebugLogViewer websiteId={id} />
+        <ConnectWordPressForm
+          websiteId={id}
+          siteUrl={typedWebsite.url}
+          status={wpStatus}
+        />
       </div>
+
+      {/* Debug Log (only if connected) */}
+      {wpStatus.connected && (
+        <div className="mb-6">
+          <DebugLogViewer websiteId={id} />
+        </div>
+      )}
 
       {/* AI Analysis */}
       <AIAnalysis websiteId={id} />

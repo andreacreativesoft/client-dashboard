@@ -108,6 +108,12 @@ class Dashboard_Connector {
                 ],
             ],
         ]);
+
+        register_rest_route($this->namespace, '/db-health', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_db_health'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
     }
 
     // ═══════════════════════════════════════════
@@ -537,6 +543,73 @@ class Dashboard_Connector {
             'success' => true,
             'debug'   => $enable,
             'backup'  => basename($backup_file),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: DATABASE HEALTH
+    // ═══════════════════════════════════════════
+
+    public function get_db_health(WP_REST_Request $request) {
+        global $wpdb;
+
+        $prefix = $wpdb->prefix;
+
+        // Post revisions count
+        $revisions = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}posts WHERE post_type = 'revision'"
+        );
+
+        // Transients count
+        $transients = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}options WHERE option_name LIKE '_transient_%'"
+        );
+
+        // Expired transients
+        $expired_transients = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}options
+             WHERE option_name LIKE '_transient_timeout_%'
+               AND option_value < UNIX_TIMESTAMP()"
+        );
+
+        // Autoloaded options size (KB)
+        $autoload_bytes = (int) $wpdb->get_var(
+            "SELECT SUM(LENGTH(option_value)) FROM {$prefix}options WHERE autoload = 'yes'"
+        );
+        $autoload_kb = round($autoload_bytes / 1024);
+
+        // Spam comments
+        $spam_comments = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}comments WHERE comment_approved = 'spam'"
+        );
+
+        // Total tables and DB size
+        $db_size = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2)
+                 FROM information_schema.TABLES
+                 WHERE table_schema = %s",
+                DB_NAME
+            )
+        );
+
+        // Total posts/pages count
+        $total_posts = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}posts WHERE post_status = 'publish' AND post_type = 'post'"
+        );
+        $total_pages = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$prefix}posts WHERE post_status = 'publish' AND post_type = 'page'"
+        );
+
+        return rest_ensure_response([
+            'revisions'          => $revisions,
+            'transients'         => $transients,
+            'expired_transients' => $expired_transients,
+            'autoload_kb'        => $autoload_kb,
+            'spam_comments'      => $spam_comments,
+            'db_size_mb'         => $db_size . ' MB',
+            'total_posts'        => $total_posts,
+            'total_pages'        => $total_pages,
         ]);
     }
 

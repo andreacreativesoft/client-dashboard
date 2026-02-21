@@ -216,6 +216,19 @@ export class WPClient {
     });
   }
 
+  async getDbHealth(): Promise<{
+    revisions: number;
+    transients: number;
+    expired_transients: number;
+    autoload_kb: number;
+    spam_comments: number;
+    db_size_mb: string;
+    total_posts: number;
+    total_pages: number;
+  }> {
+    return this.request("/db-health", { isCustomEndpoint: true });
+  }
+
   // ─── Standard WP REST API ─────────────────────────────────────────
 
   async getMedia(params?: {

@@ -140,11 +140,14 @@ export interface DashboardAnalyticsData {
 
 // ─── Database Row Types ──────────────────────────────────────────────
 
+export type AnalysisMode = "online" | "local";
+
 export interface WPSiteConfig {
   id: string;
   website_id: string;
   local_path: string;
   deploy_method: "none" | "git" | "wp_migrate";
+  analysis_mode: AnalysisMode;
   created_at: string;
   updated_at: string;
 }
@@ -154,6 +157,7 @@ export interface WPAnalysis {
   website_id: string;
   client_id: string;
   status: "running" | "completed" | "failed";
+  analysis_mode: AnalysisMode;
   site_data: WPCrawlResult | Record<string, unknown>;
   recommendations: AIRecommendation[];
   scores: AnalysisScores | Record<string, unknown>;

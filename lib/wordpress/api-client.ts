@@ -59,41 +59,129 @@ function normalizeUrl(siteUrl: string): string {
  * Parse a WordPress REST API error response and return a user-friendly message.
  */
 function parseWPError(status: number, body: string): string {
+  // Non-JSON response — likely HTML redirect, WAF, or maintenance page
+  let json: { code?: string; message?: string; data?: { status?: number } } | null = null;
   try {
-    const json = JSON.parse(body) as { code?: string; message?: string };
-    const code = json.code || "";
+    json = JSON.parse(body);
+  } catch {
+    // Not JSON
+  }
 
-    if (code === "rest_not_logged_in" || (status === 401 && body.includes("rest_not_logged_in"))) {
+  if (!json) {
+    const isHtml = body.trim().startsWith("<");
+    if (status === 401 && isHtml) {
       return (
-        "Authentication failed — WordPress is not receiving the credentials. " +
-        "This usually means your hosting (Apache) strips the Authorization header. " +
-        "Fix: add this line to your .htaccess file (before the WordPress rules):\n" +
-        'RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n' +
+        "Authentication failed — the server returned HTML instead of JSON.\n" +
+        "This usually means a security plugin or WAF is intercepting the request before WordPress can process it."
+      );
+    }
+    if (status === 403 && isHtml) {
+      return (
+        "Access blocked (403) — the server returned HTML.\n" +
+        "A firewall, ModSecurity, or security plugin is blocking REST API requests."
+      );
+    }
+    if (status === 503) {
+      return "Site unavailable (503) — the site may be in maintenance mode or the server is overloaded.";
+    }
+    if (status === 502 || status === 504) {
+      return `Gateway error (${status}) — the web server could not reach PHP. Check that PHP-FPM is running.`;
+    }
+    return `HTTP ${status}: Server returned non-JSON response. ${isHtml ? "Got HTML — possible redirect or WAF block." : body.slice(0, 200)}`;
+  }
+
+  const code = json.code || "";
+  const wpMsg = json.message || "";
+
+  // 401 errors
+  if (status === 401) {
+    if (code === "rest_not_logged_in") {
+      return (
+        "Authentication failed — WordPress says 'not logged in'.\n\n" +
+        "The server received the request but did not see any credentials. " +
+        "This is the classic Apache Authorization header stripping issue.\n\n" +
+        "Fixes (try in order):\n" +
+        "1. Install the mu-plugin (dashboard-connector.php) in wp-content/mu-plugins/ — it has a built-in header fallback\n" +
+        "2. Add to .htaccess (BEFORE the WordPress rules):\n" +
+        "   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n" +
+        "3. For CGI/FastCGI, add to wp-config.php:\n" +
+        "   $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';\n\n" +
         "Also verify:\n" +
         "- The username exists and has Administrator role\n" +
         "- The Application Password is correct (no extra spaces)\n" +
         "- No security plugin is blocking Application Passwords"
       );
     }
-
     if (code === "invalid_application_password" || code === "incorrect_password") {
-      return "Invalid Application Password. Generate a new one in WordPress: Users → Profile → Application Passwords.";
+      return (
+        "Invalid Application Password.\n\n" +
+        "The username was found but the password is wrong. To fix:\n" +
+        "1. Go to WordPress Admin → Users → Profile → Application Passwords\n" +
+        "2. Revoke the old password and generate a new one\n" +
+        "3. Copy it exactly (spaces between groups are fine)\n" +
+        "4. Paste it in the dashboard connection form"
+      );
     }
-
     if (code === "invalid_username") {
-      return "WordPress username not found. Check that you entered the correct username (not email).";
+      return (
+        "WordPress username not found.\n\n" +
+        "Use the WordPress username (not email address). " +
+        "Check the correct username in WP Admin → Users."
+      );
     }
+    return `Authentication failed (${code}): ${wpMsg}`;
+  }
 
+  // 403 errors
+  if (status === 403) {
+    if (code === "rest_forbidden" && wpMsg.toLowerCase().includes("secret")) {
+      return (
+        "Shared secret mismatch — the mu-plugin rejected the dashboard secret.\n\n" +
+        "Check that DASHBOARD_SHARED_SECRET in wp-config.php matches the secret stored in the dashboard."
+      );
+    }
     if (code === "rest_forbidden") {
-      return "Access denied — the WordPress user does not have sufficient permissions. An Administrator role is required.";
+      return (
+        "Access denied (403) — insufficient permissions.\n\n" +
+        wpMsg +
+        "\n\nThe WordPress user must have the Administrator role."
+      );
     }
+    return `Forbidden (${code}): ${wpMsg}`;
+  }
 
-    // Fallback: use the WP message if available
-    if (json.message) {
-      return `WordPress error: ${json.message} (${code || status})`;
+  // 404 errors
+  if (status === 404) {
+    if (code === "rest_no_route") {
+      return (
+        "REST API route not found (404).\n\n" +
+        "The endpoint does not exist. If this is a /dashboard/v1/ endpoint, " +
+        "the mu-plugin (dashboard-connector.php) is not installed."
+      );
     }
-  } catch {
-    // Not JSON — fall through
+    return `Not found (404): ${wpMsg || "The requested endpoint does not exist."}`;
+  }
+
+  // 429 rate limit
+  if (status === 429) {
+    return "Rate limited (429) — too many requests. Wait a minute and try again.";
+  }
+
+  // 500 server errors
+  if (status === 500) {
+    if (code === "rest_config_error") {
+      return (
+        "Configuration error on WordPress side.\n\n" +
+        wpMsg +
+        "\n\nThis usually means DASHBOARD_SHARED_SECRET is not defined in wp-config.php."
+      );
+    }
+    return `WordPress server error (500): ${wpMsg || "Internal server error. Check the WordPress debug log."}`;
+  }
+
+  // Fallback: use the WP message if available
+  if (wpMsg) {
+    return `WordPress error: ${wpMsg} (${code || status})`;
   }
 
   return `HTTP ${status}: ${body.slice(0, 200)}`;
@@ -130,8 +218,22 @@ export async function wpApiFetch<T>(
     const data = (await response.json()) as T;
     return { success: true, data };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Network error";
-    return { success: false, error: message };
+    const msg = err instanceof Error ? err.message : "Network error";
+    let error = msg;
+
+    if (msg.includes("ENOTFOUND") || msg.includes("getaddrinfo")) {
+      error = `DNS lookup failed — cannot resolve hostname. Check the Site URL is correct.\n\nOriginal error: ${msg}`;
+    } else if (msg.includes("ECONNREFUSED")) {
+      error = `Connection refused — the server is not accepting connections.\n\nOriginal error: ${msg}`;
+    } else if (msg.includes("ETIMEDOUT") || msg.includes("timeout") || msg.includes("TimeoutError")) {
+      error = `Connection timed out — the server did not respond within 30 seconds.\n\nOriginal error: ${msg}`;
+    } else if (msg.includes("CERT") || msg.includes("SSL") || msg.includes("certificate")) {
+      error = `SSL/TLS error — the site has an invalid or expired certificate.\n\nOriginal error: ${msg}`;
+    } else if (msg.includes("ECONNRESET")) {
+      error = `Connection reset — the server dropped the connection unexpectedly.\n\nOriginal error: ${msg}`;
+    }
+
+    return { success: false, error };
   }
 }
 

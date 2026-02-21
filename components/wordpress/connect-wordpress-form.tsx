@@ -11,9 +11,11 @@ import {
   connectWordPress,
   disconnectWordPress,
   testExistingConnection,
+  diagnoseConnectionAction,
   deployMuPluginAction,
   revealAppPassword,
 } from "@/lib/actions/wordpress-manage";
+import type { ConnectionDiagnostics, DiagnosticStep } from "@/lib/wordpress/wp-client";
 
 // ─── Connected State ─────────────────────────────────────────────────
 
@@ -47,6 +49,23 @@ function ConnectedState({
   const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
   const [revealLoading, setRevealLoading] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<ConnectionDiagnostics | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+
+  function handleDiagnose() {
+    setTestResult(null);
+    setDiagnostics(null);
+    setDiagnosing(true);
+    startTransition(async () => {
+      const result = await diagnoseConnectionAction(websiteId);
+      setDiagnosing(false);
+      if (result.success && result.diagnostics) {
+        setDiagnostics(result.diagnostics);
+      } else {
+        setTestResult({ type: "error", message: result.error || "Diagnostics failed" });
+      }
+    });
+  }
 
   function handleTest() {
     setTestResult(null);
@@ -235,6 +254,8 @@ function ConnectedState({
           )
         )}
 
+        {diagnostics && <DiagnosticsPanel diagnostics={diagnostics} />}
+
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -242,7 +263,15 @@ function ConnectedState({
             onClick={handleTest}
             disabled={isPending}
           >
-            {isPending && !disconnecting && !deploying ? "Testing..." : "Test Connection"}
+            {isPending && !disconnecting && !deploying && !diagnosing ? "Testing..." : "Test Connection"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDiagnose}
+            disabled={isPending}
+          >
+            {diagnosing ? "Diagnosing..." : "Diagnose"}
           </Button>
           <Button
             variant="outline"
@@ -256,6 +285,88 @@ function ConnectedState({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Diagnostics Panel ───────────────────────────────────────────────
+
+function DiagnosticsPanel({ diagnostics }: { diagnostics: ConnectionDiagnostics }) {
+  const stepLabels: Record<string, string> = {
+    site_reachable: "Site Reachable",
+    rest_api_available: "REST API",
+    authentication: "Authentication",
+    admin_role: "Admin Role",
+    mu_plugin: "mu-plugin",
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">
+          Connection Diagnostics
+          {diagnostics.overall === "pass" && (
+            <span className="ml-2 text-green-600">All checks passed</span>
+          )}
+          {diagnostics.overall === "fail" && (
+            <span className="ml-2 text-destructive">Issues found</span>
+          )}
+          {diagnostics.overall === "warn" && (
+            <span className="ml-2 text-amber-600">Warnings</span>
+          )}
+        </p>
+        <span className="text-xs text-muted-foreground">{diagnostics.duration_ms}ms</span>
+      </div>
+
+      <div className="space-y-1.5">
+        {diagnostics.steps.map((step, i) => (
+          <DiagnosticStepRow key={i} step={step} label={stepLabels[step.step] || step.step} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiagnosticStepRow({ step, label }: { step: DiagnosticStep; label: string }) {
+  const [expanded, setExpanded] = useState(step.status !== "pass");
+
+  const icon =
+    step.status === "pass"
+      ? "text-green-600"
+      : step.status === "fail"
+        ? "text-destructive"
+        : "text-amber-600";
+
+  const statusIcon =
+    step.status === "pass" ? "\u2713" : step.status === "fail" ? "\u2717" : "!";
+
+  return (
+    <div className="rounded border border-border bg-background">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+      >
+        <span className={`font-mono text-xs font-bold ${icon}`}>{statusIcon}</span>
+        <span className="font-medium">{label}</span>
+        <span className="flex-1 truncate text-muted-foreground">{step.message}</span>
+        {step.detail && (
+          <svg
+            className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        )}
+      </button>
+      {expanded && step.detail && (
+        <div className="border-t border-border px-3 py-2">
+          <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{step.detail}</pre>
+        </div>
+      )}
+    </div>
   );
 }
 

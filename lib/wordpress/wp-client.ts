@@ -17,6 +17,29 @@ import type {
   WPPage,
 } from "@/types/wordpress";
 
+// ─── Diagnostic Types ─────────────────────────────────────────────────
+
+export type DiagnosticStepName =
+  | "site_reachable"
+  | "rest_api_available"
+  | "authentication"
+  | "admin_role"
+  | "mu_plugin";
+
+export type DiagnosticStep = {
+  step: DiagnosticStepName;
+  status: "pass" | "fail" | "warn";
+  message: string;
+  detail?: string;
+};
+
+export type ConnectionDiagnostics = {
+  overall: "pass" | "fail" | "warn";
+  steps: DiagnosticStep[];
+  duration_ms: number;
+  timestamp: string;
+};
+
 export class WPClient {
   private siteUrl: string;
   private authHeader: string;
@@ -141,6 +164,380 @@ export class WPClient {
       return { success: true, user };
     } catch (error) {
       return { success: false, error: (error as Error).message };
+    }
+  }
+
+  // ─── Detailed Connection Diagnostics ────────────────────────────────
+
+  async diagnoseConnection(): Promise<ConnectionDiagnostics> {
+    const steps: DiagnosticStep[] = [];
+    const startTime = Date.now();
+
+    // Step 1: DNS / Reachability — hit the site root
+    try {
+      const rootResp = await fetch(this.siteUrl, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(10000),
+        redirect: "follow",
+      });
+      steps.push({
+        step: "site_reachable",
+        status: "pass",
+        message: `Site responded with HTTP ${rootResp.status}`,
+        detail: `URL: ${this.siteUrl}`,
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      let detail = msg;
+      if (msg.includes("ENOTFOUND") || msg.includes("getaddrinfo")) {
+        detail = "DNS lookup failed — the domain does not resolve. Check the Site URL.";
+      } else if (msg.includes("ECONNREFUSED")) {
+        detail = "Connection refused — the server is not accepting connections on this port.";
+      } else if (msg.includes("ETIMEDOUT") || msg.includes("timeout")) {
+        detail = "Connection timed out — the server did not respond within 10 seconds.";
+      } else if (msg.includes("CERT") || msg.includes("SSL") || msg.includes("certificate")) {
+        detail = "SSL/TLS error — the site has an invalid or expired certificate.";
+      }
+      steps.push({ step: "site_reachable", status: "fail", message: "Cannot reach site", detail });
+      return this.buildDiagnostics(steps, startTime);
+    }
+
+    // Step 2: REST API availability — hit /wp-json/
+    let restApiAvailable = false;
+    try {
+      const restResp = await fetch(`${this.siteUrl}/wp-json/`, {
+        signal: AbortSignal.timeout(10000),
+        headers: { Accept: "application/json" },
+      });
+      const contentType = restResp.headers.get("content-type") || "";
+
+      if (restResp.ok && contentType.includes("json")) {
+        steps.push({
+          step: "rest_api_available",
+          status: "pass",
+          message: "WordPress REST API is accessible",
+        });
+        restApiAvailable = true;
+      } else if (restResp.status === 404) {
+        steps.push({
+          step: "rest_api_available",
+          status: "fail",
+          message: "REST API not found (404)",
+          detail:
+            "The WordPress REST API is not accessible at /wp-json/. " +
+            "Possible causes:\n" +
+            "- Pretty permalinks are not enabled (Settings → Permalinks → choose anything except 'Plain')\n" +
+            "- A security plugin is blocking the REST API\n" +
+            "- The site is not WordPress",
+        });
+      } else if (restResp.status === 403) {
+        steps.push({
+          step: "rest_api_available",
+          status: "fail",
+          message: "REST API blocked (403 Forbidden)",
+          detail:
+            "The server returned 403 for /wp-json/. " +
+            "This is usually caused by:\n" +
+            "- A security plugin (Wordfence, iThemes, etc.) blocking REST API access\n" +
+            "- Server-level rules (.htaccess or Nginx config) blocking /wp-json/\n" +
+            "- ModSecurity or a WAF blocking the request",
+        });
+      } else if (!contentType.includes("json")) {
+        const bodySnippet = await restResp.text().catch(() => "");
+        const isHtml = contentType.includes("html") || bodySnippet.trim().startsWith("<");
+        steps.push({
+          step: "rest_api_available",
+          status: "fail",
+          message: `REST API returned non-JSON response (${restResp.status})`,
+          detail: isHtml
+            ? "The server returned HTML instead of JSON. This could mean:\n" +
+              "- The site is in maintenance mode\n" +
+              "- A redirect is happening (check Site URL)\n" +
+              "- A security plugin is injecting a login/challenge page"
+            : `Content-Type: ${contentType}`,
+        });
+      } else {
+        steps.push({
+          step: "rest_api_available",
+          status: "warn",
+          message: `REST API responded with HTTP ${restResp.status}`,
+        });
+        restApiAvailable = true;
+      }
+    } catch (err) {
+      steps.push({
+        step: "rest_api_available",
+        status: "fail",
+        message: "Failed to reach REST API",
+        detail: (err as Error).message,
+      });
+    }
+
+    if (!restApiAvailable) {
+      return this.buildDiagnostics(steps, startTime);
+    }
+
+    // Step 3: Authentication — /wp-json/wp/v2/users/me
+    let authenticated = false;
+    try {
+      const authResp = await fetch(`${this.siteUrl}/wp-json/wp/v2/users/me?context=edit`, {
+        headers: {
+          Authorization: this.authHeader,
+          "X-WP-Auth": this.authHeader,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(15000),
+        cache: "no-store",
+      });
+
+      if (authResp.ok) {
+        const user = (await authResp.json()) as WPUser;
+        steps.push({
+          step: "authentication",
+          status: "pass",
+          message: `Authenticated as "${user.name}" (ID: ${user.id})`,
+          detail: `Roles: ${(user as WPUser & { roles?: string[] }).roles?.join(", ") || "unknown"}`,
+        });
+        authenticated = true;
+
+        // Check if user has admin capabilities
+        const caps = (user as WPUser & { capabilities?: Record<string, boolean> }).capabilities;
+        if (caps && !caps["manage_options"]) {
+          steps.push({
+            step: "admin_role",
+            status: "fail",
+            message: "User does not have Administrator role",
+            detail:
+              `The user "${user.name}" is authenticated but lacks the manage_options capability. ` +
+              "The WordPress user must have the Administrator role for the dashboard connector to work.",
+          });
+        } else if (caps && caps["manage_options"]) {
+          steps.push({
+            step: "admin_role",
+            status: "pass",
+            message: "User has Administrator privileges",
+          });
+        }
+      } else {
+        const errorBody = await authResp.text().catch(() => "");
+        let parsed: { code?: string; message?: string } = {};
+        try {
+          parsed = JSON.parse(errorBody);
+        } catch {
+          // not JSON
+        }
+
+        const code = parsed.code || "";
+        const wpMsg = parsed.message || "";
+
+        if (authResp.status === 401) {
+          if (code === "rest_not_logged_in") {
+            steps.push({
+              step: "authentication",
+              status: "fail",
+              message: "401 — WordPress says 'not logged in' (credentials not received)",
+              detail:
+                "WordPress received the request but did not see any credentials. " +
+                "This is the classic Apache Authorization header stripping issue.\n\n" +
+                "Fixes (try in order):\n" +
+                "1. Ensure the mu-plugin (dashboard-connector.php) is installed in wp-content/mu-plugins/ — " +
+                "it restores auth from the X-WP-Auth fallback header\n" +
+                "2. Add to .htaccess (before WordPress rules):\n" +
+                "   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n" +
+                "3. Add to wp-config.php (for CGI/FastCGI):\n" +
+                "   $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';",
+            });
+          } else if (code === "invalid_application_password" || code === "incorrect_password") {
+            steps.push({
+              step: "authentication",
+              status: "fail",
+              message: "401 — Invalid Application Password",
+              detail:
+                "The username was found but the Application Password is wrong.\n\n" +
+                "Fixes:\n" +
+                "- Go to WordPress Admin → Users → Profile → Application Passwords\n" +
+                "- Revoke the old password and generate a new one\n" +
+                "- Copy it exactly (including spaces between groups)\n" +
+                "- Paste it in the dashboard connection form",
+            });
+          } else if (code === "invalid_username") {
+            steps.push({
+              step: "authentication",
+              status: "fail",
+              message: "401 — Username not found",
+              detail:
+                `WordPress does not have a user named "${this.getUsername()}". ` +
+                "Use the WordPress username (not email). Check in WP Admin → Users.",
+            });
+          } else {
+            steps.push({
+              step: "authentication",
+              status: "fail",
+              message: `401 — Authentication failed (${code || "unknown code"})`,
+              detail: wpMsg || errorBody.slice(0, 500),
+            });
+          }
+        } else if (authResp.status === 403) {
+          steps.push({
+            step: "authentication",
+            status: "fail",
+            message: "403 — Forbidden",
+            detail:
+              wpMsg ||
+              "Access denied. A security plugin may be blocking Application Password authentication " +
+              "or the REST API /users/me endpoint.",
+          });
+        } else if (authResp.status === 404) {
+          steps.push({
+            step: "authentication",
+            status: "fail",
+            message: "404 — /wp/v2/users/me not found",
+            detail: "The users endpoint is missing. The REST API may be partially disabled by a plugin.",
+          });
+        } else {
+          steps.push({
+            step: "authentication",
+            status: "fail",
+            message: `HTTP ${authResp.status} — ${wpMsg || authResp.statusText}`,
+            detail: errorBody.slice(0, 500),
+          });
+        }
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      steps.push({
+        step: "authentication",
+        status: "fail",
+        message: "Authentication request failed",
+        detail: msg.includes("timeout")
+          ? "The authentication request timed out (15s). The server may be overloaded."
+          : msg,
+      });
+    }
+
+    if (!authenticated) {
+      return this.buildDiagnostics(steps, startTime);
+    }
+
+    // Step 4: mu-plugin / shared secret — /wp-json/dashboard/v1/site-health
+    try {
+      const muResp = await fetch(`${this.siteUrl}/wp-json/dashboard/v1/site-health`, {
+        headers: {
+          Authorization: this.authHeader,
+          "X-WP-Auth": this.authHeader,
+          "Content-Type": "application/json",
+          "X-Dashboard-Secret": this.secretHeader,
+        },
+        signal: AbortSignal.timeout(15000),
+        cache: "no-store",
+      });
+
+      if (muResp.ok) {
+        const health = (await muResp.json()) as SiteHealthData & { connector_version?: string };
+        steps.push({
+          step: "mu_plugin",
+          status: "pass",
+          message: `mu-plugin active (v${health.connector_version || "unknown"})`,
+          detail: `WP ${health.wp_version}, PHP ${health.php_version}`,
+        });
+      } else {
+        const errorBody = await muResp.text().catch(() => "");
+        let parsed: { code?: string; message?: string } = {};
+        try {
+          parsed = JSON.parse(errorBody);
+        } catch {
+          // not JSON
+        }
+
+        const code = parsed.code || "";
+        const wpMsg = parsed.message || "";
+
+        if (muResp.status === 404) {
+          steps.push({
+            step: "mu_plugin",
+            status: "warn",
+            message: "mu-plugin not installed (404 on /dashboard/v1/)",
+            detail:
+              "The dashboard connector mu-plugin is not installed. " +
+              "Without it, advanced features (debug logs, site health, cache clearing) won't work.\n\n" +
+              "Install it:\n" +
+              "1. Download dashboard-connector.php from the dashboard\n" +
+              "2. Upload it to wp-content/mu-plugins/dashboard-connector.php\n" +
+              "3. Or use the 'Deploy via SSH' button if SSH is configured",
+          });
+        } else if (muResp.status === 403 && code === "rest_forbidden" && wpMsg.includes("secret")) {
+          steps.push({
+            step: "mu_plugin",
+            status: "fail",
+            message: "Shared secret mismatch",
+            detail:
+              "The mu-plugin is installed but the shared secret doesn't match.\n\n" +
+              "The secret sent by the dashboard does not match DASHBOARD_SHARED_SECRET in wp-config.php.\n" +
+              "Fix: Check that wp-config.php has the correct define():\n" +
+              "  define('DASHBOARD_SHARED_SECRET', 'your-secret-here');",
+          });
+        } else if (muResp.status === 500 && code === "rest_config_error") {
+          steps.push({
+            step: "mu_plugin",
+            status: "fail",
+            message: "DASHBOARD_SHARED_SECRET not configured in wp-config.php",
+            detail:
+              "The mu-plugin is installed but DASHBOARD_SHARED_SECRET is not defined.\n\n" +
+              "Add this line to wp-config.php (before 'That's all, stop editing!'):\n" +
+              "  define('DASHBOARD_SHARED_SECRET', 'your-secret-here');",
+          });
+        } else if (muResp.status === 401) {
+          steps.push({
+            step: "mu_plugin",
+            status: "fail",
+            message: "mu-plugin returned 401 — authentication lost on custom endpoint",
+            detail:
+              "Basic auth worked for /wp/v2/ but failed for /dashboard/v1/. " +
+              "This can happen if:\n" +
+              "- The mu-plugin file is corrupted or incomplete\n" +
+              "- A caching layer is stripping auth headers on custom endpoints\n" +
+              "- A security plugin interferes with custom REST routes",
+          });
+        } else {
+          steps.push({
+            step: "mu_plugin",
+            status: "fail",
+            message: `mu-plugin error: HTTP ${muResp.status}`,
+            detail: wpMsg || errorBody.slice(0, 500),
+          });
+        }
+      }
+    } catch (err) {
+      steps.push({
+        step: "mu_plugin",
+        status: "warn",
+        message: "Could not check mu-plugin",
+        detail: (err as Error).message,
+      });
+    }
+
+    return this.buildDiagnostics(steps, startTime);
+  }
+
+  private buildDiagnostics(steps: DiagnosticStep[], startTime: number): ConnectionDiagnostics {
+    const hasFailure = steps.some((s) => s.status === "fail");
+    const hasWarning = steps.some((s) => s.status === "warn");
+    return {
+      overall: hasFailure ? "fail" : hasWarning ? "warn" : "pass",
+      steps,
+      duration_ms: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private getUsername(): string {
+    // Decode username from the Basic auth header
+    try {
+      const b64 = this.authHeader.replace("Basic ", "");
+      const decoded = Buffer.from(b64, "base64").toString();
+      return decoded.split(":")[0] || "unknown";
+    } catch {
+      return "unknown";
     }
   }
 

@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
-import { WPClient, encryptCredentials, decryptCredentials } from "@/lib/wordpress/wp-client";
+import { WPClient, encryptCredentials, decryptCredentials, type ConnectionDiagnostics } from "@/lib/wordpress/wp-client";
 import { decryptToken } from "@/lib/google";
 import { deployMuPlugin } from "@/lib/wordpress/deploy-mu-plugin";
 import { logActivity } from "@/lib/actions/activity";
@@ -219,6 +219,25 @@ export async function testExistingConnection(
     }
 
     return { success: true, userName: result.user?.name };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Full connection diagnostics — runs step-by-step checks
+// ---------------------------------------------------------------------------
+
+export async function diagnoseConnectionAction(
+  websiteId: string
+): Promise<{ success: boolean; error?: string; diagnostics?: ConnectionDiagnostics }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  try {
+    const client = await WPClient.fromWebsiteId(websiteId);
+    const diagnostics = await client.diagnoseConnection();
+    return { success: true, diagnostics };
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }

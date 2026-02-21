@@ -53,6 +53,13 @@ class Dashboard_Connector {
 
     public function register_routes() {
 
+        // Public diagnostic endpoint — helps debug auth issues without requiring auth
+        register_rest_route($this->namespace, '/auth-debug', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_auth_debug'],
+            'permission_callback' => '__return_true',
+        ]);
+
         register_rest_route($this->namespace, '/site-health', [
             'methods'             => 'GET',
             'callback'            => [$this, 'get_site_health'],
@@ -560,6 +567,191 @@ class Dashboard_Connector {
             'success' => true,
             'debug'   => $enable,
             'backup'  => basename($backup_file),
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: AUTH DEBUG (public, no auth required)
+    // ═══════════════════════════════════════════
+
+    /**
+     * Public endpoint that reveals which auth headers the server received.
+     * Does NOT reveal credentials — only shows presence/absence of headers
+     * and whether the shared secret constant is defined.
+     */
+    public function get_auth_debug(WP_REST_Request $request) {
+        $has_auth_header      = !empty($_SERVER['HTTP_AUTHORIZATION']);
+        $has_wp_auth_header   = !empty($_SERVER['HTTP_X_WP_AUTH']);
+        $has_redirect_auth    = !empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+        $has_php_auth_user    = !empty($_SERVER['PHP_AUTH_USER']);
+        $has_dashboard_secret = !empty($request->get_header('X-Dashboard-Secret'));
+        $secret_configured    = defined('DASHBOARD_SHARED_SECRET') && !empty(DASHBOARD_SHARED_SECRET);
+        $is_logged_in         = is_user_logged_in();
+
+        $auth_method = 'none';
+        if ($has_auth_header) {
+            $auth_method = 'Authorization header';
+        } elseif ($has_wp_auth_header) {
+            $auth_method = 'X-WP-Auth fallback header (restored by mu-plugin)';
+        } elseif ($has_redirect_auth) {
+            $auth_method = 'REDIRECT_HTTP_AUTHORIZATION (Apache CGI passthrough)';
+        } elseif ($has_php_auth_user) {
+            $auth_method = 'PHP_AUTH_USER (CGI/FastCGI)';
+        }
+
+        // Mask the username — show first 3 chars only
+        $masked_user = null;
+        if ($has_php_auth_user && !empty($_SERVER['PHP_AUTH_USER'])) {
+            $u = $_SERVER['PHP_AUTH_USER'];
+            $masked_user = substr($u, 0, min(3, strlen($u))) . str_repeat('*', max(0, strlen($u) - 3));
+        }
+
+        $secret_match = null;
+        if ($has_dashboard_secret && $secret_configured) {
+            $secret_match = hash_equals(DASHBOARD_SHARED_SECRET, (string) $request->get_header('X-Dashboard-Secret'));
+        }
+
+        $current_user_info = null;
+        if ($is_logged_in) {
+            $user = wp_get_current_user();
+            $current_user_info = [
+                'id'            => $user->ID,
+                'login'         => substr($user->user_login, 0, 3) . str_repeat('*', max(0, strlen($user->user_login) - 3)),
+                'has_admin_cap' => $user->has_cap('manage_options'),
+                'roles'         => $user->roles,
+            ];
+        }
+
+        $checks = [];
+
+        // Check 1: Auth header received
+        if ($auth_method === 'none') {
+            $checks[] = [
+                'check'   => 'auth_header_received',
+                'status'  => 'fail',
+                'message' => 'No authentication header received by WordPress',
+                'detail'  => 'Neither Authorization, X-WP-Auth, nor PHP_AUTH_USER was present. '
+                           . 'Your hosting is stripping the Authorization header and the mu-plugin fallback (X-WP-Auth) was also not received.',
+            ];
+        } else {
+            $checks[] = [
+                'check'  => 'auth_header_received',
+                'status' => 'pass',
+                'message' => "Credentials received via: {$auth_method}",
+            ];
+        }
+
+        // Check 2: User authenticated
+        if (!$is_logged_in && $auth_method !== 'none') {
+            $checks[] = [
+                'check'   => 'user_authenticated',
+                'status'  => 'fail',
+                'message' => 'Credentials were received but WordPress could not authenticate the user',
+                'detail'  => 'The Application Password may be invalid, revoked, or the username is wrong. '
+                           . 'Go to WP Admin → Users → Profile → Application Passwords to verify.',
+            ];
+        } elseif ($is_logged_in) {
+            $checks[] = [
+                'check'  => 'user_authenticated',
+                'status' => 'pass',
+                'message' => 'User authenticated successfully',
+            ];
+        }
+
+        // Check 3: Admin role
+        if ($is_logged_in && !current_user_can('manage_options')) {
+            $checks[] = [
+                'check'   => 'admin_role',
+                'status'  => 'fail',
+                'message' => 'User does not have Administrator role (manage_options capability missing)',
+                'detail'  => 'The dashboard connector requires an Administrator user. '
+                           . 'Go to WP Admin → Users and change the user role to Administrator.',
+            ];
+        } elseif ($is_logged_in) {
+            $checks[] = [
+                'check'  => 'admin_role',
+                'status' => 'pass',
+                'message' => 'User has Administrator privileges',
+            ];
+        }
+
+        // Check 4: Shared secret
+        if (!$secret_configured) {
+            $checks[] = [
+                'check'   => 'shared_secret_configured',
+                'status'  => 'fail',
+                'message' => 'DASHBOARD_SHARED_SECRET is not defined in wp-config.php',
+                'detail'  => "Add to wp-config.php (before 'That's all, stop editing!'):\n"
+                           . "define('DASHBOARD_SHARED_SECRET', 'your-secret-here');",
+            ];
+        } elseif (!$has_dashboard_secret) {
+            $checks[] = [
+                'check'   => 'shared_secret_configured',
+                'status'  => 'warn',
+                'message' => 'DASHBOARD_SHARED_SECRET is configured but no X-Dashboard-Secret header was sent',
+                'detail'  => 'The dashboard should send this header automatically. If testing manually, include: X-Dashboard-Secret: your-secret',
+            ];
+        } elseif ($secret_match === false) {
+            $checks[] = [
+                'check'   => 'shared_secret_configured',
+                'status'  => 'fail',
+                'message' => 'Shared secret DOES NOT MATCH',
+                'detail'  => 'The X-Dashboard-Secret header value does not match DASHBOARD_SHARED_SECRET in wp-config.php. '
+                           . 'Update one or the other to match.',
+            ];
+        } else {
+            $checks[] = [
+                'check'  => 'shared_secret_configured',
+                'status' => 'pass',
+                'message' => 'Shared secret matches',
+            ];
+        }
+
+        // Check 5: Application Passwords feature
+        $app_passwords_available = class_exists('WP_Application_Passwords') && wp_is_application_passwords_available();
+        if (!$app_passwords_available) {
+            $checks[] = [
+                'check'   => 'app_passwords_available',
+                'status'  => 'fail',
+                'message' => 'Application Passwords feature is disabled',
+                'detail'  => 'WordPress Application Passwords require HTTPS or localhost. '
+                           . 'Also check that no plugin has disabled them via the application_password_is_api_request filter.',
+            ];
+        } else {
+            $checks[] = [
+                'check'  => 'app_passwords_available',
+                'status' => 'pass',
+                'message' => 'Application Passwords feature is enabled',
+            ];
+        }
+
+        $overall = 'pass';
+        foreach ($checks as $c) {
+            if ($c['status'] === 'fail') { $overall = 'fail'; break; }
+            if ($c['status'] === 'warn') { $overall = 'warn'; }
+        }
+
+        return rest_ensure_response([
+            'connector_version' => DASHBOARD_CONNECTOR_VERSION,
+            'overall'           => $overall,
+            'auth_method'       => $auth_method,
+            'masked_user'       => $masked_user,
+            'user_info'         => $current_user_info,
+            'headers_received'  => [
+                'authorization'       => $has_auth_header,
+                'x_wp_auth'           => $has_wp_auth_header,
+                'redirect_http_auth'  => $has_redirect_auth,
+                'php_auth_user'       => $has_php_auth_user,
+                'x_dashboard_secret'  => $has_dashboard_secret,
+            ],
+            'server'            => [
+                'software'       => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+                'sapi'           => php_sapi_name(),
+                'php_version'    => phpversion(),
+                'ssl'            => is_ssl(),
+            ],
+            'checks'            => $checks,
+            'timestamp'         => gmdate('Y-m-d\TH:i:s\Z'),
         ]);
     }
 

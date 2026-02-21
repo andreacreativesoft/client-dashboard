@@ -104,6 +104,7 @@ export class WPClient {
 
     const headers: Record<string, string> = {
       Authorization: this.authHeader,
+      "X-WP-Auth": this.authHeader, // Fallback for hosts that strip Authorization header
       "Content-Type": "application/json",
       "X-Dashboard-Secret": this.secretHeader,
     };

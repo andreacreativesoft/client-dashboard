@@ -12,7 +12,30 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.0.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.1.0');
+
+/**
+ * Restore Authorization header from X-WP-Auth for hosts that strip it.
+ * Many shared hosting providers (Apache CGI/FastCGI, LiteSpeed) strip the
+ * standard Authorization header before PHP can read it. The dashboard sends
+ * credentials via both Authorization and X-WP-Auth. This block restores
+ * the auth so WordPress Application Passwords can authenticate normally.
+ */
+(function() {
+    $custom_auth = isset($_SERVER['HTTP_X_WP_AUTH']) ? $_SERVER['HTTP_X_WP_AUTH'] : '';
+    if (!empty($custom_auth) && empty($_SERVER['HTTP_AUTHORIZATION'])) {
+        $_SERVER['HTTP_AUTHORIZATION'] = $custom_auth;
+        // Also set PHP_AUTH_* for CGI/FastCGI environments
+        if (strpos($custom_auth, 'Basic ') === 0) {
+            $decoded = base64_decode(substr($custom_auth, 6));
+            if ($decoded !== false && strpos($decoded, ':') !== false) {
+                list($user, $pass) = explode(':', $decoded, 2);
+                $_SERVER['PHP_AUTH_USER'] = $user;
+                $_SERVER['PHP_AUTH_PW'] = $pass;
+            }
+        }
+    }
+})();
 
 class Dashboard_Connector {
 

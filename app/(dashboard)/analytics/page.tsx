@@ -6,6 +6,7 @@ import { getClientsWithGA4 } from "@/lib/actions/analytics";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import { getSelectedClientId } from "@/lib/selected-client";
 import { GA4Analytics } from "@/components/analytics/ga4-analytics";
+import { t } from "@/lib/i18n/translations";
 
 export const metadata: Metadata = {
   title: "Google Analytics",
@@ -19,6 +20,7 @@ export default async function AnalyticsPage() {
   ]);
 
   const isAdmin = profile?.role === "admin";
+  const lang = profile?.language || "en";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
   const selectedClientId = isAdmin ? await getSelectedClientId() : null;
   // Use selected client from header dropdown, fall back to impersonated client
@@ -65,7 +67,7 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">Google Analytics</h1>
+      <h1 className="mb-6 text-2xl font-bold">{t(lang, "analytics.title")}</h1>
 
       {/* ─── GA4 Website Analytics ─────────────────────────────────── */}
       <div className="mb-8">
@@ -78,7 +80,7 @@ export default async function AnalyticsPage() {
 
       {/* ─── Lead Analytics ────────────────────────────────────────── */}
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Lead Analytics</h2>
+        <h2 className="text-lg font-semibold">{t(lang, "analytics.lead_analytics")}</h2>
       </div>
 
       {/* Stats Overview */}
@@ -86,15 +88,15 @@ export default async function AnalyticsPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{last30Days.length}</p>
-            <p className="text-sm font-medium">Total Leads</p>
-            <p className="text-xs text-muted-foreground">Last 30 days</p>
+            <p className="text-sm font-medium">{t(lang, "dashboard.total_leads")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.last_30_days")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{last7Days.length}</p>
-            <p className="text-sm font-medium">This Week</p>
-            <p className="text-xs text-muted-foreground">Last 7 days</p>
+            <p className="text-sm font-medium">{t(lang, "analytics.this_week")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "analytics.last_7_days")}</p>
           </CardContent>
         </Card>
         <Card>
@@ -105,15 +107,15 @@ export default async function AnalyticsPage() {
                 : 0}
               %
             </p>
-            <p className="text-sm font-medium">Conversion</p>
-            <p className="text-xs text-muted-foreground">Marked as done</p>
+            <p className="text-sm font-medium">{t(lang, "analytics.conversion")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "analytics.marked_as_done")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-3xl font-bold">{topSources.length}</p>
-            <p className="text-sm font-medium">Active Sources</p>
-            <p className="text-xs text-muted-foreground">With leads</p>
+            <p className="text-sm font-medium">{t(lang, "analytics.active_sources")}</p>
+            <p className="text-xs text-muted-foreground">{t(lang, "analytics.with_leads")}</p>
           </CardContent>
         </Card>
       </div>
@@ -122,7 +124,7 @@ export default async function AnalyticsPage() {
         {/* Lead Trend - Simple bar visualization */}
         <Card>
           <CardHeader>
-            <CardTitle>Lead Trend (30 days)</CardTitle>
+            <CardTitle>{t(lang, "analytics.lead_trend")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex h-32 items-end gap-1">
@@ -140,8 +142,8 @@ export default async function AnalyticsPage() {
               })}
             </div>
             <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>30 days ago</span>
-              <span>Today</span>
+              <span>{t(lang, "analytics.days_ago")}</span>
+              <span>{t(lang, "analytics.today")}</span>
             </div>
           </CardContent>
         </Card>
@@ -149,14 +151,14 @@ export default async function AnalyticsPage() {
         {/* Status Breakdown */}
         <Card>
           <CardHeader>
-            <CardTitle>Status Breakdown</CardTitle>
+            <CardTitle>{t(lang, "analytics.status_breakdown")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {[
-                { label: "New", count: statusCounts.new, color: "bg-foreground" },
-                { label: "Contacted", count: statusCounts.contacted, color: "bg-warning" },
-                { label: "Done", count: statusCounts.done, color: "bg-success" },
+                { label: t(lang, "dashboard.new"), count: statusCounts.new, color: "bg-foreground" },
+                { label: t(lang, "dashboard.contacted"), count: statusCounts.contacted, color: "bg-warning" },
+                { label: t(lang, "dashboard.done"), count: statusCounts.done, color: "bg-success" },
               ].map((status) => {
                 const percent =
                   last30Days.length > 0
@@ -186,11 +188,11 @@ export default async function AnalyticsPage() {
         {/* Top Sources */}
         <Card>
           <CardHeader>
-            <CardTitle>Top Sources</CardTitle>
+            <CardTitle>{t(lang, "analytics.top_sources")}</CardTitle>
           </CardHeader>
           <CardContent>
             {topSources.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No leads yet</p>
+              <p className="text-sm text-muted-foreground">{t(lang, "analytics.no_leads_yet")}</p>
             ) : (
               <div className="space-y-3">
                 {topSources.map(([source, count], index) => (

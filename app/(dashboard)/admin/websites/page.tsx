@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
+import { getAllDebugLogSummaries } from "@/lib/actions/wordpress-remote";
+import { DebugLogAlerts } from "@/components/wordpress/debug-log-alerts";
 import type { Website, Client } from "@/types/database";
 
 export const metadata: Metadata = {
@@ -22,6 +24,9 @@ export default async function WebsitesPage() {
 
   const typedWebsites = (websites || []) as WebsiteWithClient[];
 
+  // Fetch debug log summaries for all WordPress-connected sites
+  const debugSummaries = await getAllDebugLogSummaries();
+
   return (
     <div className="p-4 md:p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -30,6 +35,13 @@ export default async function WebsitesPage() {
           {typedWebsites.length} website{typedWebsites.length !== 1 ? "s" : ""}
         </p>
       </div>
+
+      {/* Debug Log Alerts for all WordPress-connected sites */}
+      {debugSummaries.length > 0 && (
+        <div className="mb-6">
+          <DebugLogAlerts summaries={debugSummaries} />
+        </div>
+      )}
 
       {typedWebsites.length === 0 ? (
         <Card>

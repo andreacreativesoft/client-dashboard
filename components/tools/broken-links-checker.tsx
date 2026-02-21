@@ -139,6 +139,7 @@ export function BrokenLinksChecker({
                       <th className="p-2 text-left font-medium">URL</th>
                       <th className="p-2 text-left font-medium">Status</th>
                       <th className="p-2 text-left font-medium">Type</th>
+                      <th className="p-2 text-left font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -155,6 +156,17 @@ export function BrokenLinksChecker({
                           </Badge>
                         </td>
                         <td className="p-2">{link.isInternal ? "Internal" : "External"}</td>
+                        <td className="p-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={runCheck}
+                            disabled={loading}
+                            className="h-6 px-2 text-[10px]"
+                          >
+                            {loading ? "..." : "Retest"}
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

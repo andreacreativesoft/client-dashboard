@@ -5,6 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AIAnalysis } from "./ai-analysis";
+import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
+import { SiteHealthDashboard } from "@/components/wordpress/site-health/site-health-dashboard";
+import { AICommandPanel } from "@/components/wordpress/ai-command/ai-command-panel";
+import { QuickActions } from "@/components/wordpress/quick-actions";
+import { ActiveUsers } from "@/components/wordpress/active-users";
+import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
+import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
 
 export const metadata: Metadata = {
@@ -23,6 +30,8 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
+  const { data: { user } } = await supabase.auth.getUser();
+
   const { data: website } = await supabase
     .from("websites")
     .select("*, client:clients(id, business_name)")
@@ -32,6 +41,9 @@ export default async function WebsiteDetailPage({
   if (!website) notFound();
 
   const typedWebsite = website as WebsiteWithClient;
+
+  // Check WordPress connection status
+  const wpStatus = await getWordPressStatus(id);
 
   return (
     <div className="p-4 md:p-6">
@@ -103,6 +115,47 @@ export default async function WebsiteDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* WordPress Connection */}
+      <div className="mb-6">
+        <ConnectWordPressForm
+          websiteId={id}
+          siteUrl={typedWebsite.url}
+          status={wpStatus}
+        />
+      </div>
+
+      {/* WordPress Management (only if connected) */}
+      {wpStatus.connected && (
+        <>
+          {/* Active Users Presence */}
+          {user && (
+            <div className="mb-6">
+              <ActiveUsers websiteId={id} currentUserId={user.id} />
+            </div>
+          )}
+
+          {/* Site Health Dashboard */}
+          <div className="mb-6">
+            <SiteHealthDashboard websiteId={id} />
+          </div>
+
+          {/* Quick Actions */}
+          <div className="mb-6">
+            <QuickActions websiteId={id} />
+          </div>
+
+          {/* AI Commands */}
+          <div className="mb-6">
+            <AICommandPanel websiteId={id} />
+          </div>
+
+          {/* Debug Log */}
+          <div className="mb-6">
+            <DebugLogViewer websiteId={id} />
+          </div>
+        </>
+      )}
 
       {/* AI Analysis */}
       <AIAnalysis websiteId={id} />

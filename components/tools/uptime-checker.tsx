@@ -158,24 +158,37 @@ export function UptimeChecker({
                 {displayResults.map((item, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between rounded border border-border p-2"
+                    className="flex items-center justify-between gap-2 rounded border border-border p-2"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium">{item.name}</p>
                       <p className="text-xs text-muted-foreground">{item.details}</p>
                     </div>
-                    <Badge
-                      variant={
-                        item.status === "pass"
-                          ? "default"
-                          : item.status === "warning"
-                            ? "warning"
-                            : "destructive"
-                      }
-                      className="shrink-0"
-                    >
-                      {item.value}
-                    </Badge>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Badge
+                        variant={
+                          item.status === "pass"
+                            ? "default"
+                            : item.status === "warning"
+                              ? "warning"
+                              : "destructive"
+                        }
+                      >
+                        {item.value}
+                      </Badge>
+                      {item.status !== "pass" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={runCheck}
+                          disabled={loading}
+                          className="h-6 px-2 text-[10px]"
+                          title="Re-run all checks to update this result"
+                        >
+                          {loading ? "..." : "Retest"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

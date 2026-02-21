@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { ClientSelect } from "@/components/client-select";
 import { ClientSwitcher } from "@/components/client-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useLanguage } from "@/lib/i18n/language-context";
 
 interface HeaderProps {
   userName: string;
@@ -24,6 +26,7 @@ interface Client {
 
 export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selectedClientId }: HeaderProps) {
   const router = useRouter();
+  const { t } = useLanguage();
   const [signingOut, setSigningOut] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
 
@@ -72,14 +75,14 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
         <div className="text-right hidden sm:block">
           <p className="text-sm font-medium leading-none">{userName}</p>
           {isAdmin && (
-            <p className="mt-0.5 text-xs text-muted-foreground">Admin</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("header.admin")}</p>
           )}
         </div>
 
         <Link
           href="/settings"
           className="cursor-pointer transition-opacity hover:opacity-80"
-          title="Edit profile"
+          title={t("header.edit_profile")}
         >
           {avatarUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -102,6 +105,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
           )}
         </Link>
 
+        <LanguageSwitcher />
         <ThemeToggle />
 
         <button
@@ -109,7 +113,7 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
           disabled={signingOut}
           className="h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
-          {signingOut ? "..." : "Sign out"}
+          {signingOut ? "..." : t("header.sign_out")}
         </button>
       </div>
     </header>

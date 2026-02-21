@@ -27,6 +27,12 @@ export const ActivityTypes = {
   // Report actions
   REPORT_GENERATED: "report_generated",
   REPORT_SENT: "report_sent",
+
+  // WordPress actions
+  WORDPRESS_CONNECTED: "wordpress_connected",
+  WORDPRESS_DISCONNECTED: "wordpress_disconnected",
+  WORDPRESS_CONNECTION_TESTED: "wordpress_connection_tested",
+  MU_PLUGIN_DEPLOYED: "mu_plugin_deployed",
 } as const;
 
 export type ActivityType = (typeof ActivityTypes)[keyof typeof ActivityTypes];

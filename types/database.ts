@@ -2,11 +2,15 @@ export type UserRole = "admin" | "client";
 export type AccessRole = "owner" | "viewer";
 export type LeadStatus = "new" | "contacted" | "done";
 export type LeadSource = "webhook" | "manual" | "api";
-export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook";
-export type CheckType = "broken_links" | "seo_audit" | "uptime";
+export type IntegrationType = "ga4" | "gbp" | "gsc" | "facebook" | "wordpress";
+export type CheckType = "broken_links" | "seo_audit" | "uptime" | "security";
 export type CheckStatus = "running" | "completed" | "failed";
 export type WPAnalysisStatus = "running" | "completed" | "failed";
 export type WPDeployMethod = "none" | "git" | "wp_migrate";
+export type AppLanguage = "en" | "fr-BE";
+export type TicketStatus = "open" | "in_progress" | "waiting_on_client" | "closed";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export type TicketCategory = "bug" | "feature_request" | "support" | "billing";
 
 export type Profile = {
   id: string;
@@ -17,6 +21,7 @@ export type Profile = {
   avatar_url: string | null;
   last_login_at: string | null;
   is_blocked: boolean;
+  language: AppLanguage;
   created_at: string;
   updated_at: string;
 };
@@ -212,6 +217,138 @@ export type WPAnalysisRow = {
   created_at: string;
 };
 
+export type Ticket = {
+  id: string;
+  client_id: string;
+  created_by: string;
+  assigned_to: string | null;
+  subject: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  category: TicketCategory;
+  due_date: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TicketReply = {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  content: string;
+  is_internal: boolean;
+  created_at: string;
+};
+
+export type TicketWithDetails = Ticket & {
+  client_name: string;
+  created_by_name: string;
+  assigned_to_name: string | null;
+  reply_count: number;
+};
+
+export type TicketReplyWithUser = TicketReply & {
+  user_name: string;
+  user_role: UserRole;
+  user_avatar: string | null;
+};
+
+// WordPress credentials row type
+export type WordPressCredentialsRow = {
+  id: string;
+  integration_id: string;
+  site_url: string;
+  username_encrypted: string;
+  app_password_encrypted: string;
+  shared_secret_encrypted: string;
+  ssh_host_encrypted: string | null;
+  ssh_user_encrypted: string | null;
+  ssh_key_encrypted: string | null;
+  ssh_port: number;
+  mu_plugin_installed: boolean;
+  mu_plugin_version: string | null;
+  last_health_check: string | null;
+  last_health_status: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// Action queue row type
+export type WPActionQueueRow = {
+  id: string;
+  website_id: string;
+  integration_id: string;
+  initiated_by: string;
+  action_type: string;
+  action_payload: Record<string, unknown>;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  status: "pending" | "processing" | "completed" | "failed" | "rolled_back";
+  error_message: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  priority: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+// AI usage row type
+export type WPAIUsageRow = {
+  id: string;
+  website_id: string;
+  user_id: string;
+  action_type: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost_usd: number;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+// Active session row type
+export type WPActiveSessionRow = {
+  id: string;
+  website_id: string;
+  user_id: string;
+  action_description: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  last_heartbeat: string;
+  created_at: string;
+};
+
+// WordPress debug log types
+export type WPDebugLogLevel = "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
+
+export type WPDebugLogEntry = {
+  timestamp: string;
+  level: WPDebugLogLevel;
+  message: string;
+  file?: string;
+  line?: number;
+  raw: string;
+};
+
+export type WPDebugLogSummary = {
+  website_id: string;
+  website_name: string;
+  client_id: string;
+  client_name: string;
+  site_url: string;
+  total: number;
+  fatal: number;
+  errors: number;
+  warnings: number;
+  notices: number;
+  deprecated: number;
+  last_checked: string;
+  entries: WPDebugLogEntry[];
+};
+
 // Joined view types
 export type LeadFull = Lead & {
   website_name: string;
@@ -225,7 +362,7 @@ export type Database = {
     Tables: {
       profiles: {
         Row: Profile;
-        Insert: Omit<Profile, "created_at" | "updated_at">;
+        Insert: Omit<Profile, "created_at" | "updated_at" | "language"> & { language?: AppLanguage };
         Update: Partial<Omit<Profile, "id" | "created_at">>;
         Relationships: [];
       };
@@ -352,6 +489,74 @@ export type Database = {
           completed_at?: string | null;
         };
         Update: Partial<Omit<WPAnalysisRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      tickets: {
+        Row: Ticket;
+        Insert: Omit<Ticket, "id" | "created_at" | "updated_at" | "closed_at" | "assigned_to" | "due_date"> & {
+          assigned_to?: string | null;
+          due_date?: string | null;
+          closed_at?: string | null;
+        };
+        Update: Partial<Omit<Ticket, "id" | "created_at">>;
+        Relationships: [];
+      };
+      ticket_replies: {
+        Row: TicketReply;
+        Insert: Omit<TicketReply, "id" | "created_at">;
+        Update: Partial<Omit<TicketReply, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wordpress_credentials: {
+        Row: WordPressCredentialsRow;
+        Insert: Omit<WordPressCredentialsRow, "id" | "created_at" | "updated_at" | "mu_plugin_installed" | "mu_plugin_version" | "last_health_check" | "last_health_status" | "ssh_host_encrypted" | "ssh_user_encrypted" | "ssh_key_encrypted" | "ssh_port"> & {
+          mu_plugin_installed?: boolean;
+          mu_plugin_version?: string | null;
+          last_health_check?: string | null;
+          last_health_status?: Record<string, unknown> | null;
+          ssh_host_encrypted?: string | null;
+          ssh_user_encrypted?: string | null;
+          ssh_key_encrypted?: string | null;
+          ssh_port?: number;
+        };
+        Update: Partial<Omit<WordPressCredentialsRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_action_queue: {
+        Row: WPActionQueueRow;
+        Insert: Omit<WPActionQueueRow, "id" | "created_at" | "before_state" | "after_state" | "error_message" | "resource_type" | "resource_id" | "started_at" | "completed_at" | "priority"> & {
+          before_state?: Record<string, unknown> | null;
+          after_state?: Record<string, unknown> | null;
+          error_message?: string | null;
+          resource_type?: string | null;
+          resource_id?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          priority?: number;
+        };
+        Update: Partial<Omit<WPActionQueueRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_ai_usage: {
+        Row: WPAIUsageRow;
+        Insert: Omit<WPAIUsageRow, "id" | "created_at" | "input_tokens" | "output_tokens" | "estimated_cost_usd" | "metadata"> & {
+          input_tokens?: number;
+          output_tokens?: number;
+          estimated_cost_usd?: number;
+          metadata?: Record<string, unknown> | null;
+        };
+        Update: Partial<Omit<WPAIUsageRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      wp_active_sessions: {
+        Row: WPActiveSessionRow;
+        Insert: Omit<WPActiveSessionRow, "id" | "created_at" | "last_heartbeat" | "action_description" | "resource_type" | "resource_id"> & {
+          last_heartbeat?: string;
+          action_description?: string | null;
+          resource_type?: string | null;
+          resource_id?: string | null;
+        };
+        Update: Partial<Omit<WPActiveSessionRow, "id" | "created_at">>;
         Relationships: [];
       };
     };

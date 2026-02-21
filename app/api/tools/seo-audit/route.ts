@@ -430,24 +430,28 @@ export async function POST(request: NextRequest) {
 
     // 2. Audit each page
     const pageAudits: PageAudit[] = [];
+    const auditedPaths = new Set<string>();
 
     for (const pageUrl of pageUrls) {
+      // Extra safety: skip if we already audited this path
+      let path: string;
+      try {
+        path = new URL(pageUrl).pathname.replace(/\/$/, "") || "/";
+      } catch {
+        path = pageUrl;
+      }
+      if (auditedPaths.has(path)) continue;
+      auditedPaths.add(path);
+
       const html = await fetchPage(pageUrl);
       if (!html) continue;
 
       const items = analyzeHtml(html, pageUrl);
       const score = calcScore(items);
 
-      let path: string;
-      try {
-        path = new URL(pageUrl).pathname || "/";
-      } catch {
-        path = pageUrl;
-      }
-
       pageAudits.push({
         url: pageUrl,
-        path,
+        path: path === "/" ? "/" : path,
         items,
         score,
         passed: items.filter((i) => i.status === "pass").length,

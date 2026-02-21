@@ -42,9 +42,11 @@ function groupItemsIntoPages(items: SeoItem[], baseUrl?: string): { pages: PageA
     if (pagePath === "site-wide") {
       siteWide.push(item);
     } else {
-      const existing = pageMap.get(pagePath) || [];
+      // Normalize path to avoid duplicates (e.g. "/" and "/")
+      const normalizedPath = pagePath.replace(/\/$/, "") || "/";
+      const existing = pageMap.get(normalizedPath) || [];
       existing.push(item);
-      pageMap.set(pagePath, existing);
+      pageMap.set(normalizedPath, existing);
     }
   }
 
@@ -53,13 +55,20 @@ function groupItemsIntoPages(items: SeoItem[], baseUrl?: string): { pages: PageA
 
   const pages: PageAudit[] = [];
   for (const [path, pageItems] of pageMap) {
-    const passed = pageItems.filter(i => i.status === "pass").length;
-    const warnings = pageItems.filter(i => i.status === "warning").length;
-    const failed = pageItems.filter(i => i.status === "fail").length;
-    const total = pageItems.length;
+    // Deduplicate items by name within each page (keep last occurrence)
+    const deduped = new Map<string, SeoItem>();
+    for (const item of pageItems) {
+      deduped.set(item.name, item);
+    }
+    const uniqueItems = Array.from(deduped.values());
+
+    const passed = uniqueItems.filter(i => i.status === "pass").length;
+    const warnings = uniqueItems.filter(i => i.status === "warning").length;
+    const failed = uniqueItems.filter(i => i.status === "fail").length;
+    const total = uniqueItems.length;
     const score = total > 0 ? Math.round((passed / total) * 100) : 0;
     const fullUrl = normalizedBase ? `${normalizedBase}${path.startsWith("/") ? path : `/${path}`}` : path;
-    pages.push({ url: fullUrl, path, items: pageItems, score, passed, warnings, failed });
+    pages.push({ url: fullUrl, path, items: uniqueItems, score, passed, warnings, failed });
   }
 
   return { pages, siteWide };

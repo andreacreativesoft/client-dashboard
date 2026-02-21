@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BrokenLinksChecker } from "@/components/tools/broken-links-checker";
 import { SeoAuditor } from "@/components/tools/seo-auditor";
 import { UptimeChecker } from "@/components/tools/uptime-checker";
+import { SecurityChecker } from "@/components/tools/security-checker";
 import type { Client, Website, SiteCheck } from "@/types/database";
 
 interface ClientData {
@@ -16,7 +17,7 @@ interface ToolsDashboardProps {
   clientData: ClientData[];
 }
 
-type ToolTab = "broken_links" | "seo_audit" | "uptime";
+type ToolTab = "broken_links" | "seo_audit" | "uptime" | "security";
 
 export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
   const [activeTab, setActiveTab] = useState<ToolTab>("broken_links");
@@ -41,7 +42,8 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
   const tabs: { key: ToolTab; label: string }[] = [
     { key: "broken_links", label: "Broken Links" },
     { key: "seo_audit", label: "SEO Audit" },
-    { key: "uptime", label: "Uptime & Performance" },
+    { key: "uptime", label: "Uptime" },
+    { key: "security", label: "Security" },
   ];
 
   const websitesToShow = selectedWebsiteId
@@ -118,6 +120,14 @@ export function ToolsDashboard({ clientData }: ToolsDashboardProps) {
                   websiteName={`${website.clientName} — ${website.name}`}
                   websiteUrl={website.url}
                   lastCheck={getLatestCheck(website.id, "uptime")}
+                />
+              )}
+              {activeTab === "security" && (
+                <SecurityChecker
+                  websiteId={website.id}
+                  websiteName={`${website.clientName} — ${website.name}`}
+                  websiteUrl={website.url}
+                  lastCheck={getLatestCheck(website.id, "security")}
                 />
               )}
             </div>

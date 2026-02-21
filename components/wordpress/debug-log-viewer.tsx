@@ -280,18 +280,42 @@ export function DebugLogViewer({ websiteId }: DebugLogViewerProps) {
             <div className="mb-3 rounded-lg border border-destructive/50 bg-destructive/5 p-3">
               <p className="text-sm text-destructive">{error}</p>
               {error.includes("mu-plugin") && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Make sure the dashboard-connector.php mu-plugin is installed on the WordPress site.
-                </p>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Make sure the dashboard-connector.php mu-plugin is installed on the WordPress site.
+                  </p>
+                  <a
+                    href="/mu-plugins/dashboard-connector.php"
+                    download="dashboard-connector.php"
+                    className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download Plugin
+                  </a>
+                </div>
               )}
             </div>
           )}
 
           {!loaded && !error && !isPending && (
-            <p className="text-sm text-muted-foreground">
-              Click &quot;Fetch Debug Log&quot; to read the WordPress debug.log file remotely.
-              Requires the dashboard-connector mu-plugin on the WordPress site.
-            </p>
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <p>
+                Click &quot;Fetch Debug Log&quot; to read the WordPress debug.log file remotely.
+                Requires the dashboard-connector mu-plugin.
+              </p>
+              <a
+                href="/mu-plugins/dashboard-connector.php"
+                download="dashboard-connector.php"
+                className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download
+              </a>
+            </div>
           )}
 
           {loaded && (

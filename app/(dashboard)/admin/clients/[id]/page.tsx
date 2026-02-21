@@ -48,9 +48,12 @@ export default async function ClientDetailPage({ params }: PageProps) {
       <div className="mb-6">
         <Link
           href="/admin/clients"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
         >
-          &larr; Back to Clients
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+          Back to Clients
         </Link>
       </div>
 

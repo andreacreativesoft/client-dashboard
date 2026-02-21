@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrokenLinksChecker } from "./broken-links-checker";
 import { SeoAuditor } from "./seo-auditor";
 import { UptimeChecker } from "./uptime-checker";
+import { SecurityChecker } from "./security-checker";
 import type { Website, SiteCheck } from "@/types/database";
 
 interface ClientToolsProps {
@@ -52,6 +53,13 @@ export function ClientTools({ websites, latestChecks }: ClientToolsProps) {
                   websiteName={website.name}
                   websiteUrl={website.url}
                   lastCheck={getCheck(website.id, "uptime")}
+                  compact
+                />
+                <SecurityChecker
+                  websiteId={website.id}
+                  websiteName={website.name}
+                  websiteUrl={website.url}
+                  lastCheck={getCheck(website.id, "security")}
                   compact
                 />
               </div>

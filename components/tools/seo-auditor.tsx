@@ -124,15 +124,17 @@ function PageDetail({ page, siteWide, websiteId, onBack, onPageUpdated }: {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onBack}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className="gap-1.5"
         >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
           Back to pages
-        </button>
+        </Button>
         <Button size="sm" onClick={reauditPage} disabled={reauditing}>
           {reauditing ? "Checking..." : "Re-audit page"}
         </Button>
@@ -184,7 +186,21 @@ function PageDetail({ page, siteWide, websiteId, onBack, onPageUpdated }: {
               <p className="text-xs text-muted-foreground">{item.details}</p>
               {item.value && <p className="mt-0.5 truncate text-xs text-muted-foreground italic">{item.value}</p>}
             </div>
-            <Badge variant={item.status === "pass" ? "default" : item.status === "warning" ? "warning" : "destructive"} className="shrink-0">{item.status}</Badge>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Badge variant={item.status === "pass" ? "default" : item.status === "warning" ? "warning" : "destructive"}>{item.status}</Badge>
+              {item.status !== "pass" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={reauditPage}
+                  disabled={reauditing}
+                  className="h-6 px-2 text-[10px]"
+                  title="Re-audit this page to recheck"
+                >
+                  {reauditing ? "..." : "Retest"}
+                </Button>
+              )}
+            </div>
           </div>
         ))}
       </div>

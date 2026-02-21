@@ -86,9 +86,21 @@ export function SiteHealthDashboard({ websiteId }: SiteHealthDashboardProps) {
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-3">
           <p className="text-sm text-destructive">{error}</p>
           {error.includes("mu-plugin") && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              The dashboard-connector mu-plugin must be installed on the WordPress site for site health data.
-            </p>
+            <div className="mt-1.5 flex items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                The dashboard-connector mu-plugin must be installed on the WordPress site.
+              </p>
+              <a
+                href="/mu-plugins/dashboard-connector.php"
+                download="dashboard-connector.php"
+                className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download Plugin
+              </a>
+            </div>
           )}
         </div>
       )}
@@ -102,9 +114,21 @@ export function SiteHealthDashboard({ websiteId }: SiteHealthDashboardProps) {
           <p className="mt-2 text-sm text-muted-foreground">
             Click &quot;Check Site Health&quot; to fetch WordPress version info, plugin list, disk usage, and more.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            Requires the dashboard-connector mu-plugin on the WordPress site.
-          </p>
+          <div className="mt-2 flex items-center justify-center gap-2">
+            <p className="text-xs text-muted-foreground/70">
+              Requires the dashboard-connector mu-plugin.
+            </p>
+            <a
+              href="/mu-plugins/dashboard-connector.php"
+              download="dashboard-connector.php"
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Download
+            </a>
+          </div>
         </div>
       )}
 

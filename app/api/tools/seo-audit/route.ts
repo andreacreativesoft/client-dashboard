@@ -404,11 +404,26 @@ export async function POST(request: NextRequest) {
     let pageUrls = await getUrlsFromSitemap(website.url);
 
     // Always ensure homepage is included and first
+    // Deduplicate by pathname to avoid showing the same page twice
+    // (e.g., https://example.com and https://www.example.com both have path "/")
     const normalizedBase = website.url.replace(/\/$/, "");
     pageUrls = pageUrls.filter(
       (u) => u.replace(/\/$/, "") !== normalizedBase
     );
     pageUrls.unshift(website.url);
+
+    // Deduplicate by pathname
+    const seenPaths = new Set<string>();
+    pageUrls = pageUrls.filter((u) => {
+      try {
+        const path = new URL(u).pathname.replace(/\/$/, "") || "/";
+        if (seenPaths.has(path)) return false;
+        seenPaths.add(path);
+        return true;
+      } catch {
+        return true;
+      }
+    });
 
     // Cap at MAX_PAGES
     pageUrls = pageUrls.slice(0, MAX_PAGES);

@@ -12,27 +12,50 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.1.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.2.0');
 
 /**
- * Restore Authorization header from X-WP-Auth for hosts that strip it.
+ * Restore Authorization header for hosts that strip it.
  * Many shared hosting providers (Apache CGI/FastCGI, LiteSpeed) strip the
- * standard Authorization header before PHP can read it. The dashboard sends
- * credentials via both Authorization and X-WP-Auth. This block restores
- * the auth so WordPress Application Passwords can authenticate normally.
+ * standard Authorization header before PHP can read it.
+ *
+ * Fallback chain (first non-empty wins):
+ *   1. X-Dashboard-Token  — primary fallback (no "Auth" in the name to survive LiteSpeed)
+ *   2. X-WP-Auth          — legacy fallback (kept for backwards compatibility)
+ *   3. REDIRECT_HTTP_AUTHORIZATION — Apache mod_rewrite passthrough
  */
 (function() {
-    $custom_auth = isset($_SERVER['HTTP_X_WP_AUTH']) ? $_SERVER['HTTP_X_WP_AUTH'] : '';
-    if (!empty($custom_auth) && empty($_SERVER['HTTP_AUTHORIZATION'])) {
-        $_SERVER['HTTP_AUTHORIZATION'] = $custom_auth;
-        // Also set PHP_AUTH_* for CGI/FastCGI environments
-        if (strpos($custom_auth, 'Basic ') === 0) {
-            $decoded = base64_decode(substr($custom_auth, 6));
-            if ($decoded !== false && strpos($decoded, ':') !== false) {
-                list($user, $pass) = explode(':', $decoded, 2);
-                $_SERVER['PHP_AUTH_USER'] = $user;
-                $_SERVER['PHP_AUTH_PW'] = $pass;
-            }
+    if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+        return; // Already present — nothing to restore
+    }
+
+    $candidates = [
+        $_SERVER['HTTP_X_DASHBOARD_TOKEN'] ?? '',
+        $_SERVER['HTTP_X_WP_AUTH'] ?? '',
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '',
+    ];
+
+    $restored = '';
+    foreach ($candidates as $candidate) {
+        if (!empty($candidate)) {
+            $restored = $candidate;
+            break;
+        }
+    }
+
+    if (empty($restored)) {
+        return; // No fallback headers found
+    }
+
+    $_SERVER['HTTP_AUTHORIZATION'] = $restored;
+
+    // Also set PHP_AUTH_* for CGI/FastCGI environments
+    if (strpos($restored, 'Basic ') === 0) {
+        $decoded = base64_decode(substr($restored, 6));
+        if ($decoded !== false && strpos($decoded, ':') !== false) {
+            list($user, $pass) = explode(':', $decoded, 2);
+            $_SERVER['PHP_AUTH_USER'] = $user;
+            $_SERVER['PHP_AUTH_PW'] = $pass;
         }
     }
 })();
@@ -580,19 +603,22 @@ class Dashboard_Connector {
      * and whether the shared secret constant is defined.
      */
     public function get_auth_debug(WP_REST_Request $request) {
-        $has_auth_header      = !empty($_SERVER['HTTP_AUTHORIZATION']);
-        $has_wp_auth_header   = !empty($_SERVER['HTTP_X_WP_AUTH']);
-        $has_redirect_auth    = !empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
-        $has_php_auth_user    = !empty($_SERVER['PHP_AUTH_USER']);
-        $has_dashboard_secret = !empty($request->get_header('X-Dashboard-Secret'));
-        $secret_configured    = defined('DASHBOARD_SHARED_SECRET') && !empty(DASHBOARD_SHARED_SECRET);
-        $is_logged_in         = is_user_logged_in();
+        $has_auth_header       = !empty($_SERVER['HTTP_AUTHORIZATION']);
+        $has_dashboard_token   = !empty($_SERVER['HTTP_X_DASHBOARD_TOKEN']);
+        $has_wp_auth_header    = !empty($_SERVER['HTTP_X_WP_AUTH']);
+        $has_redirect_auth     = !empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+        $has_php_auth_user     = !empty($_SERVER['PHP_AUTH_USER']);
+        $has_dashboard_secret  = !empty($request->get_header('X-Dashboard-Secret'));
+        $secret_configured     = defined('DASHBOARD_SHARED_SECRET') && !empty(DASHBOARD_SHARED_SECRET);
+        $is_logged_in          = is_user_logged_in();
 
         $auth_method = 'none';
         if ($has_auth_header) {
             $auth_method = 'Authorization header';
+        } elseif ($has_dashboard_token) {
+            $auth_method = 'X-Dashboard-Token fallback (restored by mu-plugin)';
         } elseif ($has_wp_auth_header) {
-            $auth_method = 'X-WP-Auth fallback header (restored by mu-plugin)';
+            $auth_method = 'X-WP-Auth fallback (restored by mu-plugin)';
         } elseif ($has_redirect_auth) {
             $auth_method = 'REDIRECT_HTTP_AUTHORIZATION (Apache CGI passthrough)';
         } elseif ($has_php_auth_user) {
@@ -630,8 +656,9 @@ class Dashboard_Connector {
                 'check'   => 'auth_header_received',
                 'status'  => 'fail',
                 'message' => 'No authentication header received by WordPress',
-                'detail'  => 'Neither Authorization, X-WP-Auth, nor PHP_AUTH_USER was present. '
-                           . 'Your hosting is stripping the Authorization header and the mu-plugin fallback (X-WP-Auth) was also not received.',
+                'detail'  => 'Neither Authorization, X-Dashboard-Token, X-WP-Auth, REDIRECT_HTTP_AUTHORIZATION, nor PHP_AUTH_USER was present. '
+                           . 'Your hosting is stripping ALL auth-related headers. '
+                           . 'Try the .htaccess fix: RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]',
             ];
         } else {
             $checks[] = [

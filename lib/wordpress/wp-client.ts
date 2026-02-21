@@ -127,7 +127,8 @@ export class WPClient {
 
     const headers: Record<string, string> = {
       Authorization: this.authHeader,
-      "X-WP-Auth": this.authHeader, // Fallback for hosts that strip Authorization header
+      "X-Dashboard-Token": this.authHeader, // Fallback for hosts that strip Authorization (avoids "Auth" in name for LiteSpeed)
+      "X-WP-Auth": this.authHeader, // Legacy fallback
       "Content-Type": "application/json",
       "X-Dashboard-Secret": this.secretHeader,
     };
@@ -285,6 +286,7 @@ export class WPClient {
       const authResp = await fetch(`${this.siteUrl}/wp-json/wp/v2/users/me?context=edit`, {
         headers: {
           Authorization: this.authHeader,
+          "X-Dashboard-Token": this.authHeader,
           "X-WP-Auth": this.authHeader,
           "Content-Type": "application/json",
         },
@@ -355,7 +357,7 @@ export class WPClient {
                 "  2. Upload it to: wp-content/mu-plugins/dashboard-connector.php\n" +
                 "     (create the mu-plugins folder if it doesn't exist)\n" +
                 "  3. Then click 'Connect & Save' again — the mu-plugin has a\n" +
-                "     built-in workaround that reads the X-WP-Auth fallback header\n\n" +
+                "     built-in workaround that reads the X-Dashboard-Token fallback header\n\n" +
                 "Option B: Fix .htaccess\n" +
                 "  Add this line to .htaccess BEFORE the WordPress rules:\n" +
                 "  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n" +
@@ -371,7 +373,7 @@ export class WPClient {
                 "- A security plugin is blocking Application Passwords\n\n" +
                 "THE FIX:\n" +
                 "1. Install the mu-plugin (dashboard-connector.php) — it has a\n" +
-                "   built-in workaround using the X-WP-Auth fallback header\n" +
+                "   built-in workaround using the X-Dashboard-Token fallback header\n" +
                 "2. Or add to your Nginx config (in the PHP location block):\n" +
                 "   fastcgi_pass_header Authorization;";
             } else {
@@ -380,7 +382,7 @@ export class WPClient {
                 "  1. Download dashboard-connector.php from the button below\n" +
                 "  2. Upload it to: wp-content/mu-plugins/dashboard-connector.php\n" +
                 "  3. Then click 'Connect & Save' again\n\n" +
-                "The mu-plugin restores credentials from a fallback header (X-WP-Auth)\n" +
+                "The mu-plugin restores credentials from a fallback header (X-Dashboard-Token)\n" +
                 "that bypasses the server's header stripping.";
             }
 
@@ -467,6 +469,7 @@ export class WPClient {
       const muResp = await fetch(`${this.siteUrl}/wp-json/dashboard/v1/site-health`, {
         headers: {
           Authorization: this.authHeader,
+          "X-Dashboard-Token": this.authHeader,
           "X-WP-Auth": this.authHeader,
           "Content-Type": "application/json",
           "X-Dashboard-Secret": this.secretHeader,

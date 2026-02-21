@@ -230,7 +230,8 @@ export async function wpApiFetch<T>(
       ...options,
       headers: {
         Authorization: authHeader,
-        "X-WP-Auth": authHeader, // Fallback for hosts that strip Authorization
+        "X-Dashboard-Token": authHeader, // Fallback for hosts that strip Authorization (avoids "Auth" in name for LiteSpeed)
+        "X-WP-Auth": authHeader, // Legacy fallback
         "Content-Type": "application/json",
         ...options.headers,
       },
@@ -270,12 +271,86 @@ export async function wpApiFetch<T>(
 }
 
 /**
- * Test the WordPress connection by calling /wp-json/wp/v2/users/me
+ * Test the WordPress connection by calling /wp-json/wp/v2/users/me.
+ * On auth failure, probes the mu-plugin's auth-debug endpoint (public, no auth needed)
+ * to see exactly which headers the server received.
  */
 export async function testWPConnection(
   credentials: WPApiCredentials
 ): Promise<WPApiResponse<{ id: number; name: string; slug: string }>> {
-  return wpApiFetch(credentials, "/wp-json/wp/v2/users/me?context=edit");
+  const result = await wpApiFetch<{ id: number; name: string; slug: string }>(
+    credentials,
+    "/wp-json/wp/v2/users/me?context=edit"
+  );
+
+  // If auth failed, probe the auth-debug endpoint for more details
+  if (!result.success && result.status === 401) {
+    const debugInfo = await probeAuthDebug(credentials);
+    if (debugInfo) {
+      result.error = (result.error || "") + "\n\n" + debugInfo;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Probe the mu-plugin's auth-debug endpoint (public, no auth needed) to see
+ * which headers the server actually received. Returns a human-readable summary
+ * or null if the endpoint is not available (mu-plugin not installed).
+ */
+async function probeAuthDebug(credentials: WPApiCredentials): Promise<string | null> {
+  const baseUrl = normalizeUrl(credentials.siteUrl);
+  const authHeader = buildAuthHeader(credentials.username, credentials.appPassword);
+
+  try {
+    const resp = await fetch(`${baseUrl}/wp-json/dashboard/v1/auth-debug`, {
+      headers: {
+        Authorization: authHeader,
+        "X-Dashboard-Token": authHeader,
+        "X-WP-Auth": authHeader,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        return "DIAGNOSTIC: mu-plugin not installed — /wp-json/dashboard/v1/auth-debug returned 404.\nUpload dashboard-connector.php to wp-content/mu-plugins/ and retry.";
+      }
+      return null;
+    }
+
+    const data = await resp.json() as {
+      auth_method?: string;
+      is_logged_in?: boolean;
+      headers_received?: Record<string, boolean>;
+      checks?: { check: string; status: string; message: string; detail?: string }[];
+    };
+
+    const lines: string[] = ["DIAGNOSTIC (from mu-plugin auth-debug):"];
+
+    if (data.auth_method) {
+      lines.push(`  Auth method: ${data.auth_method}`);
+    }
+
+    lines.push(`  Logged in: ${data.is_logged_in ? "yes" : "no"}`);
+
+    if (data.checks) {
+      for (const check of data.checks) {
+        const icon = check.status === "pass" ? "OK" : check.status === "fail" ? "FAIL" : "WARN";
+        lines.push(`  [${icon}] ${check.message}`);
+        if (check.detail && check.status === "fail") {
+          lines.push(`       ${check.detail}`);
+        }
+      }
+    }
+
+    return lines.join("\n");
+  } catch {
+    // auth-debug endpoint not reachable — mu-plugin likely not installed
+    return null;
+  }
 }
 
 /**

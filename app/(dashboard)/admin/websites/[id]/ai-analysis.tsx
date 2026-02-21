@@ -14,6 +14,7 @@ import {
   getWebsiteConfig,
   saveWebsiteConfig,
   getLatestAnalysis,
+  isWordPressConnected,
 } from "@/lib/actions/wordpress";
 import type {
   WPSiteConfig,
@@ -308,6 +309,7 @@ const categories: Array<{ value: RecommendationCategory | "all"; label: string }
 export function AIAnalysis({ websiteId }: { websiteId: string }) {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<WPSiteConfig | null>(null);
+  const [wpConnected, setWpConnected] = useState(false);
   const [analysis, setAnalysis] = useState<WPAnalysis | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -316,14 +318,20 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
   const [pollingId, setPollingId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
+  // Can start analysis if connected via REST API OR has local path configured
+  const canAnalyze = wpConnected || !!config;
+
   // Load initial data
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [configResult, analysisResult] = await Promise.all([
+      const [configResult, analysisResult, connected] = await Promise.all([
         getWebsiteConfig(websiteId),
         getLatestAnalysis(websiteId),
+        isWordPressConnected(websiteId),
       ]);
+
+      setWpConnected(connected);
 
       if (configResult.success && configResult.config) {
         setConfig(configResult.config);
@@ -366,7 +374,7 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
 
   // Start analysis
   async function handleAnalyze() {
-    if (!config) {
+    if (!canAnalyze) {
       setShowConfig(true);
       return;
     }
@@ -493,17 +501,28 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
             <Button
               size="sm"
               onClick={handleAnalyze}
-              disabled={analyzing || !config}
+              disabled={analyzing || !canAnalyze}
             >
               {analyzing ? "Analyzing..." : analysis ? "Re-analyze" : "Start Analysis"}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          {!config && !showConfig && (
+          {wpConnected && !config && !showConfig && (
             <div className="rounded-lg border border-dashed border-border bg-muted/50 p-4 text-center">
               <p className="text-sm text-muted-foreground">
-                Configure the local WordPress path to enable AI analysis.
+                WordPress is connected via REST API. Click &quot;Start Analysis&quot; to analyze your site remotely.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Requires <code className="rounded bg-muted px-1 py-0.5 text-[10px]">ANTHROPIC_API_KEY</code> environment variable.
+              </p>
+            </div>
+          )}
+
+          {!wpConnected && !config && !showConfig && (
+            <div className="rounded-lg border border-dashed border-border bg-muted/50 p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                Connect your WordPress site first (above), or configure a local path for filesystem analysis.
               </p>
               <Button
                 variant="outline"
@@ -511,12 +530,12 @@ export function AIAnalysis({ websiteId }: { websiteId: string }) {
                 className="mt-2"
                 onClick={() => setShowConfig(true)}
               >
-                Configure Path
+                Configure Local Path
               </Button>
             </div>
           )}
 
-          {(showConfig || !config) && (showConfig || !config) && (
+          {showConfig && (
             <div className={config ? "border-t border-border pt-3" : ""}>
               <ConfigForm
                 websiteId={websiteId}

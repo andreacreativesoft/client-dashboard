@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import { crawlWordPressSite } from "@/lib/wordpress/crawler";
+import { crawlWordPressSiteRemote } from "@/lib/wordpress/remote-crawler";
 import { analyzeWithClaude } from "@/lib/wordpress/ai-analyzer";
+import { WPClient } from "@/lib/wordpress/wp-client";
 import type {
   WPSiteConfig,
   WPAnalysis,
@@ -396,17 +398,48 @@ export async function cancelAnalysis(
   return { success: true };
 }
 
+// ─── Check WordPress remote connection ──────────────────────────────
+
+/**
+ * Check if a website has an active WordPress REST API connection.
+ * Returns the WPClient if connected, null otherwise.
+ */
+async function getWordPressClient(
+  websiteId: string
+): Promise<WPClient | null> {
+  try {
+    const client = await WPClient.fromWebsiteId(websiteId);
+    return client;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a website has a WordPress connection (for UI to know if
+ * analysis can run without local path).
+ */
+export async function isWordPressConnected(
+  websiteId: string
+): Promise<boolean> {
+  const client = await getWordPressClient(websiteId);
+  return client !== null;
+}
+
 // ─── Main analysis action ────────────────────────────────────────────
 
 /**
  * Run a full WordPress site analysis:
- * 1. Crawl the local WordPress installation
+ * 1. Crawl the WordPress site (remote via REST API, or local filesystem)
  * 2. Gather dashboard analytics (GA4, GSC, SEO audit, etc.)
  * 3. Send everything to Claude for analysis
  * 4. Store results in database
  *
- * The server action awaits the pipeline (needed for Vercel serverless).
- * The UI polls via getAnalysisById for progress and can cancel via cancelAnalysis.
+ * Supports two crawling modes:
+ * - Remote (preferred): Uses the WordPress REST API connection to fetch data.
+ *   Works from any environment including Vercel.
+ * - Local (fallback): Reads wp-config.php and connects to MySQL directly.
+ *   Only works when running locally with filesystem access.
  */
 export async function analyzeWebsite(
   websiteId: string
@@ -416,7 +449,7 @@ export async function analyzeWebsite(
 
   const supabase = createAdminClient();
 
-  // 1. Get website + config
+  // 1. Get website
   const { data: website } = await supabase
     .from("websites")
     .select("id, client_id, name, url")
@@ -427,28 +460,55 @@ export async function analyzeWebsite(
     return { success: false, error: "Website not found" };
   }
 
-  const { data: config } = await supabase
-    .from("wp_site_configs")
-    .select("local_path")
-    .eq("website_id", websiteId)
-    .single();
+  // 2. Determine crawl mode: remote (REST API) or local (filesystem)
+  const wpClient = await getWordPressClient(websiteId);
 
-  if (!config?.local_path) {
-    return {
-      success: false,
-      error: "WordPress local path not configured. Please set the local path first.",
-    };
+  if (!wpClient) {
+    // Fall back to local crawling
+    const { data: config } = await supabase
+      .from("wp_site_configs")
+      .select("local_path")
+      .eq("website_id", websiteId)
+      .single();
+
+    if (!config?.local_path) {
+      return {
+        success: false,
+        error: "No WordPress connection found. Please connect your WordPress site first, or configure a local path.",
+      };
+    }
+
+    // Local crawling not available on Vercel
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      return {
+        success: false,
+        error: "Local filesystem analysis is not available on Vercel. Please connect your WordPress site via the REST API (Application Password) to enable remote analysis.",
+      };
+    }
+
+    // Create analysis record
+    const { data: analysis, error: insertError } = await supabase
+      .from("wp_analyses")
+      .insert({
+        website_id: websiteId,
+        client_id: website.client_id,
+        status: "running",
+        started_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !analysis) {
+      console.error("Error creating analysis record:", insertError);
+      return { success: false, error: "Failed to start analysis" };
+    }
+
+    const analysisId = analysis.id as string;
+    await runAnalysisPipelineLocal(analysisId, websiteId, website.client_id, config.local_path);
+    return { success: true, analysisId };
   }
 
-  // Detect Vercel/serverless environment — local file access is not available
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    return {
-      success: false,
-      error: "AI Analysis requires access to the local WordPress filesystem. Please run this from your local development server (localhost:3000), not from the deployed Vercel instance.",
-    };
-  }
-
-  // 2. Create analysis record (status: running)
+  // Remote crawling via REST API
   const { data: analysis, error: insertError } = await supabase
     .from("wp_analyses")
     .insert({
@@ -466,23 +526,12 @@ export async function analyzeWebsite(
   }
 
   const analysisId = analysis.id as string;
-
-  // 3. Run the full analysis pipeline (awaited — server action stays alive)
-  // The pipeline checks for cancellation at key checkpoints.
-  await runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path);
-
-  return {
-    success: true,
-    analysisId,
-  };
+  await runAnalysisPipelineRemote(analysisId, websiteId, website.client_id, website.url, wpClient);
+  return { success: true, analysisId };
 }
 
 // ─── Cancellation check helper ──────────────────────────────────────
 
-/**
- * Check if an analysis has been cancelled (status changed to "failed" with
- * "Cancelled by user" message). Throws if cancelled.
- */
 async function checkCancelled(analysisId: string): Promise<void> {
   const supabase = createAdminClient();
   const { data } = await supabase
@@ -496,19 +545,77 @@ async function checkCancelled(analysisId: string): Promise<void> {
   }
 }
 
-// ─── Analysis pipeline ──────────────────────────────────────────────
+// ─── Pipeline error handler ─────────────────────────────────────────
+
+async function handlePipelineError(
+  err: unknown,
+  analysisId: string
+): Promise<void> {
+  let errorMessage: string;
+  if (err instanceof Error) {
+    errorMessage = err.message;
+  } else if (typeof err === "string") {
+    errorMessage = err;
+  } else {
+    errorMessage = JSON.stringify(err) || "Unknown error during analysis";
+  }
+
+  // Don't overwrite a user-initiated cancel
+  if (errorMessage === "Analysis was cancelled") return;
+
+  console.error("Analysis pipeline failed:", errorMessage);
+  console.error("Raw error:", err);
+
+  const supabase = createAdminClient();
+  await supabase
+    .from("wp_analyses")
+    .update({
+      status: "failed",
+      error_message: errorMessage,
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", analysisId);
+}
+
+// ─── Save analysis results ──────────────────────────────────────────
+
+async function saveAnalysisResults(
+  analysisId: string,
+  websiteId: string,
+  crawlData: WPCrawlResult,
+  result: { recommendations: unknown[]; scores: unknown; total_issues: number; summary: string },
+  tokensUsed: number
+): Promise<void> {
+  const supabase = createAdminClient();
+  await supabase
+    .from("wp_analyses")
+    .update({
+      status: "completed",
+      site_data: crawlData as unknown as Record<string, unknown>,
+      recommendations: result.recommendations as unknown as Record<string, unknown>[],
+      scores: result.scores as unknown as Record<string, unknown>,
+      pages_analyzed: crawlData.total_pages,
+      issues_found: result.total_issues,
+      claude_tokens: tokensUsed,
+      summary: result.summary,
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", analysisId);
+
+  revalidatePath(`/admin/websites/${websiteId}`);
+}
+
+// ─── Remote analysis pipeline (REST API) ────────────────────────────
 
 const PIPELINE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute hard timeout
 
-async function runAnalysisPipeline(
+async function runAnalysisPipelineRemote(
   analysisId: string,
   websiteId: string,
   clientId: string,
-  localPath: string
+  siteUrl: string,
+  wpClient: WPClient
 ): Promise<void> {
-  const supabase = createAdminClient();
-
-  // Wrap the entire pipeline in a timeout
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error("Analysis timed out after 5 minutes")), PIPELINE_TIMEOUT_MS);
   });
@@ -516,71 +623,67 @@ async function runAnalysisPipeline(
   try {
     await Promise.race([
       (async () => {
-        // Step 1: Crawl WordPress site
-        const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
+        // Step 1: Crawl WordPress site via REST API
+        const crawlData: WPCrawlResult = await crawlWordPressSiteRemote(wpClient, siteUrl);
 
-        // Check if user cancelled between steps
         await checkCancelled(analysisId);
 
         // Step 2: Gather dashboard analytics
         const analyticsData = await gatherDashboardAnalytics(websiteId, clientId);
 
-        // Check again before the expensive Claude call
         await checkCancelled(analysisId);
 
         // Step 3: Send to Claude for analysis
         const { result, tokensUsed } = await analyzeWithClaude(crawlData, analyticsData);
 
-        // Final check before writing results
         await checkCancelled(analysisId);
 
-        // Step 4: Update analysis record with results
-        await supabase
-          .from("wp_analyses")
-          .update({
-            status: "completed",
-            site_data: crawlData as unknown as Record<string, unknown>,
-            recommendations: result.recommendations as unknown as Record<string, unknown>[],
-            scores: result.scores as unknown as Record<string, unknown>,
-            pages_analyzed: crawlData.total_pages,
-            issues_found: result.total_issues,
-            claude_tokens: tokensUsed,
-            summary: result.summary,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", analysisId);
-
-        revalidatePath(`/admin/websites/${websiteId}`);
+        // Step 4: Save results
+        await saveAnalysisResults(analysisId, websiteId, crawlData, result, tokensUsed);
       })(),
       timeoutPromise,
     ]);
   } catch (err) {
-    // Extract error message — handle non-Error objects
-    let errorMessage: string;
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    } else if (typeof err === "string") {
-      errorMessage = err;
-    } else {
-      errorMessage = JSON.stringify(err) || "Unknown error during analysis";
-    }
+    await handlePipelineError(err, analysisId);
+  }
+}
 
-    // Don't overwrite a user-initiated cancel
-    if (errorMessage === "Analysis was cancelled") {
-      return;
-    }
+// ─── Local analysis pipeline (filesystem + MySQL) ───────────────────
 
-    console.error("Analysis pipeline failed:", errorMessage);
-    console.error("Raw error:", err);
+async function runAnalysisPipelineLocal(
+  analysisId: string,
+  websiteId: string,
+  clientId: string,
+  localPath: string
+): Promise<void> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Analysis timed out after 5 minutes")), PIPELINE_TIMEOUT_MS);
+  });
 
-    // Update record with failure
-    await supabase
-      .from("wp_analyses")
-      .update({
-        status: "failed",
-        error_message: errorMessage,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", analysisId);
+  try {
+    await Promise.race([
+      (async () => {
+        // Step 1: Crawl WordPress site from local files + MySQL
+        const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
+
+        await checkCancelled(analysisId);
+
+        // Step 2: Gather dashboard analytics
+        const analyticsData = await gatherDashboardAnalytics(websiteId, clientId);
+
+        await checkCancelled(analysisId);
+
+        // Step 3: Send to Claude for analysis
+        const { result, tokensUsed } = await analyzeWithClaude(crawlData, analyticsData);
+
+        await checkCancelled(analysisId);
+
+        // Step 4: Save results
+        await saveAnalysisResults(analysisId, websiteId, crawlData, result, tokensUsed);
+      })(),
+      timeoutPromise,
+    ]);
+  } catch (err) {
+    await handlePipelineError(err, analysisId);
   }
 }

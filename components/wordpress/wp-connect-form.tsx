@@ -107,6 +107,18 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
         </div>
       </div>
 
+      {/* Pre-flight: install mu-plugin before connecting */}
+      <div className="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950">
+        <p className="mb-1 text-[10px] font-medium text-amber-900 dark:text-amber-200">
+          Step 1 — Install the mu-plugin on the WordPress site first
+        </p>
+        <p className="text-[10px] text-amber-800 dark:text-amber-300">
+          Most hosting (Apache, LiteSpeed) strips auth headers, which blocks the connection.
+          Upload <code className="rounded bg-amber-100 px-0.5 dark:bg-amber-900">dashboard-connector.php</code> to <code className="rounded bg-amber-100 px-0.5 dark:bg-amber-900">wp-content/mu-plugins/</code> first,
+          then fill in the form below.
+        </p>
+      </div>
+
       <div className="space-y-1">
         <Label htmlFor="wp_url" className="text-xs">
           Site URL
@@ -194,8 +206,22 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
         <p className="text-xs text-green-600">{testResult}</p>
       )}
       {error && (
-        <div className="rounded border border-destructive/30 bg-destructive/5 p-2">
-          <p className="whitespace-pre-line text-xs text-destructive">{error}</p>
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-2">
+          <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-destructive">{error}</pre>
+          {error.includes("header stripped") && (
+            <div className="rounded border border-amber-300 bg-amber-50 p-1.5 dark:border-amber-700 dark:bg-amber-950">
+              <a
+                href="/mu-plugins/dashboard-connector.php"
+                download="dashboard-connector.php"
+                className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+              >
+                <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download dashboard-connector.php — upload to wp-content/mu-plugins/ and retry
+              </a>
+            </div>
+          )}
         </div>
       )}
 

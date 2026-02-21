@@ -58,7 +58,7 @@ function normalizeUrl(siteUrl: string): string {
 /**
  * Parse a WordPress REST API error response and return a user-friendly message.
  */
-function parseWPError(status: number, body: string): string {
+function parseWPError(status: number, body: string, serverHeader?: string): string {
   // Non-JSON response — likely HTML redirect, WAF, or maintenance page
   let json: { code?: string; message?: string; data?: { status?: number } } | null = null;
   try {
@@ -96,21 +96,50 @@ function parseWPError(status: number, body: string): string {
   // 401 errors
   if (status === 401) {
     if (code === "rest_not_logged_in") {
-      return (
-        "Authentication failed — WordPress says 'not logged in'.\n\n" +
-        "The server received the request but did not see any credentials. " +
-        "This is the classic Apache Authorization header stripping issue.\n\n" +
-        "Fixes (try in order):\n" +
-        "1. Install the mu-plugin (dashboard-connector.php) in wp-content/mu-plugins/ — it has a built-in header fallback\n" +
-        "2. Add to .htaccess (BEFORE the WordPress rules):\n" +
-        "   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n" +
-        "3. For CGI/FastCGI, add to wp-config.php:\n" +
-        "   $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';\n\n" +
-        "Also verify:\n" +
-        "- The username exists and has Administrator role\n" +
-        "- The Application Password is correct (no extra spaces)\n" +
-        "- No security plugin is blocking Application Passwords"
-      );
+      const server = (serverHeader || "").toLowerCase();
+      const isApache = server.includes("apache");
+      const isLiteSpeed = server.includes("litespeed");
+      const isNginx = server.includes("nginx");
+      const serverName = serverHeader || "unknown";
+
+      let msg = `Authentication failed — Authorization header stripped by server (${serverName}).\n\n`;
+      msg += "WordPress received the request but did not see any credentials.\n";
+      msg += "The web server is stripping the Authorization header before PHP can read it.\n\n";
+
+      if (isApache || isLiteSpeed) {
+        msg +=
+          `This is a known issue with ${isApache ? "Apache" : "LiteSpeed"} hosting.\n\n` +
+          "THE FIX — do ONE of these:\n\n" +
+          "1. Install the mu-plugin FIRST (recommended)\n" +
+          "   Download dashboard-connector.php (button above) and upload it to:\n" +
+          "   wp-content/mu-plugins/dashboard-connector.php\n" +
+          "   (create the mu-plugins folder if it doesn't exist)\n" +
+          "   Then click 'Test Connection' again.\n\n" +
+          "2. Add to .htaccess (BEFORE the WordPress rules):\n" +
+          "   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n" +
+          "3. For CGI/FastCGI, add to wp-config.php:\n" +
+          "   $_SERVER['HTTP_AUTHORIZATION'] = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';";
+      } else if (isNginx) {
+        msg +=
+          "This is unusual for Nginx — it typically passes auth headers.\n\n" +
+          "Possible causes:\n" +
+          "- A reverse proxy is stripping headers\n" +
+          "- fastcgi_pass_header not configured\n" +
+          "- A security plugin is blocking Application Passwords\n\n" +
+          "THE FIX:\n" +
+          "1. Install the mu-plugin (download above) — it has a built-in workaround\n" +
+          "2. Or add to your Nginx config (in the PHP location block):\n" +
+          "   fastcgi_pass_header Authorization;";
+      } else {
+        msg +=
+          "THE FIX:\n" +
+          "1. Download and install the mu-plugin (button above) — it has a built-in\n" +
+          "   workaround that bypasses the server's header stripping.\n" +
+          "   Upload it to: wp-content/mu-plugins/dashboard-connector.php\n" +
+          "   Then try connecting again.";
+      }
+
+      return msg;
     }
     if (code === "invalid_application_password" || code === "incorrect_password") {
       return (
@@ -194,12 +223,14 @@ export async function wpApiFetch<T>(
 ): Promise<WPApiResponse<T>> {
   const baseUrl = normalizeUrl(credentials.siteUrl);
   const url = `${baseUrl}${endpoint}`;
+  const authHeader = buildAuthHeader(credentials.username, credentials.appPassword);
 
   try {
     const response = await fetch(url, {
       ...options,
       headers: {
-        Authorization: buildAuthHeader(credentials.username, credentials.appPassword),
+        Authorization: authHeader,
+        "X-WP-Auth": authHeader, // Fallback for hosts that strip Authorization
         "Content-Type": "application/json",
         ...options.headers,
       },
@@ -208,9 +239,10 @@ export async function wpApiFetch<T>(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
+      const serverHeader = response.headers.get("server") || undefined;
       return {
         success: false,
-        error: parseWPError(response.status, errorText),
+        error: parseWPError(response.status, errorText, serverHeader),
         status: response.status,
       };
     }

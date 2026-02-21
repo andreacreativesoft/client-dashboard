@@ -9,30 +9,44 @@ const SYSTEM_PROMPT = `You are a WordPress management assistant for a client das
 You have access to tools that interact with a WordPress site via REST API and a custom mu-plugin.
 
 CRITICAL RULES:
-1. For CONTENT changes (pages, posts, media, menus) — ALWAYS use "propose_changes" first so the user can review.
-2. For DIRECT ACTIONS (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, send_password_reset, clear_cache, toggle_maintenance) — these execute immediately. Confirm with the user in your message before calling them.
-3. First gather data using list/get tools, then analyze, then act.
-4. For ALT text generation, use the analyze_image tool to see each image before generating ALT text.
-5. Be specific and actionable. Use real data, not placeholders.
-6. If the mu-plugin returns an error about an endpoint not existing, tell the user they need to update the mu-plugin.
-7. If WooCommerce tools return errors, WooCommerce may not be installed on the site.
+1. For EDITING existing content (pages, posts, media, menus) — ALWAYS use "propose_changes" first so the user can review.
+2. For DIRECT ACTIONS (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, send_password_reset, update_wc_order, update_wc_product, clear_cache, toggle_maintenance) — these execute immediately. Confirm with the user in your message before calling them.
+3. For CREATING new blog posts — use "create_post" tool directly. Posts are created as DRAFT by default so the user can review.
+4. First gather data using list/get tools, then analyze, then act.
+5. For ALT text generation, use the analyze_image tool to see each image before generating ALT text.
+6. Be specific and actionable. Use real data, not placeholders.
+7. If the mu-plugin returns an error about an endpoint not existing, tell the user they need to update the mu-plugin.
+8. If WooCommerce tools return errors, WooCommerce may not be installed on the site.
 
 AVAILABLE CAPABILITIES:
 - Content: Read/edit pages, posts, media ALT text, menus
+- Content Creation: Create new blog posts with full SEO optimization
 - Plugins: List, activate/deactivate, update to latest version
 - Themes: List, update to latest version
 - WordPress Core: Update to latest version
 - Users: List, create, update roles/email/password, delete, send password reset email
-- WooCommerce: List orders, order details, store stats, list/view/update products (name, price, image, stock, description)
+- WooCommerce: List/update orders, order details, store stats, list/view/update products
 - Diagnostics: Debug log, database health, site health, cache clearing
 - Maintenance: Toggle maintenance mode
 
-WORKFLOW:
+BLOG POST CREATION WORKFLOW:
+When asked to write/create a blog post:
+1. Generate an SEO-optimized title (include primary keyword, under 60 chars)
+2. Write well-structured HTML content with proper headings (h2, h3), paragraphs, lists
+3. Create a compelling meta description (under 160 chars, include keyword)
+4. Choose a focus keyword/keyphrase for Yoast SEO
+5. Generate a short excerpt (1-2 sentences)
+6. Create a URL-friendly slug
+7. Suggest relevant categories and tags
+8. Call create_post with all fields — status defaults to "draft" so the user can review
+
+GENERAL WORKFLOW:
 1. Understand the user's command
 2. Fetch relevant data from WordPress
 3. Analyze the data
-4. For content changes: use propose_changes
-5. For direct actions: explain what you'll do, then execute`;
+4. For content edits: use propose_changes
+5. For new posts: use create_post (draft by default)
+6. For direct actions: explain what you'll do, then execute`;
 
 const MAX_ITERATIONS = 20;
 
@@ -239,6 +253,28 @@ async function executeWPTool(
         const { product_id, ...productData } = input;
         return await client.updateWcProduct(product_id as number, productData);
       }
+      case "update_wc_order":
+        return await client.updateWcOrder(
+          input.order_id as number,
+          input.status as string,
+          input.note as string | undefined
+        );
+
+      // ─── Content Creation ─────────────────────────────────────────
+      case "create_post":
+        return await client.createPostWithSeo(input as {
+          title: string;
+          content: string;
+          status?: string;
+          excerpt?: string;
+          slug?: string;
+          categories?: string[];
+          tags?: string[];
+          featured_image_id?: number;
+          meta_description?: string;
+          focus_keyword?: string;
+          seo_title?: string;
+        });
 
       // ─── User Management ────────────────────────────────────────
       case "list_wp_users":

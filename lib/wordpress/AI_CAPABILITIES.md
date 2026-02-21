@@ -19,7 +19,7 @@ Read this instead of scanning the full codebase.
 ## Two-Tier Action Model
 
 ### Proposal-Based (user reviews before apply)
-Content changes go through `propose_changes` → user selects → `apply/route.ts` executes.
+Content **edits** go through `propose_changes` → user selects → `apply/route.ts` executes.
 
 | Resource | Fields | Apply Method |
 |----------|--------|--------------|
@@ -37,6 +37,7 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 
 | Tool | What it does |
 |------|-------------|
+| `create_post` | Creates a new blog post (draft by default) with full SEO fields |
 | `update_plugin` | Updates a plugin to latest version |
 | `update_theme` | Updates a theme to latest version |
 | `update_core` | Updates WordPress core to latest |
@@ -45,12 +46,13 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `delete_wp_user` | Deletes user, reassigns content |
 | `send_password_reset` | Sends password reset email to a user |
 | `update_wc_product` | Updates product name/price/image/stock/description |
+| `update_wc_order` | Changes order status (e.g., mark as completed) |
 | `clear_cache` | Clears object cache + page cache plugins |
 | `toggle_maintenance` | Enables/disables maintenance mode |
 
 ---
 
-## All Tools by Category (37 total)
+## All Tools by Category (40 total)
 
 ### Content — Read
 | Tool | Description |
@@ -72,6 +74,11 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `update_post` | Propose post field change |
 | `toggle_plugin` | Propose plugin activate/deactivate |
 | `create_menu_item` | Propose new menu item |
+
+### Content Creation — Direct Action
+| Tool | Description |
+|------|-------------|
+| `create_post` | Create new blog post with SEO (title, content, meta description, focus keyword, categories, tags). Defaults to draft status. |
 
 ### Image Analysis
 | Tool | Description |
@@ -103,6 +110,7 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `list_wc_products` | List products (paginated, searchable, filterable) |
 | `get_wc_product` | Full product details (prices, stock, images, description) |
 | `update_wc_product` | Update product name/price/image/stock/description/SKU |
+| `update_wc_order` | Change order status + optional order note |
 
 ### User Management
 | Tool | Description |
@@ -122,18 +130,24 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 ### Proposals
 | Tool | Description |
 |------|-------------|
-| `propose_changes` | Bundle all content changes for user review |
+| `propose_changes` | Bundle all content edit changes for user review |
 
 ---
 
 ## Example Commands Users Can Give
 
-### Content & SEO
+### Content Editing & SEO
 - "Check all images and generate missing ALT text"
 - "Change the title of the About page to 'About Our Team'"
 - "Replace 'old company name' with 'new company name' on all pages"
 - "Update the meta description for the homepage"
 - "Show me all draft pages"
+
+### Blog Post Creation (AI writes + SEO optimized)
+- "Write a blog post about the benefits of organic skincare"
+- "Create an article about top 10 home renovation tips for 2026"
+- "Write a post about our new product launch, focus on keyword 'wireless earbuds'"
+- "Create a blog post comparing React vs Vue for beginners"
 
 ### Users
 - "Create a new editor account for john@example.com"
@@ -148,13 +162,19 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 - "What themes are installed and which is active?"
 - "Update WordPress core to latest"
 
-### WooCommerce
+### WooCommerce — Orders
 - "Show me today's orders"
-- "Change the price of 'Blue T-Shirt' to $24.99"
-- "Set the 'Summer Collection' product image to the media item with ID 456"
-- "What products are low on stock?"
-- "Show revenue for this month"
+- "Mark order #1234 as completed"
+- "Cancel order #5678 and add a note 'Customer requested cancellation'"
 - "List all processing orders"
+- "Show revenue for this month"
+
+### WooCommerce — Products
+- "Change the price of 'Blue T-Shirt' to $24.99"
+- "Set a sale price of $19.99 on 'Summer Hat'"
+- "Set the 'Summer Collection' product image to media item ID 456"
+- "What products are low on stock?"
+- "Update the description of 'Leather Wallet'"
 
 ### Diagnostics
 - "Check the debug log for errors"
@@ -165,29 +185,49 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 
 ---
 
+## Blog Post Creation — SEO Workflow
+
+When a user asks to create a blog post, the AI:
+1. Generates an SEO-optimized title (includes primary keyword, under 60 chars)
+2. Writes well-structured HTML content with proper H2/H3 headings, paragraphs, lists
+3. Creates a meta description (under 160 chars, includes keyword) for Yoast SEO
+4. Sets a focus keyword/keyphrase for Yoast SEO
+5. Generates a short excerpt (1-2 sentences)
+6. Creates a URL-friendly slug
+7. Suggests categories and tags
+8. Creates the post as **draft** by default so the user can review in WordPress
+
+SEO meta fields set via mu-plugin:
+- `_yoast_wpseo_metadesc` — meta description
+- `_yoast_wpseo_focuskw` — focus keyword
+- `_yoast_wpseo_title` — custom SEO title (if different from post title)
+
+---
+
 ## What It CANNOT Do
 
 - **Upload media** — no file upload endpoint
 - **Delete media/pages/posts** — no delete tools defined
-- **Edit WooCommerce orders** — read-only (no create/update/refund)
+- **Create/refund WooCommerce orders** — can only update status of existing orders
 - **Create new products** — can only update existing ones
 - **Install new plugins/themes** — only update existing ones
 - **Edit wp-config.php or .htaccess** — no filesystem write access
 - **Run WP-CLI commands** — no shell access (unless SSH is configured separately)
-- **Manage taxonomies** (categories, tags) — no tools for these
+- **Manage taxonomies directly** (categories, tags) — only via post creation
 - **Manage comments** — no comment tools
 - **Manage widgets/sidebars** — no tools
 - **Manage redirects** — no tools
 - **Multi-site operations** — single-site only
 - **Schedule/cron management** — no tools
 - **Edit theme files/templates** — no file editor
+- **Create pages** — only posts (pages require different workflow)
 
 ## Dependencies & Requirements
 
-- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, WooCommerce, users, plugin/theme/core updates, password reset)
+- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, WooCommerce, users, plugin/theme/core updates, password reset, post creation with SEO)
 - **Standard WP REST API for:** media, pages, posts, menus (no mu-plugin needed)
 - **WooCommerce plugin required for:** all `wc_*` tools — returns error if not installed
-- **Yoast SEO for:** `meta_description` field to work (writes to `_yoast_wpseo_metadesc`)
+- **Yoast SEO for:** `meta_description`, `focus_keyword`, `seo_title` fields (writes to `_yoast_wpseo_*` meta)
 
 ## Action Queue & Conflict Detection
 

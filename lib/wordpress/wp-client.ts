@@ -378,6 +378,19 @@ export class WPClient {
     });
   }
 
+  async updateWcOrder(
+    orderId: number,
+    status: string,
+    note?: string
+  ): Promise<{ success: boolean; order_id: number; old_status: string; new_status: string }> {
+    return this.request("/woocommerce/order/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { order_id: orderId, status, ...(note && { note }) },
+      confirmAction: true,
+    });
+  }
+
   async getWcStats(): Promise<{
     today_orders: number;
     today_revenue: number;
@@ -545,6 +558,34 @@ export class WPClient {
     return this.request(`/posts/${id}`, {
       method: "POST",
       body: data as Record<string, unknown>,
+    });
+  }
+
+  async createPostWithSeo(data: {
+    title: string;
+    content: string;
+    status?: string;
+    excerpt?: string;
+    slug?: string;
+    categories?: string[];
+    tags?: string[];
+    featured_image_id?: number;
+    meta_description?: string;
+    focus_keyword?: string;
+    seo_title?: string;
+  }): Promise<{
+    success: boolean;
+    post_id: number;
+    title: string;
+    status: string;
+    url: string;
+    edit_url: string;
+  }> {
+    return this.request("/posts/create", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: data as Record<string, unknown>,
+      confirmAction: true,
     });
   }
 

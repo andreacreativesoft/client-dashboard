@@ -201,6 +201,26 @@ class Dashboard_Connector {
             ],
         ]);
 
+        register_rest_route($this->namespace, '/woocommerce/order/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_wc_order'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'order_id' => ['required' => true, 'sanitize_callback' => 'absint'],
+                'status'   => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/posts/create', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'create_post_with_seo'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'title'   => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
+                'content' => ['required' => true],
+            ],
+        ]);
+
         register_rest_route($this->namespace, '/users', [
             'methods'             => 'GET',
             'callback'            => [$this, 'get_wp_users'],
@@ -1284,6 +1304,140 @@ class Dashboard_Connector {
             'success'    => true,
             'product_id' => $product_id,
             'updated'    => $updated,
+        ]);
+    }
+
+    public function update_wc_order(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('woocommerce_not_active', 'WooCommerce is not installed or active.', ['status' => 400]);
+        }
+
+        $order_id = $request->get_param('order_id');
+        $status   = $request->get_param('status');
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return new WP_Error('order_not_found', 'Order not found.', ['status' => 404]);
+        }
+
+        $valid_statuses = ['pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed'];
+        // Strip wc- prefix if provided
+        $status = str_replace('wc-', '', $status);
+        if (!in_array($status, $valid_statuses)) {
+            return new WP_Error('invalid_status', 'Invalid order status. Valid: ' . implode(', ', $valid_statuses), ['status' => 400]);
+        }
+
+        $old_status = $order->get_status();
+        $order->update_status($status, 'Status updated via Dashboard AI.');
+
+        // Add optional note
+        $note = $request->get_param('note');
+        if ($note) {
+            $order->add_order_note(sanitize_text_field($note), 0, true);
+        }
+
+        return rest_ensure_response([
+            'success'    => true,
+            'order_id'   => $order_id,
+            'old_status' => $old_status,
+            'new_status' => $status,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: CREATE POST WITH SEO
+    // ═══════════════════════════════════════════
+
+    public function create_post_with_seo(WP_REST_Request $request) {
+        $title   = $request->get_param('title');
+        $content = $request->get_param('content');
+        $status  = $request->get_param('status') ?: 'draft';
+        $excerpt = $request->get_param('excerpt') ?: '';
+        $slug    = $request->get_param('slug') ?: '';
+
+        // Validate status
+        $valid_statuses = ['publish', 'draft', 'pending', 'private'];
+        if (!in_array($status, $valid_statuses)) {
+            return new WP_Error('invalid_status', 'Invalid post status.', ['status' => 400]);
+        }
+
+        $post_data = [
+            'post_title'   => $title,
+            'post_content' => wp_kses_post($content),
+            'post_status'  => $status,
+            'post_type'    => 'post',
+            'post_author'  => get_current_user_id(),
+        ];
+
+        if ($excerpt) {
+            $post_data['post_excerpt'] = sanitize_textarea_field($excerpt);
+        }
+        if ($slug) {
+            $post_data['post_name'] = sanitize_title($slug);
+        }
+
+        $post_id = wp_insert_post($post_data, true);
+
+        if (is_wp_error($post_id)) {
+            return new WP_Error('create_failed', $post_id->get_error_message(), ['status' => 500]);
+        }
+
+        // Set categories if provided
+        $categories = $request->get_param('categories');
+        if ($categories && is_array($categories)) {
+            $cat_ids = [];
+            foreach ($categories as $cat_name) {
+                $term = get_term_by('name', $cat_name, 'category');
+                if ($term) {
+                    $cat_ids[] = $term->term_id;
+                } else {
+                    // Create category if it doesn't exist
+                    $new_term = wp_insert_term($cat_name, 'category');
+                    if (!is_wp_error($new_term)) {
+                        $cat_ids[] = $new_term['term_id'];
+                    }
+                }
+            }
+            if (!empty($cat_ids)) {
+                wp_set_post_categories($post_id, $cat_ids);
+            }
+        }
+
+        // Set tags if provided
+        $tags = $request->get_param('tags');
+        if ($tags && is_array($tags)) {
+            wp_set_post_tags($post_id, $tags);
+        }
+
+        // Set featured image if media ID provided
+        $featured_image_id = $request->get_param('featured_image_id');
+        if ($featured_image_id) {
+            set_post_thumbnail($post_id, absint($featured_image_id));
+        }
+
+        // Set Yoast SEO fields if available
+        $meta_description = $request->get_param('meta_description');
+        if ($meta_description) {
+            update_post_meta($post_id, '_yoast_wpseo_metadesc', sanitize_text_field($meta_description));
+        }
+
+        $focus_keyword = $request->get_param('focus_keyword');
+        if ($focus_keyword) {
+            update_post_meta($post_id, '_yoast_wpseo_focuskw', sanitize_text_field($focus_keyword));
+        }
+
+        $seo_title = $request->get_param('seo_title');
+        if ($seo_title) {
+            update_post_meta($post_id, '_yoast_wpseo_title', sanitize_text_field($seo_title));
+        }
+
+        return rest_ensure_response([
+            'success'  => true,
+            'post_id'  => $post_id,
+            'title'    => $title,
+            'status'   => $status,
+            'url'      => get_permalink($post_id),
+            'edit_url' => admin_url("post.php?post={$post_id}&action=edit"),
         ]);
     }
 

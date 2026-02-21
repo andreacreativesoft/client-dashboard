@@ -378,6 +378,56 @@ export const wpAITools: Tool[] = [
       required: ["product_id"],
     },
   },
+  {
+    name: "update_wc_order",
+    description:
+      "Update a WooCommerce order status (e.g., mark as completed, processing, cancelled). Optionally add an order note.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        order_id: { type: "number", description: "The order ID" },
+        status: {
+          type: "string",
+          description: "New status: pending, processing, on-hold, completed, cancelled, refunded, failed",
+        },
+        note: { type: "string", description: "Optional note to add to the order" },
+      },
+      required: ["order_id", "status"],
+    },
+  },
+
+  // ─── Content Creation ──────────────────────────────────────────────
+
+  {
+    name: "create_post",
+    description:
+      "Create a new WordPress blog post with full SEO optimization. The post is created as a DRAFT by default so the user can review before publishing. When the user asks you to write a blog post: 1) Research the topic, 2) Generate SEO-optimized title, content with proper H2/H3 headings, meta description, focus keyword, and excerpt, 3) Call this tool to create it. Always use proper HTML headings (h2, h3), paragraphs, and lists in content.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Post title (SEO-optimized, include primary keyword)" },
+        content: { type: "string", description: "Full post content in HTML. Use <h2>, <h3> for headings, <p> for paragraphs, <ul>/<ol> for lists. Structure for SEO: intro, multiple sections with headings, conclusion." },
+        excerpt: { type: "string", description: "Short excerpt/summary (1-2 sentences)" },
+        slug: { type: "string", description: "URL-friendly slug (lowercase, hyphens, include keyword)" },
+        status: { type: "string", description: "Post status: draft (default, recommended), publish, pending, private", default: "draft" },
+        categories: {
+          type: "array",
+          items: { type: "string" },
+          description: "Category names (will be created if they don't exist)",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tag names for the post",
+        },
+        featured_image_id: { type: "number", description: "Media library attachment ID for featured image" },
+        meta_description: { type: "string", description: "SEO meta description (max 160 chars, include primary keyword)" },
+        focus_keyword: { type: "string", description: "Yoast SEO focus keyword/keyphrase" },
+        seo_title: { type: "string", description: "Custom SEO title if different from post title (max 60 chars)" },
+      },
+      required: ["title", "content"],
+    },
+  },
 
   // ─── User Management ─────────────────────────────────────────────
 

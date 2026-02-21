@@ -10,7 +10,7 @@ import { getSelectedClientId } from "@/lib/selected-client";
 import { getProfile } from "@/lib/actions/profile";
 import { updateLastLogin } from "@/lib/actions/alerts";
 import { getNavBadgeCounts } from "@/lib/actions/nav-badges";
-import { TicketNotificationBell } from "@/components/ticket-notification-bell";
+import { SupportChat } from "@/components/support-chat";
 
 export default async function DashboardLayout({
   children,
@@ -38,6 +38,20 @@ export default async function DashboardLayout({
   // Fetch badge counts for navigation
   const badgeCounts = await getNavBadgeCounts();
 
+  // Get user's first client_id for the chat widget (clients only)
+  let userClientId: string | null = null;
+  if (!isAdmin) {
+    const { createClient: createServerClient } = await import("@/lib/supabase/server");
+    const supabase = await createServerClient();
+    const { data: clientUser } = await supabase
+      .from("client_users")
+      .select("client_id")
+      .eq("user_id", profile.id)
+      .limit(1)
+      .single();
+    userClientId = clientUser?.client_id ?? null;
+  }
+
   // When impersonating, hide admin features
   const showAsAdmin = isAdmin && !impersonation;
 
@@ -63,8 +77,13 @@ export default async function DashboardLayout({
           {/* Mobile bottom nav */}
           <MobileNav isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="md:hidden" />
 
-          {/* Floating ticket notification bell */}
-          <TicketNotificationBell count={badgeCounts.openTickets} />
+          {/* Support chat widget */}
+          <SupportChat
+            userId={profile.id}
+            userRole={profile.role}
+            clientId={userClientId}
+            openTicketCount={badgeCounts.openTickets}
+          />
 
           {/* Impersonation banner */}
           {impersonation && (

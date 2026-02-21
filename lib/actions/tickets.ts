@@ -422,3 +422,84 @@ export async function getAdminUsers(): Promise<{ id: string; full_name: string }
 
   return (data || []) as { id: string; full_name: string }[];
 }
+
+/** Get or create an active support chat ticket for the current user */
+export async function getOrCreateChatTicket(
+  clientId: string
+): Promise<{ ticketId: string; isNew: boolean } | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  // Find most recent open/in-progress ticket created by this user for this client
+  const { data: existing } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("created_by", user.id)
+    .eq("client_id", clientId)
+    .in("status", ["open", "in_progress"])
+    .eq("category", "support")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (existing) {
+    return { ticketId: existing.id, isNew: false };
+  }
+
+  // Create a new support chat ticket
+  const { data: ticket, error } = await supabase
+    .from("tickets")
+    .insert({
+      client_id: clientId,
+      created_by: user.id,
+      subject: "Live Chat",
+      description: "Started via chat widget",
+      status: "open",
+      priority: "medium",
+      category: "support",
+    })
+    .select("id")
+    .single();
+
+  if (error || !ticket) return null;
+  return { ticketId: ticket.id, isNew: true };
+}
+
+/** Get recent chat messages (replies) for the chat widget */
+export async function getChatMessages(ticketId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("ticket_replies")
+    .select(`
+      id, ticket_id, user_id, content, is_internal, created_at,
+      user:profiles!user_id(full_name, role, avatar_url)
+    `)
+    .eq("ticket_id", ticketId)
+    .eq("is_internal", false)
+    .order("created_at", { ascending: true })
+    .limit(100);
+
+  if (error) return [];
+
+  type Row = {
+    id: string;
+    ticket_id: string;
+    user_id: string;
+    content: string;
+    is_internal: boolean;
+    created_at: string;
+    user: { full_name: string; role: string; avatar_url: string | null } | null;
+  };
+
+  return ((data || []) as Row[]).map((r) => ({
+    id: r.id,
+    content: r.content,
+    created_at: r.created_at,
+    user_id: r.user_id,
+    user_name: r.user?.full_name || "Unknown",
+    user_role: r.user?.role as "admin" | "client",
+    user_avatar: r.user?.avatar_url || null,
+  }));
+}

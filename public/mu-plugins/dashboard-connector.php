@@ -593,7 +593,7 @@ class Dashboard_Connector {
 
         // Clear transients
         global $wpdb;
-        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_%'");
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", '_transient_%'));
         $cleared[] = 'transients';
 
         return rest_ensure_response([
@@ -685,11 +685,15 @@ class Dashboard_Connector {
 
         // Create backup before writing
         $backup_file = $config_file . '.dashboard-backup-' . date('YmdHis');
-        copy($config_file, $backup_file);
+        if (!copy($config_file, $backup_file)) {
+            return new WP_Error('backup_failed', 'Could not create wp-config.php backup. Aborting.', ['status' => 500]);
+        }
 
         $result = file_put_contents($config_file, $new_content);
         if ($result === false) {
-            copy($backup_file, $config_file);
+            if (!copy($backup_file, $config_file)) {
+                return new WP_Error('write_failed', 'Could not write wp-config.php and backup restore failed. Manual restore needed from: ' . basename($backup_file), ['status' => 500]);
+            }
             return new WP_Error('write_failed', 'Could not write wp-config.php. Backup restored.', ['status' => 500]);
         }
 
@@ -965,10 +969,16 @@ class Dashboard_Connector {
             ];
         }
 
-        // Total count
-        $count_args = ['return' => 'ids', 'limit' => -1];
-        if ($status !== 'any') $count_args['status'] = $status;
-        $total = count(wc_get_orders($count_args));
+        // Total count (use direct query for performance)
+        global $wpdb;
+        if ($status !== 'any') {
+            $total = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}wc_orders WHERE status = %s",
+                'wc-' . $status
+            ));
+        } else {
+            $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wc_orders");
+        }
 
         return rest_ensure_response([
             'orders'      => $result,
@@ -1093,8 +1103,12 @@ class Dashboard_Connector {
         // Orders by status
         $statuses = ['processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed'];
         $by_status = [];
+        global $wpdb;
         foreach ($statuses as $status) {
-            $count = count(wc_get_orders(['status' => 'wc-' . $status, 'return' => 'ids', 'limit' => -1]));
+            $count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}wc_orders WHERE status = %s",
+                'wc-' . $status
+            ));
             if ($count > 0) {
                 $by_status[$status] = $count;
             }

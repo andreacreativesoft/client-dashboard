@@ -12,8 +12,6 @@ export type WebsiteFormData = {
   url: string;
   source_type: string;
   git_repo_url?: string;
-  asana_project_url?: string;
-  figma_url?: string;
 };
 
 function generateApiKey(): string {
@@ -61,8 +59,6 @@ export async function createWebsiteAction(
       url: formData.url,
       source_type: formData.source_type || "elementor",
       git_repo_url: formData.git_repo_url || null,
-      asana_project_url: formData.asana_project_url || null,
-      figma_url: formData.figma_url || null,
       api_key: apiKey,
       webhook_secret: webhookSecret,
       is_active: true,
@@ -102,8 +98,6 @@ export async function updateWebsiteAction(
       url: formData.url,
       source_type: formData.source_type,
       git_repo_url: formData.git_repo_url || null,
-      asana_project_url: formData.asana_project_url || null,
-      figma_url: formData.figma_url || null,
     })
     .eq("id", id);
 

@@ -44,8 +44,6 @@ export function WebsiteForm({ open, onClose, clientId, website }: WebsiteFormPro
       url: (form.elements.namedItem("url") as HTMLInputElement).value,
       source_type: (form.elements.namedItem("source_type") as HTMLSelectElement).value,
       git_repo_url: (form.elements.namedItem("git_repo_url") as HTMLInputElement).value,
-      asana_project_url: (form.elements.namedItem("asana_project_url") as HTMLInputElement).value,
-      figma_url: (form.elements.namedItem("figma_url") as HTMLInputElement).value,
     };
 
     const result = isEdit
@@ -104,28 +102,6 @@ export function WebsiteForm({ open, onClose, clientId, website }: WebsiteFormPro
           <p className="text-xs text-muted-foreground">
             Link to the Git repo for this website (GitHub, GitLab, Bitbucket, etc.)
           </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="asana_project_url">Asana Project URL</Label>
-          <Input
-            id="asana_project_url"
-            name="asana_project_url"
-            type="url"
-            defaultValue={website?.asana_project_url || ""}
-            placeholder="https://app.asana.com/0/1234567890/board"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="figma_url">Figma URL</Label>
-          <Input
-            id="figma_url"
-            name="figma_url"
-            type="url"
-            defaultValue={website?.figma_url || ""}
-            placeholder="https://www.figma.com/file/..."
-          />
         </div>
 
         <div className="space-y-2">

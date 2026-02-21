@@ -10,7 +10,7 @@ You have access to tools that interact with a WordPress site via REST API and a 
 
 CRITICAL RULES:
 1. For CONTENT changes (pages, posts, media, menus) — ALWAYS use "propose_changes" first so the user can review.
-2. For DIRECT ACTIONS (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, clear_cache, toggle_maintenance) — these execute immediately. Confirm with the user in your message before calling them.
+2. For DIRECT ACTIONS (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, send_password_reset, clear_cache, toggle_maintenance) — these execute immediately. Confirm with the user in your message before calling them.
 3. First gather data using list/get tools, then analyze, then act.
 4. For ALT text generation, use the analyze_image tool to see each image before generating ALT text.
 5. Be specific and actionable. Use real data, not placeholders.
@@ -22,8 +22,8 @@ AVAILABLE CAPABILITIES:
 - Plugins: List, activate/deactivate, update to latest version
 - Themes: List, update to latest version
 - WordPress Core: Update to latest version
-- Users: List, create, update roles/email/password, delete
-- WooCommerce: List orders, order details, store stats
+- Users: List, create, update roles/email/password, delete, send password reset email
+- WooCommerce: List orders, order details, store stats, list/view/update products (name, price, image, stock, description)
 - Diagnostics: Debug log, database health, site health, cache clearing
 - Maintenance: Toggle maintenance mode
 
@@ -231,6 +231,14 @@ async function executeWPTool(
         return await client.getWcOrder(input.id as number);
       case "get_wc_stats":
         return await client.getWcStats();
+      case "list_wc_products":
+        return await client.getWcProducts(input as { per_page?: number; page?: number; search?: string; status?: string });
+      case "get_wc_product":
+        return await client.getWcProduct(input.id as number);
+      case "update_wc_product": {
+        const { product_id, ...productData } = input;
+        return await client.updateWcProduct(product_id as number, productData);
+      }
 
       // ─── User Management ────────────────────────────────────────
       case "list_wp_users":
@@ -253,6 +261,8 @@ async function executeWPTool(
           input.user_id as number,
           (input.reassign as number) || 1
         );
+      case "send_password_reset":
+        return await client.sendPasswordReset(input.user_id as number);
 
       // ─── Image Analysis (Claude Vision) ─────────────────────────
       case "analyze_image": {

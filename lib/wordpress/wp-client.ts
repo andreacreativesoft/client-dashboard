@@ -325,6 +325,59 @@ export class WPClient {
     return this.request(`/woocommerce/order/${id}`, { isCustomEndpoint: true });
   }
 
+  async getWcProducts(params?: {
+    per_page?: number;
+    page?: number;
+    search?: string;
+    status?: string;
+  }): Promise<{
+    products: Array<{
+      id: number;
+      name: string;
+      slug: string;
+      type: string;
+      status: string;
+      sku: string;
+      price: string;
+      regular_price: string;
+      sale_price: string;
+      stock_status: string;
+      stock_quantity: number | null;
+      image_url: string | null;
+      categories: string[];
+    }>;
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    return this.request("/woocommerce/products", {
+      isCustomEndpoint: true,
+      params: {
+        per_page: String(params?.per_page || 20),
+        page: String(params?.page || 1),
+        ...(params?.search && { search: params.search }),
+        ...(params?.status && { status: params.status }),
+      },
+    });
+  }
+
+  async getWcProduct(id: number): Promise<Record<string, unknown>> {
+    return this.request(`/woocommerce/product/${id}`, { isCustomEndpoint: true });
+  }
+
+  async updateWcProduct(
+    productId: number,
+    data: Record<string, unknown>
+  ): Promise<{ success: boolean; product_id: number; updated: string[] }> {
+    return this.request("/woocommerce/product/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { product_id: productId, ...data },
+      confirmAction: true,
+    });
+  }
+
   async getWcStats(): Promise<{
     today_orders: number;
     today_revenue: number;
@@ -396,6 +449,20 @@ export class WPClient {
       isCustomEndpoint: true,
       method: "POST",
       body: { user_id: userId, reassign },
+      confirmAction: true,
+    });
+  }
+
+  async sendPasswordReset(userId: number): Promise<{
+    success: boolean;
+    user_id: number;
+    email: string;
+    message: string;
+  }> {
+    return this.request("/users/password-reset", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId },
       confirmAction: true,
     });
   }

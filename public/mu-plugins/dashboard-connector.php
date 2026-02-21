@@ -174,6 +174,33 @@ class Dashboard_Connector {
             'permission_callback' => [$this, 'check_permissions'],
         ]);
 
+        register_rest_route($this->namespace, '/woocommerce/products', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wc_products'],
+            'permission_callback' => [$this, 'check_permissions'],
+            'args' => [
+                'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
+                'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
+                'search'   => ['default' => '', 'sanitize_callback' => 'sanitize_text_field'],
+                'status'   => ['default' => 'publish', 'sanitize_callback' => 'sanitize_text_field'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/woocommerce/product/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_wc_product'],
+            'permission_callback' => [$this, 'check_permissions'],
+        ]);
+
+        register_rest_route($this->namespace, '/woocommerce/product/update', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'update_wc_product'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'product_id' => ['required' => true, 'sanitize_callback' => 'absint'],
+            ],
+        ]);
+
         register_rest_route($this->namespace, '/users', [
             'methods'             => 'GET',
             'callback'            => [$this, 'get_wp_users'],
@@ -210,6 +237,15 @@ class Dashboard_Connector {
             'args' => [
                 'user_id'  => ['required' => true, 'sanitize_callback' => 'absint'],
                 'reassign' => ['default' => 1, 'sanitize_callback' => 'absint'],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/users/password-reset', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'send_password_reset'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'user_id' => ['required' => true, 'sanitize_callback' => 'absint'],
             ],
         ]);
     }
@@ -1080,6 +1116,177 @@ class Dashboard_Connector {
         ]);
     }
 
+    public function get_wc_products(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('woocommerce_not_active', 'WooCommerce is not installed or active.', ['status' => 400]);
+        }
+
+        $per_page = min($request->get_param('per_page') ?: 20, 100);
+        $page     = $request->get_param('page') ?: 1;
+        $search   = $request->get_param('search') ?: '';
+        $status   = $request->get_param('status') ?: 'publish';
+
+        $args = [
+            'limit'  => $per_page,
+            'page'   => $page,
+            'status' => $status,
+            'return' => 'objects',
+        ];
+        if ($search) {
+            $args['s'] = $search;
+        }
+
+        $products = wc_get_products($args);
+        $total = (new WC_Product_Query(array_merge($args, ['limit' => -1, 'return' => 'ids'])))->get_products();
+
+        $result = [];
+        foreach ($products as $product) {
+            $image_id  = $product->get_image_id();
+            $image_url = $image_id ? wp_get_attachment_url($image_id) : null;
+
+            $result[] = [
+                'id'            => $product->get_id(),
+                'name'          => $product->get_name(),
+                'slug'          => $product->get_slug(),
+                'type'          => $product->get_type(),
+                'status'        => $product->get_status(),
+                'sku'           => $product->get_sku(),
+                'price'         => $product->get_price(),
+                'regular_price' => $product->get_regular_price(),
+                'sale_price'    => $product->get_sale_price(),
+                'stock_status'  => $product->get_stock_status(),
+                'stock_quantity' => $product->get_stock_quantity(),
+                'image_url'     => $image_url,
+                'categories'    => wp_list_pluck($product->get_category_ids() ? get_terms(['taxonomy' => 'product_cat', 'include' => $product->get_category_ids(), 'hide_empty' => false]) : [], 'name'),
+            ];
+        }
+
+        return rest_ensure_response([
+            'products'    => $result,
+            'total'       => count($total),
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total_pages' => ceil(count($total) / $per_page),
+        ]);
+    }
+
+    public function get_wc_product(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('woocommerce_not_active', 'WooCommerce is not installed or active.', ['status' => 400]);
+        }
+
+        $product = wc_get_product($request['id']);
+        if (!$product) {
+            return new WP_Error('product_not_found', 'Product not found.', ['status' => 404]);
+        }
+
+        $image_id  = $product->get_image_id();
+        $image_url = $image_id ? wp_get_attachment_url($image_id) : null;
+        $gallery   = array_map('wp_get_attachment_url', $product->get_gallery_image_ids());
+
+        return rest_ensure_response([
+            'id'              => $product->get_id(),
+            'name'            => $product->get_name(),
+            'slug'            => $product->get_slug(),
+            'type'            => $product->get_type(),
+            'status'          => $product->get_status(),
+            'description'     => $product->get_description(),
+            'short_description' => $product->get_short_description(),
+            'sku'             => $product->get_sku(),
+            'price'           => $product->get_price(),
+            'regular_price'   => $product->get_regular_price(),
+            'sale_price'      => $product->get_sale_price(),
+            'stock_status'    => $product->get_stock_status(),
+            'stock_quantity'  => $product->get_stock_quantity(),
+            'weight'          => $product->get_weight(),
+            'image_url'       => $image_url,
+            'gallery_urls'    => $gallery,
+            'categories'      => wp_list_pluck($product->get_category_ids() ? get_terms(['taxonomy' => 'product_cat', 'include' => $product->get_category_ids(), 'hide_empty' => false]) : [], 'name'),
+            'tags'            => wp_list_pluck($product->get_tag_ids() ? get_terms(['taxonomy' => 'product_tag', 'include' => $product->get_tag_ids(), 'hide_empty' => false]) : [], 'name'),
+        ]);
+    }
+
+    public function update_wc_product(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('woocommerce_not_active', 'WooCommerce is not installed or active.', ['status' => 400]);
+        }
+
+        $product_id = $request->get_param('product_id');
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return new WP_Error('product_not_found', 'Product not found.', ['status' => 404]);
+        }
+
+        $updated = [];
+
+        // Price fields
+        if ($request->has_param('regular_price')) {
+            $product->set_regular_price(sanitize_text_field($request->get_param('regular_price')));
+            $updated[] = 'regular_price';
+        }
+        if ($request->has_param('sale_price')) {
+            $val = $request->get_param('sale_price');
+            $product->set_sale_price($val === '' ? '' : sanitize_text_field($val));
+            $updated[] = 'sale_price';
+        }
+
+        // Text fields
+        if ($request->has_param('name')) {
+            $product->set_name(sanitize_text_field($request->get_param('name')));
+            $updated[] = 'name';
+        }
+        if ($request->has_param('description')) {
+            $product->set_description(wp_kses_post($request->get_param('description')));
+            $updated[] = 'description';
+        }
+        if ($request->has_param('short_description')) {
+            $product->set_short_description(wp_kses_post($request->get_param('short_description')));
+            $updated[] = 'short_description';
+        }
+        if ($request->has_param('sku')) {
+            $product->set_sku(sanitize_text_field($request->get_param('sku')));
+            $updated[] = 'sku';
+        }
+        if ($request->has_param('status')) {
+            $product->set_status(sanitize_text_field($request->get_param('status')));
+            $updated[] = 'status';
+        }
+
+        // Stock
+        if ($request->has_param('stock_quantity')) {
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity((int) $request->get_param('stock_quantity'));
+            $updated[] = 'stock_quantity';
+        }
+        if ($request->has_param('stock_status')) {
+            $product->set_stock_status(sanitize_text_field($request->get_param('stock_status')));
+            $updated[] = 'stock_status';
+        }
+
+        // Image — accepts a media library attachment ID
+        if ($request->has_param('image_id')) {
+            $image_id = absint($request->get_param('image_id'));
+            if ($image_id && wp_get_attachment_url($image_id)) {
+                $product->set_image_id($image_id);
+                $updated[] = 'image_id';
+            } else {
+                return new WP_Error('invalid_image', 'Attachment ID not found in media library.', ['status' => 400]);
+            }
+        }
+
+        if (empty($updated)) {
+            return new WP_Error('no_changes', 'No valid fields provided to update.', ['status' => 400]);
+        }
+
+        $product->save();
+
+        return rest_ensure_response([
+            'success'    => true,
+            'product_id' => $product_id,
+            'updated'    => $updated,
+        ]);
+    }
+
     // ═══════════════════════════════════════════
     //  ENDPOINT: USER MANAGEMENT
     // ═══════════════════════════════════════════
@@ -1207,6 +1414,29 @@ class Dashboard_Connector {
             'success'  => true,
             'user_id'  => $user_id,
             'reassigned_to' => $reassign,
+        ]);
+    }
+
+    public function send_password_reset(WP_REST_Request $request) {
+        $user_id = $request->get_param('user_id');
+
+        $user = get_user_by('id', $user_id);
+        if (!$user) {
+            return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+        }
+
+        // Use WordPress built-in password reset
+        $result = retrieve_password($user->user_login);
+
+        if (is_wp_error($result)) {
+            return new WP_Error('reset_failed', $result->get_error_message(), ['status' => 500]);
+        }
+
+        return rest_ensure_response([
+            'success' => true,
+            'user_id' => $user_id,
+            'email'   => $user->user_email,
+            'message' => 'Password reset email sent to ' . $user->user_email,
         ]);
     }
 

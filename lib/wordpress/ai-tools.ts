@@ -329,6 +329,55 @@ export const wpAITools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "list_wc_products",
+    description:
+      "List WooCommerce products with name, price, SKU, stock, and image. Use to find products before updating them.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        per_page: { type: "number", description: "Products per page (max 100)", default: 20 },
+        page: { type: "number", description: "Page number", default: 1 },
+        search: { type: "string", description: "Search by product name" },
+        status: { type: "string", description: "Filter by status: publish, draft, pending, private", default: "publish" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_wc_product",
+    description:
+      "Get full details of a single WooCommerce product including description, prices, stock, images, categories, and tags.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "The product ID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "update_wc_product",
+    description:
+      "Update a WooCommerce product. Can change name, price, sale price, description, SKU, stock, status, or image. For image changes, provide an attachment ID from the media library.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        product_id: { type: "number", description: "The product ID to update" },
+        name: { type: "string", description: "Product name/title" },
+        regular_price: { type: "string", description: "Regular price (e.g. '29.99')" },
+        sale_price: { type: "string", description: "Sale price (empty string to remove sale)" },
+        description: { type: "string", description: "Full product description (HTML)" },
+        short_description: { type: "string", description: "Short description (HTML)" },
+        sku: { type: "string", description: "Product SKU" },
+        status: { type: "string", description: "Product status: publish, draft, pending, private" },
+        stock_quantity: { type: "number", description: "Stock quantity" },
+        stock_status: { type: "string", description: "Stock status: instock, outofstock, onbackorder" },
+        image_id: { type: "number", description: "Media library attachment ID for product image" },
+      },
+      required: ["product_id"],
+    },
+  },
 
   // ─── User Management ─────────────────────────────────────────────
 
@@ -390,6 +439,18 @@ export const wpAITools: Tool[] = [
       properties: {
         user_id: { type: "number", description: "User ID to delete" },
         reassign: { type: "number", description: "User ID to reassign content to (default: 1 = admin)" },
+      },
+      required: ["user_id"],
+    },
+  },
+  {
+    name: "send_password_reset",
+    description:
+      "Send a password reset email to a WordPress user. Uses WordPress built-in password reset system. The user will receive an email with a link to set a new password.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "The user ID to send the reset email to" },
       },
       required: ["user_id"],
     },

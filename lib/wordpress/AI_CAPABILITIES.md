@@ -3,6 +3,8 @@
 Quick reference for what the AI assistant can and cannot do.
 Read this instead of scanning the full codebase.
 
+**Rule:** When adding, removing, or changing any AI tool, endpoint, or capability, always update this file to match.
+
 ---
 
 ## Architecture
@@ -41,12 +43,14 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `create_wp_user` | Creates a new WP user |
 | `update_wp_user` | Updates user email/name/role/password |
 | `delete_wp_user` | Deletes user, reassigns content |
+| `send_password_reset` | Sends password reset email to a user |
+| `update_wc_product` | Updates product name/price/image/stock/description |
 | `clear_cache` | Clears object cache + page cache plugins |
 | `toggle_maintenance` | Enables/disables maintenance mode |
 
 ---
 
-## All 32 Tools by Category
+## All Tools by Category (37 total)
 
 ### Content — Read
 | Tool | Description |
@@ -90,12 +94,15 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `update_theme` | Update theme to latest version |
 | `update_core` | Update WordPress core |
 
-### WooCommerce — Read
+### WooCommerce
 | Tool | Description |
 |------|-------------|
 | `get_wc_orders` | List orders (paginated, filterable by status) |
 | `get_wc_order` | Full order details (items, billing, shipping, notes) |
 | `get_wc_stats` | Store stats: revenue, orders by status, low stock |
+| `list_wc_products` | List products (paginated, searchable, filterable) |
+| `get_wc_product` | Full product details (prices, stock, images, description) |
+| `update_wc_product` | Update product name/price/image/stock/description/SKU |
 
 ### User Management
 | Tool | Description |
@@ -104,6 +111,7 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `create_wp_user` | Create user (auto-generates password if omitted) |
 | `update_wp_user` | Update user fields |
 | `delete_wp_user` | Delete user + reassign content |
+| `send_password_reset` | Send password reset email to a user |
 
 ### Maintenance — Direct Action
 | Tool | Description |
@@ -118,12 +126,51 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 
 ---
 
+## Example Commands Users Can Give
+
+### Content & SEO
+- "Check all images and generate missing ALT text"
+- "Change the title of the About page to 'About Our Team'"
+- "Replace 'old company name' with 'new company name' on all pages"
+- "Update the meta description for the homepage"
+- "Show me all draft pages"
+
+### Users
+- "Create a new editor account for john@example.com"
+- "Send a password reset email to the user john@example.com"
+- "Change Maria's role from subscriber to editor"
+- "List all administrator accounts"
+- "Delete the test user and reassign their posts to admin"
+
+### Plugins & Themes
+- "Update all plugins that have updates available"
+- "Deactivate the Hello Dolly plugin"
+- "What themes are installed and which is active?"
+- "Update WordPress core to latest"
+
+### WooCommerce
+- "Show me today's orders"
+- "Change the price of 'Blue T-Shirt' to $24.99"
+- "Set the 'Summer Collection' product image to the media item with ID 456"
+- "What products are low on stock?"
+- "Show revenue for this month"
+- "List all processing orders"
+
+### Diagnostics
+- "Check the debug log for errors"
+- "How's the database health?"
+- "Clear all caches"
+- "Put the site in maintenance mode"
+- "Show me the site health overview"
+
+---
+
 ## What It CANNOT Do
 
 - **Upload media** — no file upload endpoint
 - **Delete media/pages/posts** — no delete tools defined
 - **Edit WooCommerce orders** — read-only (no create/update/refund)
-- **Create/edit products** — no product endpoints
+- **Create new products** — can only update existing ones
 - **Install new plugins/themes** — only update existing ones
 - **Edit wp-config.php or .htaccess** — no filesystem write access
 - **Run WP-CLI commands** — no shell access (unless SSH is configured separately)
@@ -137,9 +184,9 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 
 ## Dependencies & Requirements
 
-- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, WooCommerce, users, plugin/theme/core updates)
+- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, WooCommerce, users, plugin/theme/core updates, password reset)
 - **Standard WP REST API for:** media, pages, posts, menus (no mu-plugin needed)
-- **WooCommerce plugin required for:** `get_wc_orders`, `get_wc_order`, `get_wc_stats` — returns error if not installed
+- **WooCommerce plugin required for:** all `wc_*` tools — returns error if not installed
 - **Yoast SEO for:** `meta_description` field to work (writes to `_yoast_wpseo_metadesc`)
 
 ## Action Queue & Conflict Detection

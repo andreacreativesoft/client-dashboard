@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
 import { WPClient, encryptCredentials, decryptCredentials } from "@/lib/wordpress/wp-client";
+import { decryptToken } from "@/lib/google";
 import { deployMuPlugin } from "@/lib/wordpress/deploy-mu-plugin";
 import { logActivity } from "@/lib/actions/activity";
 import { ActivityTypes } from "@/lib/constants/activity";
@@ -305,6 +306,54 @@ export async function getWordPressStatus(websiteId: string): Promise<{
     last_health_check: typedCreds.last_health_check ?? undefined,
     connected_at: (metadata?.connected_at as string) ?? undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Reveal stored Application Password (admin only)
+// ---------------------------------------------------------------------------
+
+export async function revealAppPassword(
+  websiteId: string
+): Promise<{ success: boolean; error?: string; appPassword?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) return { success: false, error: "Website not found" };
+
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id")
+    .eq("client_id", website.client_id)
+    .eq("type", "wordpress")
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (!integration) return { success: false, error: "WordPress integration not found" };
+
+  const { data: creds } = await supabase
+    .from("wordpress_credentials")
+    .select("app_password_encrypted")
+    .eq("integration_id", integration.id)
+    .single();
+
+  if (!creds) return { success: false, error: "Credentials not found" };
+
+  try {
+    const typedCreds = creds as { app_password_encrypted: string };
+    const decrypted = decryptToken(typedCreds.app_password_encrypted);
+    return { success: true, appPassword: decrypted };
+  } catch {
+    return { success: false, error: "Failed to decrypt stored password" };
+  }
 }
 
 // ---------------------------------------------------------------------------

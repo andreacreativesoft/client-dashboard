@@ -12,6 +12,7 @@ import {
   disconnectWordPress,
   testExistingConnection,
   deployMuPluginAction,
+  revealAppPassword,
 } from "@/lib/actions/wordpress-manage";
 
 // ─── Connected State ─────────────────────────────────────────────────
@@ -43,6 +44,9 @@ function ConnectedState({
   } | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const [revealLoading, setRevealLoading] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
 
   function handleTest() {
     setTestResult(null);
@@ -68,6 +72,31 @@ function ConnectedState({
         setTestResult({ type: "error", message: result.error || "Failed to disconnect" });
       }
     });
+  }
+
+  function handleRevealPassword() {
+    if (revealedPassword) {
+      setRevealedPassword(null);
+      return;
+    }
+    setRevealLoading(true);
+    startTransition(async () => {
+      const result = await revealAppPassword(websiteId);
+      setRevealLoading(false);
+      if (result.success && result.appPassword) {
+        setRevealedPassword(result.appPassword);
+      } else {
+        setTestResult({ type: "error", message: result.error || "Failed to reveal password" });
+      }
+    });
+  }
+
+  function handleCopyPassword() {
+    if (revealedPassword) {
+      navigator.clipboard.writeText(revealedPassword);
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    }
   }
 
   return (
@@ -118,6 +147,38 @@ function ConnectedState({
               <span>{new Date(lastHealthCheck).toLocaleString()}</span>
             </div>
           )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">App Password</span>
+            <span className="flex items-center gap-1.5">
+              {revealedPassword ? (
+                <>
+                  <code className="max-w-[200px] truncate rounded bg-muted px-1.5 py-0.5 text-xs">
+                    {revealedPassword}
+                  </code>
+                  <button
+                    onClick={handleCopyPassword}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {copiedPassword ? "Copied!" : "Copy"}
+                  </button>
+                  <button
+                    onClick={() => setRevealedPassword(null)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Hide
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleRevealPassword}
+                  disabled={isPending}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {revealLoading ? "Revealing..." : "Reveal"}
+                </button>
+              )}
+            </span>
+          </div>
         </div>
 
         {!muPluginInstalled && (
@@ -198,6 +259,24 @@ function ConnectedState({
   );
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+/** Generate a random password in WordPress Application Password format (xxxx xxxx xxxx xxxx xxxx xxxx). */
+function generateAppPassword(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const groups: string[] = [];
+  for (let g = 0; g < 6; g++) {
+    let chunk = "";
+    for (let i = 0; i < 4; i++) {
+      const arr = new Uint8Array(1);
+      crypto.getRandomValues(arr);
+      chunk += chars[arr[0]! % chars.length];
+    }
+    groups.push(chunk);
+  }
+  return groups.join(" ");
+}
+
 // ─── Connect Form ────────────────────────────────────────────────────
 
 interface ConnectFormProps {
@@ -210,6 +289,8 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
   const [username, setUsername] = useState("");
   const [appPassword, setAppPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [copiedGenerated, setCopiedGenerated] = useState(false);
   const [sshHost, setSshHost] = useState("");
   const [sshUser, setSshUser] = useState("");
   const [sshPort, setSshPort] = useState("22");
@@ -365,17 +446,54 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="wp_pass">Application Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="wp_pass">Application Password</Label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pw = generateAppPassword();
+                    setAppPassword(pw);
+                    setShowPassword(true);
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Generate
+                </button>
+                {appPassword && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(appPassword);
+                        setCopiedGenerated(true);
+                        setTimeout(() => setCopiedGenerated(false), 2000);
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {copiedGenerated ? "Copied!" : "Copy"}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
             <Input
               id="wp_pass"
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={appPassword}
               onChange={(e) => setAppPassword(e.target.value)}
               required
               placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
             />
             <p className="text-xs text-muted-foreground">
-              WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords
+              Generate a password here, copy it, then paste it in WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords.
             </p>
           </div>
 

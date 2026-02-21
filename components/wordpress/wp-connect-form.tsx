@@ -11,6 +11,22 @@ import {
   testWordPressConnection,
 } from "@/lib/actions/wordpress-remote";
 
+/** Generate a random password in WordPress Application Password format. */
+function generateAppPassword(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const groups: string[] = [];
+  for (let g = 0; g < 6; g++) {
+    let chunk = "";
+    for (let i = 0; i < 4; i++) {
+      const arr = new Uint8Array(1);
+      crypto.getRandomValues(arr);
+      chunk += chars[arr[0]! % chars.length];
+    }
+    groups.push(chunk);
+  }
+  return groups.join(" ");
+}
+
 interface WPConnectFormProps {
   clientId: string;
   siteUrl: string;
@@ -22,6 +38,8 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
   const [username, setUsername] = useState("");
   const [appPassword, setAppPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [copiedGenerated, setCopiedGenerated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -118,12 +136,49 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="wp_app_password" className="text-xs">
-          Application Password
-        </Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="wp_app_password" className="text-xs">
+            Application Password
+          </Label>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const pw = generateAppPassword();
+                setAppPassword(pw);
+                setShowPassword(true);
+              }}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Generate
+            </button>
+            {appPassword && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(appPassword);
+                    setCopiedGenerated(true);
+                    setTimeout(() => setCopiedGenerated(false), 2000);
+                  }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  {copiedGenerated ? "Copied!" : "Copy"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
         <Input
           id="wp_app_password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={appPassword}
           onChange={(e) => setAppPassword(e.target.value)}
           required
@@ -131,7 +186,7 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
           className="h-8 text-xs"
         />
         <p className="text-[10px] text-muted-foreground">
-          WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords
+          Generate a password here, copy it, then paste it in WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords.
         </p>
       </div>
 

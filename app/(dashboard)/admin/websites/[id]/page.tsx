@@ -8,6 +8,7 @@ import { AIAnalysis } from "./ai-analysis";
 import { DebugLogViewer } from "@/components/wordpress/debug-log-viewer";
 import { SiteHealthDashboard } from "@/components/wordpress/site-health/site-health-dashboard";
 import { AICommandPanel } from "@/components/wordpress/ai-command/ai-command-panel";
+import { QuickActions } from "@/components/wordpress/quick-actions";
 import { ConnectWordPressForm } from "@/components/wordpress/connect-wordpress-form";
 import { getWordPressStatus } from "@/lib/actions/wordpress-manage";
 import type { Website, Client } from "@/types/database";
@@ -127,6 +128,11 @@ export default async function WebsiteDetailPage({
           {/* Site Health Dashboard */}
           <div className="mb-6">
             <SiteHealthDashboard websiteId={id} />
+          </div>
+
+          {/* Quick Actions */}
+          <div className="mb-6">
+            <QuickActions websiteId={id} />
           </div>
 
           {/* AI Commands */}

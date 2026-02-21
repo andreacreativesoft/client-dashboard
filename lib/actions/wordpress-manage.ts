@@ -4,7 +4,8 @@ import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
-import { WPClient, encryptCredentials } from "@/lib/wordpress/wp-client";
+import { WPClient, encryptCredentials, decryptCredentials } from "@/lib/wordpress/wp-client";
+import { deployMuPlugin } from "@/lib/wordpress/deploy-mu-plugin";
 import { logActivity } from "@/lib/actions/activity";
 import { ActivityTypes } from "@/lib/constants/activity";
 import type { ConnectWordPressInput, WordPressCredentialsEncrypted } from "@/types/wordpress";
@@ -304,4 +305,72 @@ export async function getWordPressStatus(websiteId: string): Promise<{
     last_health_check: typedCreds.last_health_check ?? undefined,
     connected_at: (metadata?.connected_at as string) ?? undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Deploy mu-plugin via SSH
+// ---------------------------------------------------------------------------
+
+export async function deployMuPluginAction(
+  websiteId: string
+): Promise<{ success: boolean; method: "ssh" | "manual"; message: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, method: "manual", message: auth.error };
+
+  const supabase = await createClient();
+
+  // Get website to find client_id
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) return { success: false, method: "manual", message: "Website not found" };
+
+  const { data: integrationData } = await supabase
+    .from("integrations")
+    .select("id")
+    .eq("client_id", website.client_id)
+    .eq("type", "wordpress")
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (!integrationData) {
+    return { success: false, method: "manual", message: "WordPress integration not found" };
+  }
+
+  const integration = integrationData as { id: string };
+
+  const { data: creds } = await supabase
+    .from("wordpress_credentials")
+    .select("*")
+    .eq("integration_id", integration.id)
+    .single();
+
+  if (!creds) {
+    return { success: false, method: "manual", message: "WordPress credentials not found" };
+  }
+
+  const decrypted = decryptCredentials(creds as WordPressCredentialsEncrypted);
+  const result = await deployMuPlugin(decrypted);
+
+  if (result.success) {
+    await supabase
+      .from("wordpress_credentials")
+      .update({ mu_plugin_installed: true, mu_plugin_version: "1.0.0" })
+      .eq("integration_id", integration.id);
+
+    await logActivity({
+      clientId: website.client_id,
+      actionType: ActivityTypes.MU_PLUGIN_DEPLOYED,
+      description: `mu-plugin deployed to ${decrypted.site_url}`,
+      metadata: { website_id: websiteId, method: result.method },
+    });
+
+    revalidatePath(`/admin/websites/${websiteId}`);
+  }
+
+  return result;
 }

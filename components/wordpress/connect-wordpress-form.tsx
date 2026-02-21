@@ -11,6 +11,7 @@ import {
   connectWordPress,
   disconnectWordPress,
   testExistingConnection,
+  deployMuPluginAction,
 } from "@/lib/actions/wordpress-manage";
 
 // ─── Connected State ─────────────────────────────────────────────────
@@ -41,6 +42,7 @@ function ConnectedState({
     message: string;
   } | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [deploying, setDeploying] = useState(false);
 
   function handleTest() {
     setTestResult(null);
@@ -118,6 +120,39 @@ function ConnectedState({
           )}
         </div>
 
+        {!muPluginInstalled && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+              mu-plugin not installed
+            </p>
+            <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+              The mu-plugin is required for debug logs, site health, cache clearing, and advanced features.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              disabled={isPending}
+              onClick={() => {
+                setDeploying(true);
+                setTestResult(null);
+                startTransition(async () => {
+                  const result = await deployMuPluginAction(websiteId);
+                  setDeploying(false);
+                  if (result.success) {
+                    setTestResult({ type: "success", message: result.message });
+                    router.refresh();
+                  } else {
+                    setTestResult({ type: "error", message: result.message });
+                  }
+                });
+              }}
+            >
+              {deploying ? "Deploying..." : "Deploy via SSH"}
+            </Button>
+          </div>
+        )}
+
         {testResult && (
           <p
             className={`text-sm ${
@@ -135,7 +170,7 @@ function ConnectedState({
             onClick={handleTest}
             disabled={isPending}
           >
-            {isPending && !disconnecting ? "Testing..." : "Test Connection"}
+            {isPending && !disconnecting && !deploying ? "Testing..." : "Test Connection"}
           </Button>
           <Button
             variant="outline"

@@ -376,12 +376,14 @@ function FacebookPixelForm({
 }
 
 function WebsiteIntegrations({
+  websiteId,
   clientId,
   siteUrl,
   integrations,
   googleConfigured,
   appUrl,
 }: {
+  websiteId: string;
   clientId: string;
   siteUrl: string;
   integrations: Integration[];
@@ -471,7 +473,7 @@ function WebsiteIntegrations({
 
         {showWpForm && (
           <WPConnectForm
-            clientId={clientId}
+            websiteId={websiteId}
             siteUrl={siteUrl}
             onDone={() => setShowWpForm(false)}
           />
@@ -724,6 +726,7 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
 
                   {/* Integrations for this website/client */}
                   <WebsiteIntegrations
+                    websiteId={website.id}
                     clientId={clientId}
                     siteUrl={website.url}
                     integrations={integrations}

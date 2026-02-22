@@ -6,55 +6,40 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  addWordPressIntegration,
-  testWordPressConnection,
-} from "@/lib/actions/wordpress-remote";
+import { connectWordPress } from "@/lib/actions/wordpress-manage";
 
 interface WPConnectFormProps {
-  clientId: string;
+  websiteId: string;
   siteUrl: string;
   onDone: () => void;
 }
 
-export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps) {
+export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps) {
   const router = useRouter();
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
   const [username, setUsername] = useState("");
   const [appPassword, setAppPassword] = useState("");
+  const [sshHost, setSshHost] = useState("");
+  const [sshUser, setSshUser] = useState("");
+  const [sshPort, setSshPort] = useState("22");
+  const [showSsh, setShowSsh] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [isTesting, setIsTesting] = useState(false);
-
-  function handleTest() {
-    setIsTesting(true);
-    setError(null);
-    setTestResult(null);
-
-    startTransition(async () => {
-      const result = await testWordPressConnection(url, username, appPassword);
-      setIsTesting(false);
-
-      if (result.success) {
-        setTestResult(`Connected as: ${result.userName}`);
-      } else {
-        setError(result.error || "Connection failed");
-      }
-    });
-  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
     startTransition(async () => {
-      const result = await addWordPressIntegration(
-        clientId,
-        url,
+      const result = await connectWordPress({
+        website_id: websiteId,
+        site_url: url,
         username,
-        appPassword
-      );
+        app_password: appPassword,
+        ssh_host: sshHost || undefined,
+        ssh_user: sshUser || undefined,
+        ssh_port: sshPort ? parseInt(sshPort, 10) : undefined,
+      });
 
       if (result.success) {
         onDone();
@@ -135,29 +120,72 @@ export function WPConnectForm({ clientId, siteUrl, onDone }: WPConnectFormProps)
         </p>
       </div>
 
-      {testResult && (
-        <p className="text-xs text-green-600">{testResult}</p>
+      {/* SSH section (collapsible) */}
+      <button
+        type="button"
+        onClick={() => setShowSsh(!showSsh)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <svg
+          className={`h-2.5 w-2.5 transition-transform ${showSsh ? "rotate-90" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+        </svg>
+        SSH for Auto-Deploy (optional)
+      </button>
+
+      {showSsh && (
+        <div className="space-y-2 rounded border border-border p-2">
+          <div className="space-y-1">
+            <Label htmlFor="ssh_host" className="text-xs">SSH Host</Label>
+            <Input
+              id="ssh_host"
+              value={sshHost}
+              onChange={(e) => setSshHost(e.target.value)}
+              placeholder="server.example.com"
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="ssh_user" className="text-xs">SSH User</Label>
+              <Input
+                id="ssh_user"
+                value={sshUser}
+                onChange={(e) => setSshUser(e.target.value)}
+                placeholder="root"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ssh_port" className="text-xs">SSH Port</Label>
+              <Input
+                id="ssh_port"
+                type="number"
+                value={sshPort}
+                onChange={(e) => setSshPort(e.target.value)}
+                placeholder="22"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+        </div>
       )}
+
       {error && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleTest}
-          disabled={isPending || !url || !username || !appPassword}
-          className="h-7 text-xs"
-        >
-          {isTesting ? "Testing..." : "Test Connection"}
-        </Button>
         <Button
           type="submit"
           size="sm"
           disabled={isPending || !url || !username || !appPassword}
           className="h-7 text-xs"
         >
-          {isPending && !isTesting ? "Saving..." : "Connect & Save"}
+          {isPending ? "Connecting..." : "Connect & Save"}
         </Button>
         <Button
           type="button"

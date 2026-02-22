@@ -210,10 +210,6 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
   const [username, setUsername] = useState("");
   const [appPassword, setAppPassword] = useState("");
-  const [sshHost, setSshHost] = useState("");
-  const [sshUser, setSshUser] = useState("");
-  const [sshPort, setSshPort] = useState("22");
-  const [showSsh, setShowSsh] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -235,9 +231,6 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
         site_url: url,
         username,
         app_password: appPassword,
-        ssh_host: sshHost || undefined,
-        ssh_user: sshUser || undefined,
-        ssh_port: sshPort ? parseInt(sshPort, 10) : undefined,
       });
 
       if (result.success) {
@@ -378,59 +371,6 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
               WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords
             </p>
           </div>
-
-          {/* SSH section (collapsible) */}
-          <button
-            type="button"
-            onClick={() => setShowSsh(!showSsh)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <svg
-              className={`h-3 w-3 transition-transform ${showSsh ? "rotate-90" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-            SSH for Auto-Deploy (optional)
-          </button>
-
-          {showSsh && (
-            <div className="space-y-3 rounded-lg border border-border p-3">
-              <div className="space-y-2">
-                <Label htmlFor="ssh_host">SSH Host</Label>
-                <Input
-                  id="ssh_host"
-                  value={sshHost}
-                  onChange={(e) => setSshHost(e.target.value)}
-                  placeholder="server.example.com"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="ssh_user">SSH User</Label>
-                  <Input
-                    id="ssh_user"
-                    value={sshUser}
-                    onChange={(e) => setSshUser(e.target.value)}
-                    placeholder="root"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ssh_port">SSH Port</Label>
-                  <Input
-                    id="ssh_port"
-                    type="number"
-                    value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}
-                    placeholder="22"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

@@ -11,7 +11,7 @@ export async function deployMuPlugin(
       success: false,
       method: "manual",
       message:
-        "SSH credentials not provided. Please manually upload dashboard-connector.php to wp-content/mu-plugins/ on the server and add define('DASHBOARD_SHARED_SECRET', '<secret>'); to wp-config.php.",
+        "SSH credentials not provided. Please manually upload dashboard-connector.php to wp-content/mu-plugins/ on the server. The shared secret is registered automatically.",
     };
   }
 
@@ -51,17 +51,6 @@ export async function deployMuPlugin(
 ${pluginContent}
 DASHBOARD_CONNECTOR_EOF`);
     await ssh.execCommand(`chmod 644 ${muPluginFile}`);
-
-    // Add shared secret to wp-config.php if not already present
-    const wpConfigPath = `${wpPath}/wp-config.php`;
-    const { stdout: configContent } = await ssh.execCommand(`cat ${wpConfigPath}`);
-
-    if (!configContent.includes("DASHBOARD_SHARED_SECRET")) {
-      const secretLine = `define('DASHBOARD_SHARED_SECRET', '${credentials.shared_secret}');`;
-      await ssh.execCommand(
-        `sed -i "/That's all, stop editing/i\\\\n// Andrea Creative Dashboard\\n${secretLine}\\n" ${wpConfigPath}`
-      );
-    }
 
     ssh.dispose();
 

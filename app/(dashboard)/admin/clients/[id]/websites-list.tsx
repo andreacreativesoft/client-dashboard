@@ -11,7 +11,7 @@ import { WebsiteForm } from "./website-form";
 import { InfoBoard } from "./info-board";
 import { Modal } from "@/components/ui/modal";
 import { WPConnectForm } from "@/components/wordpress/wp-connect-form";
-import { deleteWebsiteAction, regenerateApiKeyAction, acknowledgeChangesAction } from "@/lib/actions/websites";
+import { deleteWebsiteAction, regenerateApiKeyAction, acknowledgeChangesAction, updateProjectLinkAction } from "@/lib/actions/websites";
 import { addFacebookIntegration, deleteIntegration, selectIntegrationAccount } from "@/lib/actions/integrations";
 import { timeAgo } from "@/lib/utils";
 import type { Website, Integration } from "@/types/database";
@@ -306,6 +306,92 @@ function IntegrationItem({
         />
       )}
     </>
+  );
+}
+
+function ProjectLinkItem({
+  websiteId,
+  field,
+  label,
+  value,
+  placeholder,
+  icon,
+}: {
+  websiteId: string;
+  field: "git_repo_url" | "asana_project_url" | "figma_url";
+  label: string;
+  value: string | null | undefined;
+  placeholder: string;
+  icon: React.ReactNode;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [inputValue, setInputValue] = useState(value || "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    await updateProjectLinkAction(websiteId, field, inputValue);
+    setSaving(false);
+    setEditing(false);
+    router.refresh();
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5 rounded border p-2">
+        {icon}
+        <Input
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder={placeholder}
+          className="h-7 flex-1 text-xs"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            if (e.key === "Escape") { setEditing(false); setInputValue(value || ""); }
+          }}
+        />
+        <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={handleSave}>
+          {saving ? "..." : "Save"}
+        </Button>
+        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditing(false); setInputValue(value || ""); }}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex cursor-pointer items-center justify-between rounded border p-2 transition-colors hover:bg-muted/50"
+      onClick={() => setEditing(true)}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {icon}
+        <p className="truncate text-xs font-medium">
+          {label}:{" "}
+          {value ? (
+            <a
+              href={value}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-normal text-muted-foreground hover:text-foreground hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {value.replace(/^https?:\/\//, "")}
+            </a>
+          ) : (
+            <span className="font-normal text-muted-foreground">Not set</span>
+          )}
+        </p>
+      </div>
+      {value ? (
+        <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
+      ) : (
+        <span className="text-[10px] text-muted-foreground">Click to set</span>
+      )}
+    </div>
   );
 }
 
@@ -740,66 +826,30 @@ export function WebsitesList({ clientId, websites, integrations, googleConfigure
                       Project Links
                     </p>
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between rounded border p-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                          </svg>
-                          <p className="truncate text-xs font-medium">
-                            Git:{" "}
-                            {website.git_repo_url ? (
-                              <a href={website.git_repo_url} target="_blank" rel="noopener noreferrer" className="font-normal text-muted-foreground hover:text-foreground hover:underline">
-                                {website.git_repo_url.replace(/^https?:\/\//, "")}
-                              </a>
-                            ) : (
-                              <span className="font-normal text-muted-foreground">Not set</span>
-                            )}
-                          </p>
-                        </div>
-                        {website.git_repo_url && (
-                          <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between rounded border p-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" />
-                          </svg>
-                          <p className="truncate text-xs font-medium">
-                            Asana:{" "}
-                            {website.asana_project_url ? (
-                              <a href={website.asana_project_url} target="_blank" rel="noopener noreferrer" className="font-normal text-muted-foreground hover:text-foreground hover:underline">
-                                {website.asana_project_url.replace(/^https?:\/\//, "")}
-                              </a>
-                            ) : (
-                              <span className="font-normal text-muted-foreground">Not set</span>
-                            )}
-                          </p>
-                        </div>
-                        {website.asana_project_url && (
-                          <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between rounded border p-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" />
-                          </svg>
-                          <p className="truncate text-xs font-medium">
-                            Figma:{" "}
-                            {website.figma_url ? (
-                              <a href={website.figma_url} target="_blank" rel="noopener noreferrer" className="font-normal text-muted-foreground hover:text-foreground hover:underline">
-                                {website.figma_url.replace(/^https?:\/\//, "")}
-                              </a>
-                            ) : (
-                              <span className="font-normal text-muted-foreground">Not set</span>
-                            )}
-                          </p>
-                        </div>
-                        {website.figma_url && (
-                          <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
-                        )}
-                      </div>
+                      <ProjectLinkItem
+                        websiteId={website.id}
+                        field="git_repo_url"
+                        label="Git"
+                        value={website.git_repo_url}
+                        placeholder="https://github.com/user/repo"
+                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>}
+                      />
+                      <ProjectLinkItem
+                        websiteId={website.id}
+                        field="asana_project_url"
+                        label="Asana"
+                        value={website.asana_project_url}
+                        placeholder="https://app.asana.com/0/1234567890/board"
+                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" /></svg>}
+                      />
+                      <ProjectLinkItem
+                        websiteId={website.id}
+                        field="figma_url"
+                        label="Figma"
+                        value={website.figma_url}
+                        placeholder="https://www.figma.com/file/..."
+                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" /></svg>}
+                      />
                     </div>
                   </div>
 

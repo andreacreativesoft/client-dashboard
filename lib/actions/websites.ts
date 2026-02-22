@@ -110,6 +110,39 @@ export async function updateWebsiteAction(
   return { success: true };
 }
 
+export async function updateProjectLinkAction(
+  websiteId: string,
+  field: "git_repo_url" | "asana_project_url" | "figma_url",
+  value: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", websiteId)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ [field]: value || null })
+    .eq("id", websiteId);
+
+  if (error) {
+    console.error("Error updating project link:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
 export async function deleteWebsiteAction(
   id: string
 ): Promise<{ success: boolean; error?: string }> {

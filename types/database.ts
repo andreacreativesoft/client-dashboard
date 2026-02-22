@@ -194,6 +194,7 @@ export type WPSiteConfigRow = {
   id: string;
   website_id: string;
   local_path: string;
+  analysis_mode: "online" | "local";
   deploy_method: WPDeployMethod;
   created_at: string;
   updated_at: string;

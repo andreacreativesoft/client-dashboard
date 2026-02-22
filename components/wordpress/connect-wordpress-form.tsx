@@ -213,13 +213,11 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Success state — show shared secret once
+  // Success state
   const [connectResult, setConnectResult] = useState<{
-    shared_secret: string;
     mu_plugin_installed: boolean;
     wp_user?: string;
   } | null>(null);
-  const [copied, setCopied] = useState(false);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -235,7 +233,6 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
 
       if (result.success) {
         setConnectResult({
-          shared_secret: result.shared_secret!,
           mu_plugin_installed: result.mu_plugin_installed!,
           wp_user: result.wp_user,
         });
@@ -245,15 +242,7 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
     });
   }
 
-  function handleCopySecret() {
-    if (connectResult) {
-      navigator.clipboard.writeText(connectResult.shared_secret);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
-
-  // After successful connection — show shared secret
+  // After successful connection
   if (connectResult) {
     return (
       <Card>
@@ -268,24 +257,13 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
             Connected as <strong>{connectResult.wp_user || username}</strong>.
           </p>
 
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
-            <p className="mb-2 text-sm font-medium text-amber-900 dark:text-amber-200">
-              Save this shared secret — it will not be shown again
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-700 dark:bg-green-950">
+            <p className="text-sm font-medium text-green-900 dark:text-green-200">
+              Shared secret registered automatically.
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 break-all rounded bg-white p-2 text-xs dark:bg-black">
-                {connectResult.shared_secret}
-              </code>
-              <Button variant="outline" size="sm" onClick={handleCopySecret}>
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">
-              Add to <code>wp-config.php</code>:
+            <p className="mt-1 text-xs text-green-800 dark:text-green-300">
+              The mu-plugin stores it in the WordPress database — no manual configuration needed.
             </p>
-            <code className="mt-1 block rounded bg-white p-2 text-xs dark:bg-black">
-              {`define('DASHBOARD_SHARED_SECRET', '${connectResult.shared_secret}');`}
-            </code>
           </div>
 
           <div className="flex items-center gap-2 text-sm">

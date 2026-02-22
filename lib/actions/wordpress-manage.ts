@@ -113,6 +113,32 @@ export async function connectWordPress(
     return { success: false, error: `Failed to store credentials: ${credError.message}` };
   }
 
+  // Push shared secret to WordPress (via /register-secret endpoint)
+  // This only requires Application Password auth, no secret header needed.
+  try {
+    const siteUrlClean = input.site_url.replace(/\/+$/, "");
+    const registerRes = await fetch(
+      `${siteUrlClean}/wp-json/dashboard/v1/register-secret`,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(`${input.username}:${input.app_password}`).toString("base64"),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ secret: sharedSecret }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!registerRes.ok) {
+      console.warn("Could not auto-register secret:", registerRes.status);
+    }
+  } catch (err) {
+    // Non-fatal — mu-plugin may not be installed yet
+    console.warn("Secret auto-register failed (mu-plugin may not be installed):", err);
+  }
+
   // Check if mu-plugin is installed
   const muPluginCheck = await testClient.checkMuPlugin();
   if (muPluginCheck.installed) {

@@ -2,17 +2,16 @@
 /**
  * Plugin Name: Andrea Creative Dashboard Connector
  * Description: REST API endpoints for Andrea Creative Client Dashboard
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Andrea Creative
  *
  * Drop this file into wp-content/mu-plugins/
- * Configure DASHBOARD_SHARED_SECRET in wp-config.php:
- *   define('DASHBOARD_SHARED_SECRET', 'your-secret-here');
+ * The shared secret is registered automatically by the dashboard during connection.
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.0.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.1.0');
 
 class Dashboard_Connector {
 
@@ -268,11 +267,57 @@ class Dashboard_Connector {
                 'user_id' => ['required' => true, 'sanitize_callback' => 'absint'],
             ],
         ]);
+
+        // Register shared secret — only requires admin auth (no secret check)
+        register_rest_route($this->namespace, '/register-secret', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'register_secret'],
+            'permission_callback' => [$this, 'check_admin_only'],
+            'args' => [
+                'secret' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
     }
 
     // ═══════════════════════════════════════════
     //  AUTHENTICATION & AUTHORIZATION
     // ═══════════════════════════════════════════
+
+    /**
+     * Admin-only check (no secret required). Used for /register-secret.
+     */
+    public function check_admin_only(WP_REST_Request $request) {
+        if (!is_user_logged_in()) {
+            return new WP_Error('rest_not_logged_in', 'Authentication required.', ['status' => 401]);
+        }
+
+        if (!current_user_can('manage_options')) {
+            return new WP_Error('rest_forbidden', 'Administrator access required.', ['status' => 403]);
+        }
+
+        return true;
+    }
+
+    /**
+     * Get the expected shared secret. Checks wp_options first, then wp-config.php.
+     */
+    private function get_expected_secret() {
+        // 1. Check wp_options (set by /register-secret)
+        $db_secret = get_option('dashboard_shared_secret', '');
+        if (!empty($db_secret)) {
+            return $db_secret;
+        }
+
+        // 2. Fallback to wp-config.php constant
+        if (defined('DASHBOARD_SHARED_SECRET') && !empty(DASHBOARD_SHARED_SECRET)) {
+            return DASHBOARD_SHARED_SECRET;
+        }
+
+        return '';
+    }
 
     public function check_permissions(WP_REST_Request $request) {
         if (!is_user_logged_in()) {
@@ -284,10 +329,10 @@ class Dashboard_Connector {
         }
 
         $secret = $request->get_header('X-Dashboard-Secret');
-        $expected = defined('DASHBOARD_SHARED_SECRET') ? DASHBOARD_SHARED_SECRET : '';
+        $expected = $this->get_expected_secret();
 
         if (empty($expected)) {
-            return new WP_Error('rest_config_error', 'DASHBOARD_SHARED_SECRET not configured in wp-config.php.', ['status' => 500]);
+            return new WP_Error('rest_config_error', 'Dashboard shared secret not registered. Reconnect from the dashboard.', ['status' => 500]);
         }
 
         if (!hash_equals($expected, (string) $secret)) {
@@ -1605,6 +1650,26 @@ class Dashboard_Connector {
             'user_id' => $user_id,
             'email'   => $user->user_email,
             'message' => 'Password reset email sent to ' . $user->user_email,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: REGISTER SHARED SECRET
+    // ═══════════════════════════════════════════
+
+    public function register_secret(WP_REST_Request $request) {
+        $secret = $request->get_param('secret');
+
+        if (empty($secret) || strlen($secret) < 32) {
+            return new WP_Error('invalid_secret', 'Secret must be at least 32 characters.', ['status' => 400]);
+        }
+
+        // Store in wp_options (autoloaded for performance)
+        update_option('dashboard_shared_secret', $secret, true);
+
+        return rest_ensure_response([
+            'success' => true,
+            'message' => 'Shared secret registered successfully.',
         ]);
     }
 

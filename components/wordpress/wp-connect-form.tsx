@@ -59,6 +59,9 @@ export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps
         <p className="text-xs font-medium">Connect WordPress</p>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-[10px]">
+            Requires Application Password
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
             Requires mu-plugin
           </Badge>
           <a

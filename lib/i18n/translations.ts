@@ -18,6 +18,7 @@ const en = {
   "nav.users": "Users",
   "nav.websites": "Websites",
   "nav.tools": "Tools",
+  "nav.ai_settings": "AI Settings",
   "nav.tickets": "Tickets",
 
   // Mobile nav
@@ -191,6 +192,7 @@ const frBE: Record<TranslationKey, string> = {
   "nav.users": "Utilisateurs",
   "nav.websites": "Sites web",
   "nav.tools": "Outils",
+  "nav.ai_settings": "Param\u00e8tres IA",
   "nav.tickets": "Tickets",
 
   // Mobile nav

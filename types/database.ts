@@ -319,6 +319,18 @@ export type WPActiveSessionRow = {
   created_at: string;
 };
 
+// Admin settings (platform-level key-value store)
+export type AdminSetting = {
+  id: string;
+  key: string;
+  value: string;
+  is_encrypted: boolean;
+  description: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // WordPress debug log types
 export type WPDebugLogLevel = "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
 
@@ -552,6 +564,16 @@ export type Database = {
           resource_id?: string | null;
         };
         Update: Partial<Omit<WPActiveSessionRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      admin_settings: {
+        Row: AdminSetting;
+        Insert: Omit<AdminSetting, "id" | "created_at" | "updated_at" | "description" | "updated_by" | "is_encrypted"> & {
+          description?: string | null;
+          updated_by?: string | null;
+          is_encrypted?: boolean;
+        };
+        Update: Partial<Omit<AdminSetting, "id" | "created_at">>;
         Relationships: [];
       };
     };

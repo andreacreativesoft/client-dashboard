@@ -13,18 +13,24 @@ import type {
   AIRecommendation,
   AnalysisScores,
 } from "@/types/wordpress";
+import { getAnthropicApiKey } from "@/lib/actions/admin-settings";
 
-// ─── Claude client (singleton) ────────────────────────────────────────
+// ─── Claude client ───────────────────────────────────────────────────
 
 let anthropicClient: Anthropic | null = null;
+let cachedApiKey: string | null = null;
 
-function getClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not set");
-    }
+async function getClient(): Promise<Anthropic> {
+  const apiKey = await getAnthropicApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "AI not configured. Set the API key in Admin > AI Settings, or set the ANTHROPIC_API_KEY environment variable."
+    );
+  }
+  // Recreate client if the key changed
+  if (!anthropicClient || cachedApiKey !== apiKey) {
     anthropicClient = new Anthropic({ apiKey });
+    cachedApiKey = apiKey;
   }
   return anthropicClient;
 }
@@ -292,7 +298,7 @@ export async function analyzeWithClaude(
   crawlData: WPCrawlResult,
   analyticsData?: DashboardAnalyticsData
 ): Promise<{ result: AnalysisResult; tokensUsed: number }> {
-  const client = getClient();
+  const client = await getClient();
   const userPrompt = buildUserPrompt(crawlData, analyticsData);
 
   const response = await client.messages.create({

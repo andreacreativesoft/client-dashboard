@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { WPClient } from "@/lib/wordpress/wp-client";
 import { wpAITools } from "@/lib/wordpress/ai-tools";
 import { createClient } from "@/lib/supabase/server";
+import { getAnthropicApiKey } from "@/lib/actions/admin-settings";
 
 const SYSTEM_PROMPT = `You are a WordPress management assistant for a client dashboard.
 You have access to tools that interact with a WordPress site via REST API and a custom mu-plugin.
@@ -59,10 +60,10 @@ export async function POST(
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicApiKey();
   if (!apiKey) {
     return NextResponse.json(
-      { error: "AI not configured (ANTHROPIC_API_KEY missing)" },
+      { error: "AI not configured. Set the API key in Admin > AI Settings, or set the ANTHROPIC_API_KEY environment variable." },
       { status: 503 }
     );
   }

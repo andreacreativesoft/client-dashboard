@@ -23,8 +23,8 @@ export default async function AnalyticsPage() {
   const lang = profile?.language || "en";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
   const selectedClientId = isAdmin ? await getSelectedClientId() : null;
-  // Use selected client from header dropdown, fall back to impersonated client
-  const activeClientId = selectedClientId || impersonatedClientId;
+  // Impersonation takes priority over header dropdown selection
+  const activeClientId = impersonatedClientId || selectedClientId;
 
   // Calculate lead stats by time period
   const now = new Date();

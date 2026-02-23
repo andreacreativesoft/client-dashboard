@@ -1823,12 +1823,13 @@ class Dashboard_Connector {
 
                 <?php if ($dashboard_url && $website_id): ?>
                 <div class="dc-regenerate">
-                    <button type="button" class="button" id="dc-regenerate-btn">
+                    <button type="button" class="button" id="dc-regenerate-btn" data-action="regenerate">
                         <span class="dashicons dashicons-update"></span> Regenerate Key
                     </button>
                     <span id="dc-regenerate-status"></span>
                     <input type="hidden" id="dc-website-id" value="<?php echo esc_attr($website_id); ?>" />
                     <input type="hidden" id="dc-dashboard-url" value="<?php echo esc_attr($dashboard_url); ?>" />
+                    <p class="dc-hint">Generates a new random key on the Dashboard. The old key stops working immediately.</p>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1891,17 +1892,34 @@ class Dashboard_Connector {
                 </div>
             </div>
 
+            <?php elseif ($has_secret && $website_id): ?>
+            <!-- Connected but no key yet — Generate button -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Webhook API Key</h2>
+                <p class="dc-description">No webhook key has been configured yet. Generate one to start receiving leads from your forms.</p>
+
+                <div class="dc-generate-box">
+                    <button type="button" class="button button-primary button-hero" id="dc-regenerate-btn" data-action="generate">
+                        <span class="dashicons dashicons-randomize"></span> Generate Random Key
+                    </button>
+                    <span id="dc-regenerate-status"></span>
+                    <input type="hidden" id="dc-website-id" value="<?php echo esc_attr($website_id); ?>" />
+                    <input type="hidden" id="dc-dashboard-url" value="<?php echo esc_attr($dashboard_url); ?>" />
+                </div>
+                <p class="dc-hint" style="margin-top:12px">Creates a secure random API key on the Dashboard and saves it here automatically.</p>
+            </div>
+
             <?php else: ?>
-            <!-- Not configured yet -->
+            <!-- Not connected at all -->
             <div class="dc-card dc-card-empty">
                 <span class="dashicons dashicons-info-outline dc-empty-icon"></span>
                 <h3>Webhook Not Configured</h3>
-                <p>Connect this WordPress site from the Dashboard to automatically receive the webhook API key.</p>
+                <p>Connect this WordPress site from the Dashboard to get started.</p>
                 <ol>
                     <li>Go to <strong>Admin &rarr; Clients &rarr; [Client] &rarr; Website</strong></li>
                     <li>Click <strong>Connect WordPress</strong></li>
                     <li>Enter this site's URL, username, and application password</li>
-                    <li>The webhook key will appear here automatically</li>
+                    <li>Then click <strong>Generate Random Key</strong> here</li>
                 </ol>
             </div>
             <?php endif; ?>
@@ -1942,8 +1960,11 @@ class Dashboard_Connector {
         .dc-key-box code { flex: 1; font-size: 13px; word-break: break-all; background: none; padding: 0; }
         .dc-copy-btn { white-space: nowrap; }
         .dc-copy-btn .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
-        .dc-regenerate { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
+        .dc-regenerate { margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .dc-regenerate .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
+        .dc-generate-box { text-align: center; padding: 16px 0; }
+        .dc-generate-box .dashicons { font-size: 20px; width: 20px; height: 20px; vertical-align: middle; margin-top: -2px; margin-right: 4px; }
+        .dc-generate-box #dc-regenerate-status { display: block; margin-top: 10px; }
         .dc-card-empty { text-align: center; padding: 40px 20px; color: #666; }
         .dc-empty-icon { font-size: 40px; width: 40px; height: 40px; color: #ccc; margin-bottom: 10px; }
         .dc-card-empty ol { text-align: left; display: inline-block; }
@@ -2004,17 +2025,23 @@ class Dashboard_Connector {
                 });
             });
 
-            // Regenerate key
+            // Generate / Regenerate key
             $('#dc-regenerate-btn').on('click', function() {
-                if (!confirm('Regenerate the webhook API key? The old key will stop working immediately.')) return;
-
                 var btn = $(this);
+                var action = btn.data('action') || 'regenerate';
+
+                if (action === 'regenerate') {
+                    if (!confirm('Regenerate the webhook API key?\\nThe old key will stop working immediately.')) return;
+                } else {
+                    if (!confirm('Generate a new random webhook API key for this website?')) return;
+                }
+
                 var status = $('#dc-regenerate-status');
                 var dashboardUrl = $('#dc-dashboard-url').val();
                 var websiteId = $('#dc-website-id').val();
 
                 btn.prop('disabled', true);
-                status.text('Regenerating...').css('color', '#666');
+                status.text(action === 'generate' ? 'Generating...' : 'Regenerating...').css('color', '#666');
 
                 $.ajax({
                     url: dashboardUrl + '/api/webhooks/' + websiteId + '/regenerate',
@@ -2042,7 +2069,8 @@ class Dashboard_Connector {
                                     website_id: websiteId
                                 }),
                                 complete: function() {
-                                    status.html('<span style=\"color:#46b450\">&#10003; Key regenerated! Reloading...</span>');
+                                    var msg = action === 'generate' ? 'Key generated!' : 'Key regenerated!';
+                                    status.html('<span style=\"color:#46b450\">&#10003; ' + msg + ' Reloading...</span>');
                                     setTimeout(function() { window.location.reload(); }, 1000);
                                 }
                             });

@@ -57,9 +57,6 @@ export type Website = {
   git_repo_url: string | null;
   asana_project_url: string | null;
   figma_url: string | null;
-  content_hash: string | null;
-  last_checked_at: string | null;
-  has_changes: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -391,9 +388,6 @@ export type Database = {
           git_repo_url?: string | null;
           asana_project_url?: string | null;
           figma_url?: string | null;
-          content_hash?: string | null;
-          last_checked_at?: string | null;
-          has_changes?: boolean;
           is_active: boolean;
         };
         Update: Partial<Omit<Website, "id" | "created_at">>;

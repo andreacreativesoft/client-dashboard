@@ -1810,87 +1810,125 @@ class Dashboard_Connector {
         $is_configured = !empty($api_key) && !empty($webhook_url);
         ?>
         <div class="wrap dc-wrap">
-            <h1 class="dc-title">
+
+            <!-- Header -->
+            <div class="dc-header">
                 <span class="dc-logo">AC</span>
-                Dashboard Connector
-                <span class="dc-version">v<?php echo esc_html(DASHBOARD_CONNECTOR_VERSION); ?></span>
-            </h1>
+                <div class="dc-header-text">
+                    <h1 class="dc-header-title">Dashboard Connector</h1>
+                    <span class="dc-version">v<?php echo esc_html(DASHBOARD_CONNECTOR_VERSION); ?></span>
+                </div>
+            </div>
+
+            <!-- Progress Steps -->
+            <div class="dc-steps">
+                <div class="dc-step dc-step-done">
+                    <span class="dc-step-num">&#10003;</span>
+                    <span class="dc-step-label">Plugin Installed</span>
+                </div>
+                <div class="dc-step <?php echo $has_secret ? 'dc-step-done' : 'dc-step-active'; ?>">
+                    <span class="dc-step-num"><?php echo $has_secret ? '&#10003;' : '2'; ?></span>
+                    <span class="dc-step-label">Secret Ready</span>
+                </div>
+                <div class="dc-step <?php echo $is_configured ? 'dc-step-done' : ($has_secret && !$is_configured ? 'dc-step-active' : ''); ?>">
+                    <span class="dc-step-num"><?php echo $is_configured ? '&#10003;' : '3'; ?></span>
+                    <span class="dc-step-label">Webhook Active</span>
+                </div>
+            </div>
 
             <!-- Shared Secret -->
             <div class="dc-card">
-                <h2 class="dc-card-title">Shared Secret</h2>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-dark"><span class="dashicons dashicons-shield"></span></span>
+                    Shared Secret
+                </h2>
                 <p class="dc-description">Copy this secret into the Dashboard when connecting this website. No Application Password needed.</p>
 
                 <div class="dc-key-box">
                     <code id="dc-shared-secret"><?php echo esc_html($secret); ?></code>
-                    <button type="button" class="button dc-copy-btn" data-target="dc-shared-secret" title="Copy shared secret">
+                    <button type="button" class="dc-copy-btn" data-target="dc-shared-secret" title="Copy shared secret">
                         <span class="dashicons dashicons-clipboard"></span> Copy
                     </button>
                 </div>
-                <p class="dc-hint">This secret was auto-generated when the plugin was installed. It authenticates the Dashboard connection.</p>
+                <p class="dc-hint">Auto-generated on install. Authenticates the Dashboard connection.</p>
             </div>
 
             <!-- Connection Status -->
+            <?php if ($dashboard_url || $updated_at): ?>
             <div class="dc-card">
-                <h2 class="dc-card-title">Connection Status</h2>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-green"><span class="dashicons dashicons-cloud"></span></span>
+                    Connection
+                </h2>
+                <div class="dc-status-row">
+                    <span class="dc-status-dot dc-status-dot-green"></span>
+                    <span class="dc-status-text">Connected to Dashboard</span>
+                </div>
                 <table class="dc-table">
                     <?php if ($dashboard_url): ?>
                     <tr>
-                        <td class="dc-label">Dashboard URL</td>
-                        <td><a href="<?php echo esc_url($dashboard_url); ?>" target="_blank"><?php echo esc_html($dashboard_url); ?></a></td>
+                        <td class="dc-label">Dashboard</td>
+                        <td><a href="<?php echo esc_url($dashboard_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($dashboard_url); ?></a></td>
                     </tr>
                     <?php endif; ?>
                     <?php if ($updated_at): ?>
                     <tr>
-                        <td class="dc-label">Last Updated</td>
+                        <td class="dc-label">Last Sync</td>
                         <td><?php echo esc_html($updated_at); ?></td>
                     </tr>
                     <?php endif; ?>
                 </table>
             </div>
+            <?php endif; ?>
 
             <?php if ($is_configured): ?>
             <!-- Webhook API Key -->
             <div class="dc-card">
-                <h2 class="dc-card-title">Webhook API Key</h2>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-blue"><span class="dashicons dashicons-admin-network"></span></span>
+                    Webhook API Key
+                </h2>
                 <p class="dc-description">Use this key to send leads from your contact forms to the Dashboard.</p>
 
                 <div class="dc-key-box">
                     <code id="dc-api-key"><?php echo esc_html($api_key); ?></code>
-                    <button type="button" class="button dc-copy-btn" data-target="dc-api-key" title="Copy API key">
+                    <button type="button" class="dc-copy-btn" data-target="dc-api-key" title="Copy API key">
                         <span class="dashicons dashicons-clipboard"></span> Copy
                     </button>
                 </div>
 
                 <div class="dc-key-box dc-key-box-url">
-                    <label class="dc-label">Full Webhook URL</label>
+                    <span class="dc-key-label">Full Webhook URL</span>
                     <code id="dc-webhook-url"><?php echo esc_html($webhook_url); ?></code>
-                    <button type="button" class="button dc-copy-btn" data-target="dc-webhook-url" title="Copy webhook URL">
+                    <button type="button" class="dc-copy-btn" data-target="dc-webhook-url" title="Copy webhook URL">
                         <span class="dashicons dashicons-clipboard"></span> Copy
                     </button>
                 </div>
 
                 <?php if ($dashboard_url && $website_id): ?>
                 <div class="dc-regenerate">
-                    <button type="button" class="button" id="dc-regenerate-btn" data-action="regenerate">
+                    <button type="button" class="dc-btn dc-btn-secondary" id="dc-regenerate-btn" data-action="regenerate">
                         <span class="dashicons dashicons-update"></span> Regenerate Key
                     </button>
                     <span id="dc-regenerate-status"></span>
                     <input type="hidden" id="dc-website-id" value="<?php echo esc_attr($website_id); ?>" />
                     <input type="hidden" id="dc-dashboard-url" value="<?php echo esc_attr($dashboard_url); ?>" />
-                    <p class="dc-hint">Generates a new random key on the Dashboard. The old key stops working immediately.</p>
                 </div>
+                <p class="dc-hint">Generates a new random key on the Dashboard. The old key stops working immediately.</p>
                 <?php endif; ?>
             </div>
 
             <!-- Form Plugin Setup -->
             <div class="dc-card">
-                <h2 class="dc-card-title">Form Plugin Setup</h2>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-purple"><span class="dashicons dashicons-feedback"></span></span>
+                    Form Plugin Setup
+                </h2>
                 <p class="dc-description">Copy the webhook URL above and paste it into your form plugin:</p>
 
                 <div class="dc-accordion">
                     <details>
-                        <summary><strong>Elementor Forms</strong></summary>
+                        <summary>Elementor Forms</summary>
                         <ol>
                             <li>Edit the form widget</li>
                             <li>Go to <strong>Actions After Submit</strong></li>
@@ -1900,7 +1938,7 @@ class Dashboard_Connector {
                     </details>
 
                     <details>
-                        <summary><strong>Contact Form 7</strong></summary>
+                        <summary>Contact Form 7</summary>
                         <ol>
                             <li>Install a CF7 webhook plugin (e.g. CF7 to Webhook)</li>
                             <li>Edit your form &rarr; <strong>Webhook</strong> tab</li>
@@ -1910,7 +1948,7 @@ class Dashboard_Connector {
                     </details>
 
                     <details>
-                        <summary><strong>WPForms</strong></summary>
+                        <summary>WPForms</summary>
                         <ol>
                             <li>Edit your form &rarr; <strong>Settings &rarr; Notifications</strong></li>
                             <li>Or use the Webhooks addon</li>
@@ -1919,7 +1957,7 @@ class Dashboard_Connector {
                     </details>
 
                     <details>
-                        <summary><strong>Gravity Forms</strong></summary>
+                        <summary>Gravity Forms</summary>
                         <ol>
                             <li>Edit form &rarr; <strong>Settings &rarr; Webhooks</strong></li>
                             <li>Add feed &rarr; paste the webhook URL</li>
@@ -1928,7 +1966,7 @@ class Dashboard_Connector {
                     </details>
 
                     <details>
-                        <summary><strong>Any Other Form</strong></summary>
+                        <summary>Any Other Form</summary>
                         <p>Send a <strong>POST</strong> request to the webhook URL with a JSON body:</p>
                         <pre>{
   "name": "John Doe",
@@ -1942,26 +1980,31 @@ class Dashboard_Connector {
             </div>
 
             <?php elseif ($has_secret && $website_id): ?>
-            <!-- Connected but no key yet — Generate button -->
+            <!-- Connected but no key yet -->
             <div class="dc-card">
-                <h2 class="dc-card-title">Webhook API Key</h2>
-                <p class="dc-description">No webhook key has been configured yet. Generate one to start receiving leads from your forms.</p>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-blue"><span class="dashicons dashicons-admin-network"></span></span>
+                    Webhook API Key
+                </h2>
+                <p class="dc-description">No webhook key configured yet. Generate one to start receiving leads from your forms.</p>
 
                 <div class="dc-generate-box">
-                    <button type="button" class="button button-primary button-hero" id="dc-regenerate-btn" data-action="generate">
+                    <button type="button" class="dc-btn dc-btn-primary dc-btn-hero" id="dc-regenerate-btn" data-action="generate">
                         <span class="dashicons dashicons-randomize"></span> Generate Random Key
                     </button>
                     <span id="dc-regenerate-status"></span>
                     <input type="hidden" id="dc-website-id" value="<?php echo esc_attr($website_id); ?>" />
                     <input type="hidden" id="dc-dashboard-url" value="<?php echo esc_attr($dashboard_url); ?>" />
                 </div>
-                <p class="dc-hint" style="margin-top:12px">Creates a secure random API key on the Dashboard and saves it here automatically.</p>
+                <p class="dc-hint">Creates a secure random API key on the Dashboard and saves it here automatically.</p>
             </div>
 
             <?php else: ?>
             <!-- Not connected yet -->
             <div class="dc-card dc-card-empty">
-                <span class="dashicons dashicons-admin-links dc-empty-icon"></span>
+                <div class="dc-empty-icon-wrap">
+                    <span class="dashicons dashicons-admin-links"></span>
+                </div>
                 <h3>Connect to Dashboard</h3>
                 <p>Copy the Shared Secret above and connect this site from the Dashboard.</p>
                 <ol>
@@ -1975,12 +2018,17 @@ class Dashboard_Connector {
 
             <!-- Test Webhook -->
             <div class="dc-card">
-                <h2 class="dc-card-title">Test Webhook</h2>
+                <h2 class="dc-card-title">
+                    <span class="dc-card-icon dc-card-icon-amber"><span class="dashicons dashicons-megaphone"></span></span>
+                    Test Webhook
+                </h2>
                 <p class="dc-description">Send a test lead to verify your connection.</p>
-                <button type="button" class="button button-primary" id="dc-test-webhook" <?php echo $is_configured ? '' : 'disabled'; ?>>
-                    <span class="dashicons dashicons-megaphone"></span> Send Test Lead
-                </button>
-                <span id="dc-test-status"></span>
+                <div class="dc-test-row">
+                    <button type="button" class="dc-btn dc-btn-primary" id="dc-test-webhook" <?php echo $is_configured ? '' : 'disabled'; ?>>
+                        <span class="dashicons dashicons-megaphone"></span> Send Test Lead
+                    </button>
+                    <span id="dc-test-status"></span>
+                </div>
             </div>
         </div>
         <?php
@@ -2237,14 +2285,14 @@ class Dashboard_Connector {
         jQuery(function($) {
             // Copy to clipboard
             $(document).on('click', '.dc-copy-btn', function() {
-                var target = $(this).data('target');
+                var btn = $(this);
+                var target = btn.data('target');
                 var text = $('#' + target).text().trim();
                 navigator.clipboard.writeText(text).then(function() {
-                    var btn = $(this);
                     var orig = btn.html();
-                    btn.html('<span class=\"dashicons dashicons-yes\"></span> Copied!');
-                    setTimeout(function() { btn.html(orig); }, 2000);
-                }.bind(this));
+                    btn.addClass('dc-copied').html('<span class=\"dashicons dashicons-yes-alt\"></span> Copied!');
+                    setTimeout(function() { btn.removeClass('dc-copied').html(orig); }, 2000);
+                });
             });
 
             // Test webhook

@@ -31,7 +31,7 @@ CREATE POLICY "admin_settings_admin_all"
 CREATE TRIGGER set_admin_settings_updated_at
   BEFORE UPDATE ON admin_settings
   FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+  EXECUTE FUNCTION update_updated_at();
 
 -- Index for fast key lookup
 CREATE INDEX IF NOT EXISTS idx_admin_settings_key ON admin_settings(key);

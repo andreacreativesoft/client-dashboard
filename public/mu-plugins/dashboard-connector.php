@@ -1988,41 +1988,247 @@ class Dashboard_Connector {
 
     private function get_admin_css() {
         return '
-        .dc-wrap { max-width: 720px; }
-        .dc-title { display: flex; align-items: center; gap: 10px; font-size: 22px; margin-bottom: 20px; }
-        .dc-logo { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #1d2327; color: #fff; border-radius: 8px; font-size: 14px; font-weight: 700; }
-        .dc-version { font-size: 12px; color: #999; font-weight: 400; }
-        .dc-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-        .dc-card-title { font-size: 15px; margin: 0 0 6px; }
-        .dc-description { color: #666; font-size: 13px; margin: 0 0 16px; }
+        /* ── Reset & Base ─────────────────────────────────── */
+        .dc-wrap { max-width: 760px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif; }
+        .dc-wrap *, .dc-wrap *::before, .dc-wrap *::after { box-sizing: border-box; }
+
+        /* ── Header ───────────────────────────────────────── */
+        .dc-header {
+            display: flex; align-items: center; gap: 14px;
+            margin-bottom: 28px; padding-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .dc-logo {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 44px; height: 44px;
+            background: linear-gradient(135deg, #111827 0%, #374151 100%);
+            color: #fff; border-radius: 12px;
+            font-size: 15px; font-weight: 800; letter-spacing: -0.5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .dc-header-text { display: flex; flex-direction: column; gap: 2px; }
+        .dc-header-title { font-size: 20px; font-weight: 700; color: #111827; line-height: 1.2; margin: 0; }
+        .dc-version {
+            display: inline-block; font-size: 11px; font-weight: 600;
+            color: #6b7280; background: #f3f4f6; border-radius: 6px;
+            padding: 1px 8px; letter-spacing: 0.3px;
+        }
+
+        /* ── Cards ────────────────────────────────────────── */
+        .dc-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            transition: box-shadow 0.2s ease;
+        }
+        .dc-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+        .dc-card-title {
+            font-size: 14px; font-weight: 700; color: #111827;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin: 0 0 4px; display: flex; align-items: center; gap: 8px;
+        }
+        .dc-card-title .dashicons {
+            font-size: 18px; width: 18px; height: 18px; color: #6b7280;
+        }
+        .dc-card-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; border-radius: 8px;
+            font-size: 15px; flex-shrink: 0;
+        }
+        .dc-card-icon .dashicons { font-size: 16px; width: 16px; height: 16px; }
+        .dc-card-icon-dark { background: #111827; color: #fff; }
+        .dc-card-icon-green { background: #dcfce7; color: #16a34a; }
+        .dc-card-icon-blue { background: #dbeafe; color: #2563eb; }
+        .dc-card-icon-amber { background: #fef3c7; color: #d97706; }
+        .dc-card-icon-purple { background: #f3e8ff; color: #7c3aed; }
+        .dc-description { color: #6b7280; font-size: 13px; margin: 0 0 18px; line-height: 1.5; }
+
+        /* ── Status Pill ──────────────────────────────────── */
+        .dc-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+        .dc-status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block; flex-shrink: 0;
+        }
+        .dc-status-dot-green { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.2); }
+        .dc-status-dot-amber { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,0.2); }
+        .dc-status-dot-red { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.2); }
+        .dc-status-text { font-size: 13px; color: #374151; font-weight: 500; }
+
+        /* ── Table ────────────────────────────────────────── */
         .dc-table { width: 100%; border-collapse: collapse; }
-        .dc-table td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; vertical-align: middle; }
+        .dc-table td {
+            padding: 10px 0; border-bottom: 1px solid #f3f4f6;
+            font-size: 13px; vertical-align: middle; color: #374151;
+        }
         .dc-table tr:last-child td { border-bottom: none; }
-        .dc-label { font-weight: 600; color: #555; width: 140px; }
-        .dc-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
-        .dc-badge-ok { background: #d4edda; color: #155724; }
-        .dc-badge-warn { background: #fff3cd; color: #856404; }
-        .dc-hint { color: #999; font-size: 12px; margin-top: 4px; }
-        .dc-key-box { background: #f8f9fa; border: 1px solid #e2e4e7; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
-        .dc-key-box-url { flex-direction: column; align-items: flex-start; }
+        .dc-label { font-weight: 600; color: #6b7280; width: 150px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+        /* ── Badges ───────────────────────────────────────── */
+        .dc-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 10px; border-radius: 100px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+        }
+        .dc-badge-ok { background: #dcfce7; color: #15803d; }
+        .dc-badge-warn { background: #fef3c7; color: #92400e; }
+        .dc-badge-info { background: #dbeafe; color: #1d4ed8; }
+
+        /* ── Secret / Key Box ─────────────────────────────── */
+        .dc-key-box {
+            background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px;
+            padding: 14px 16px; margin-bottom: 12px;
+            display: flex; align-items: center; gap: 12px;
+        }
+        .dc-key-box-url { flex-direction: column; align-items: flex-start; gap: 8px; }
+        .dc-key-box-url .dc-key-label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
         .dc-key-box-url .dc-copy-btn { align-self: flex-end; }
-        .dc-key-box code { flex: 1; font-size: 13px; word-break: break-all; background: none; padding: 0; }
-        .dc-copy-btn { white-space: nowrap; }
-        .dc-copy-btn .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
-        .dc-regenerate { margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .dc-regenerate .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
-        .dc-generate-box { text-align: center; padding: 16px 0; }
-        .dc-generate-box .dashicons { font-size: 20px; width: 20px; height: 20px; vertical-align: middle; margin-top: -2px; margin-right: 4px; }
-        .dc-generate-box #dc-regenerate-status { display: block; margin-top: 10px; }
-        .dc-card-empty { text-align: center; padding: 40px 20px; color: #666; }
-        .dc-empty-icon { font-size: 40px; width: 40px; height: 40px; color: #ccc; margin-bottom: 10px; }
-        .dc-card-empty ol { text-align: left; display: inline-block; }
-        .dc-accordion details { border-bottom: 1px solid #f0f0f0; padding: 8px 0; }
+        .dc-key-box code {
+            flex: 1; font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+            font-size: 12.5px; word-break: break-all;
+            background: none; padding: 0; color: #1f2937;
+        }
+        .dc-copy-btn {
+            display: inline-flex !important; align-items: center; gap: 5px;
+            background: #fff !important; border: 1px solid #d1d5db !important;
+            border-radius: 8px !important; padding: 6px 14px !important;
+            font-size: 12px !important; font-weight: 600 !important; color: #374151 !important;
+            cursor: pointer; transition: all 0.15s ease !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+            white-space: nowrap;
+        }
+        .dc-copy-btn:hover { background: #f9fafb !important; border-color: #9ca3af !important; }
+        .dc-copy-btn.dc-copied {
+            background: #dcfce7 !important; border-color: #86efac !important; color: #15803d !important;
+        }
+        .dc-copy-btn .dashicons { font-size: 14px; width: 14px; height: 14px; vertical-align: middle; }
+
+        /* ── Buttons ──────────────────────────────────────── */
+        .dc-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            border: none; border-radius: 8px; padding: 9px 18px;
+            font-size: 13px; font-weight: 600; cursor: pointer;
+            transition: all 0.15s ease; line-height: 1.2;
+        }
+        .dc-btn .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -1px; }
+        .dc-btn-primary {
+            background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+            color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .dc-btn-primary:hover { background: linear-gradient(135deg, #1f2937 0%, #374151 100%); box-shadow: 0 3px 10px rgba(0,0,0,0.2); }
+        .dc-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .dc-btn-secondary {
+            background: #fff; color: #374151; border: 1px solid #d1d5db;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .dc-btn-secondary:hover { background: #f9fafb; border-color: #9ca3af; }
+        .dc-btn-hero {
+            padding: 14px 28px; font-size: 14px; border-radius: 10px;
+        }
+
+        /* ── Regenerate ───────────────────────────────────── */
+        .dc-regenerate { margin-top: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+        /* ── Generate box (empty state) ───────────────────── */
+        .dc-generate-box { text-align: center; padding: 20px 0; }
+        .dc-generate-box #dc-regenerate-status { display: block; margin-top: 12px; font-size: 13px; }
+
+        /* ── Hint text ────────────────────────────────────── */
+        .dc-hint { color: #9ca3af; font-size: 12px; margin-top: 6px; line-height: 1.5; }
+
+        /* ── Empty state ──────────────────────────────────── */
+        .dc-card-empty { text-align: center; padding: 48px 28px; }
+        .dc-card-empty .dc-empty-icon-wrap {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 56px; height: 56px; border-radius: 16px;
+            background: #f3f4f6; margin-bottom: 16px;
+        }
+        .dc-card-empty .dc-empty-icon-wrap .dashicons { font-size: 28px; width: 28px; height: 28px; color: #9ca3af; }
+        .dc-card-empty h3 { font-size: 16px; font-weight: 700; color: #111827; margin: 0 0 8px; }
+        .dc-card-empty > p { color: #6b7280; font-size: 13px; margin: 0 0 20px; }
+        .dc-card-empty ol {
+            text-align: left; display: inline-block;
+            font-size: 13px; color: #4b5563; line-height: 1.8;
+            margin: 0; padding-left: 20px;
+        }
+        .dc-card-empty ol strong { color: #111827; }
+
+        /* ── Steps indicator ──────────────────────────────── */
+        .dc-steps {
+            display: flex; gap: 12px; margin-bottom: 20px;
+        }
+        .dc-step {
+            flex: 1; padding: 14px 16px; border-radius: 10px;
+            background: #f9fafb; border: 1px solid #e5e7eb;
+            text-align: center;
+        }
+        .dc-step-num {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border-radius: 50%;
+            background: #e5e7eb; color: #6b7280;
+            font-size: 12px; font-weight: 700; margin-bottom: 6px;
+        }
+        .dc-step-active .dc-step-num { background: #111827; color: #fff; }
+        .dc-step-done .dc-step-num { background: #22c55e; color: #fff; }
+        .dc-step-label { font-size: 11px; font-weight: 600; color: #6b7280; display: block; }
+        .dc-step-active .dc-step-label { color: #111827; }
+        .dc-step-done .dc-step-label { color: #16a34a; }
+
+        /* ── Accordion ────────────────────────────────────── */
+        .dc-accordion details {
+            border-bottom: 1px solid #f3f4f6; padding: 0;
+        }
         .dc-accordion details:last-child { border-bottom: none; }
-        .dc-accordion summary { cursor: pointer; padding: 4px 0; font-size: 13px; }
-        .dc-accordion ol, .dc-accordion p { font-size: 13px; margin: 8px 0 4px 20px; color: #555; }
-        .dc-accordion pre { background: #f1f1f1; padding: 10px; border-radius: 4px; font-size: 12px; overflow-x: auto; }
-        #dc-test-webhook .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
+        .dc-accordion summary {
+            cursor: pointer; padding: 12px 0;
+            font-size: 13px; font-weight: 600; color: #374151;
+            list-style: none; display: flex; align-items: center; gap: 8px;
+            transition: color 0.15s ease;
+        }
+        .dc-accordion summary:hover { color: #111827; }
+        .dc-accordion summary::-webkit-details-marker { display: none; }
+        .dc-accordion summary::before {
+            content: ""; display: inline-block;
+            width: 6px; height: 6px;
+            border-right: 2px solid #9ca3af; border-bottom: 2px solid #9ca3af;
+            transform: rotate(-45deg); transition: transform 0.2s ease;
+            flex-shrink: 0;
+        }
+        .dc-accordion details[open] > summary::before { transform: rotate(45deg); }
+        .dc-accordion ol, .dc-accordion p {
+            font-size: 13px; margin: 0 0 12px 14px;
+            color: #6b7280; line-height: 1.7;
+        }
+        .dc-accordion ol { padding-left: 18px; }
+        .dc-accordion pre {
+            background: #1f2937; color: #e5e7eb; padding: 14px 16px;
+            border-radius: 8px; font-size: 12px; overflow-x: auto;
+            font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+            margin: 0 0 12px 14px; line-height: 1.6;
+        }
+
+        /* ── Test webhook ─────────────────────────────────── */
+        .dc-test-row {
+            display: flex; align-items: center; gap: 12px;
+        }
+        .dc-test-row #dc-test-status { font-size: 13px; }
+
+        /* ── Divider ──────────────────────────────────────── */
+        .dc-divider { border: none; border-top: 1px solid #f3f4f6; margin: 16px 0; }
+
+        /* ── Animation ────────────────────────────────────── */
+        @keyframes dc-fade-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .dc-card { animation: dc-fade-in 0.3s ease both; }
+        .dc-card:nth-child(2) { animation-delay: 0.05s; }
+        .dc-card:nth-child(3) { animation-delay: 0.1s; }
+        .dc-card:nth-child(4) { animation-delay: 0.15s; }
+        .dc-card:nth-child(5) { animation-delay: 0.2s; }
+        .dc-card:nth-child(6) { animation-delay: 0.25s; }
         ';
     }
 

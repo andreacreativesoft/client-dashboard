@@ -129,11 +129,11 @@ export function PluginList({ plugins }: PluginListProps) {
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
             {/* Header */}
-            <div className="hidden grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase text-muted-foreground sm:grid">
+            <div className="hidden grid-cols-[1fr_80px_90px_140px] gap-4 border-b border-border bg-muted/50 px-4 py-2.5 text-[11px] font-semibold uppercase text-muted-foreground sm:grid">
               <span>Plugin</span>
-              <span className="w-16 text-center">Version</span>
-              <span className="w-20 text-center">Status</span>
-              <span className="w-28 text-center">Update</span>
+              <span className="text-center">Version</span>
+              <span className="text-center">Status</span>
+              <span className="text-center">Update</span>
             </div>
 
             <div className="divide-y divide-border">
@@ -145,7 +145,7 @@ export function PluginList({ plugins }: PluginListProps) {
                     {/* Main row */}
                     <button
                       onClick={() => setExpandedSlug(isExpanded ? null : plugin.slug)}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 sm:grid sm:grid-cols-[1fr_auto_auto_auto]"
+                      className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:grid sm:grid-cols-[1fr_80px_90px_140px]"
                     >
                       {/* Name + Author */}
                       <div className="min-w-0 flex-1">
@@ -158,19 +158,19 @@ export function PluginList({ plugins }: PluginListProps) {
                       </div>
 
                       {/* Version */}
-                      <span className="w-16 text-center text-xs text-muted-foreground">
+                      <span className="text-center text-xs text-muted-foreground">
                         {plugin.version}
                       </span>
 
                       {/* Status */}
-                      <div className="flex w-20 justify-center">
+                      <div className="flex justify-center">
                         <Badge className={`text-[10px] ${STATUS_STYLES[plugin.status] || STATUS_STYLES.inactive}`}>
                           {plugin.status === "must-use" ? "MU" : plugin.status}
                         </Badge>
                       </div>
 
                       {/* Update */}
-                      <div className="flex w-28 justify-center">
+                      <div className="flex justify-center">
                         {plugin.update_available && plugin.update_version ? (
                           <Badge className="bg-yellow-600 text-[10px] text-white hover:bg-yellow-700">
                             Update to {plugin.update_version}

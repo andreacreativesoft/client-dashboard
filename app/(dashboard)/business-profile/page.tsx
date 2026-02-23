@@ -18,7 +18,8 @@ export default async function BusinessProfilePage() {
   const isAdmin = profile?.role === "admin";
   const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
   const selectedClientId = isAdmin ? await getSelectedClientId() : null;
-  const activeClientId = selectedClientId || impersonatedClientId;
+  // Impersonation takes priority over header dropdown selection
+  const activeClientId = impersonatedClientId || selectedClientId;
 
   return (
     <div className="p-4 md:p-6">

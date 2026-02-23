@@ -1,6 +1,5 @@
 "use server";
 
-import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
@@ -21,35 +20,28 @@ export async function connectWordPress(
   success: boolean;
   error?: string;
   integration_id?: string;
-  shared_secret?: string;
   mu_plugin_installed?: boolean;
-  wp_user?: string;
 }> {
   const auth = await requireAdmin();
   if (!auth.success) return { success: false, error: auth.error };
 
   const supabase = await createClient();
 
-  // Generate shared secret
-  const sharedSecret = input.shared_secret || randomBytes(32).toString("hex");
-
   // Get website to find client_id
   const { data: website } = await supabase
     .from("websites")
-    .select("id, client_id")
+    .select("id, client_id, api_key")
     .eq("id", input.website_id)
     .single();
 
   if (!website) return { success: false, error: "Website not found" };
 
-  // Test connection first
+  // Test connection via shared secret (mu-plugin must be installed)
   const testClient = new WPClient({
     id: "",
     integration_id: "",
     site_url: input.site_url,
-    username: input.username,
-    app_password: input.app_password,
-    shared_secret: sharedSecret,
+    shared_secret: input.shared_secret,
     ssh_port: input.ssh_port || 22,
     mu_plugin_installed: false,
   });
@@ -58,25 +50,27 @@ export async function connectWordPress(
   if (!connectionTest.success) {
     return {
       success: false,
-      error: `Connection failed: ${connectionTest.error || "Could not reach WordPress REST API"}`,
+      error: `Connection failed: ${connectionTest.error || "Could not reach the mu-plugin. Make sure it's installed and the shared secret matches."}`,
     };
   }
 
+  // Check mu-plugin version
+  const muPluginCheck = await testClient.checkMuPlugin();
+
   // Create integration record
+  const siteUrlClean = input.site_url.replace(/\/+$/, "");
   const { data: integrationData, error: intError } = await supabase
     .from("integrations")
     .insert({
       client_id: website.client_id,
       type: "wordpress" as const,
-      account_id: input.site_url.replace(/^https?:\/\//, "").replace(/\/+$/, ""),
-      account_name: input.username,
+      account_id: siteUrlClean.replace(/^https?:\/\//, ""),
+      account_name: siteUrlClean,
       access_token_encrypted: null,
       refresh_token_encrypted: null,
       token_expires_at: null,
       metadata: {
-        site_url: input.site_url.replace(/\/+$/, ""),
-        wp_user_id: connectionTest.user?.id,
-        wp_user_name: connectionTest.user?.name,
+        site_url: siteUrlClean,
         connected_at: new Date().toISOString(),
       },
       is_active: true,
@@ -90,11 +84,11 @@ export async function connectWordPress(
     return { success: false, error: `Failed to create integration: ${intError?.message}` };
   }
 
-  // Store encrypted credentials
+  // Store encrypted credentials (only shared secret required)
   const encrypted = encryptCredentials({
+    shared_secret: input.shared_secret,
     username: input.username,
     app_password: input.app_password,
-    shared_secret: sharedSecret,
     ssh_host: input.ssh_host,
     ssh_user: input.ssh_user,
     ssh_key: input.ssh_key,
@@ -102,9 +96,11 @@ export async function connectWordPress(
 
   const { error: credError } = await supabase.from("wordpress_credentials").insert({
     integration_id: integration.id,
-    site_url: input.site_url.replace(/\/+$/, ""),
+    site_url: siteUrlClean,
     ...encrypted,
     ssh_port: input.ssh_port || 22,
+    mu_plugin_installed: muPluginCheck.installed,
+    mu_plugin_version: muPluginCheck.version || null,
   });
 
   if (credError) {
@@ -113,27 +109,25 @@ export async function connectWordPress(
     return { success: false, error: `Failed to store credentials: ${credError.message}` };
   }
 
-  // Check if mu-plugin is installed
-  const muPluginCheck = await testClient.checkMuPlugin();
-  if (muPluginCheck.installed) {
-    await supabase
-      .from("wordpress_credentials")
-      .update({
-        mu_plugin_installed: true,
-        mu_plugin_version: muPluginCheck.version,
-      })
-      .eq("integration_id", integration.id);
+  // Push webhook config to WordPress so it shows in WP admin
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (website.api_key && appUrl) {
+    await testClient.pushWebhookConfig({
+      api_key: website.api_key,
+      dashboard_url: appUrl.replace(/\/+$/, ""),
+      webhook_url: `${appUrl.replace(/\/+$/, "")}/api/webhooks/lead?key=${website.api_key}`,
+      website_id: input.website_id,
+    });
   }
 
   // Log activity
   await logActivity({
     clientId: website.client_id,
     actionType: ActivityTypes.WORDPRESS_CONNECTED,
-    description: `WordPress connected: ${input.site_url}`,
+    description: `WordPress connected: ${siteUrlClean}`,
     metadata: {
       website_id: input.website_id,
       mu_plugin_installed: muPluginCheck.installed,
-      wp_user: connectionTest.user?.name,
     },
   });
 
@@ -143,9 +137,7 @@ export async function connectWordPress(
   return {
     success: true,
     integration_id: integration.id,
-    shared_secret: sharedSecret,
     mu_plugin_installed: muPluginCheck.installed,
-    wp_user: connectionTest.user?.name,
   };
 }
 
@@ -205,7 +197,7 @@ export async function disconnectWordPress(
 
 export async function testExistingConnection(
   websiteId: string
-): Promise<{ success: boolean; error?: string; userName?: string }> {
+): Promise<{ success: boolean; error?: string }> {
   const auth = await requireAdmin();
   if (!auth.success) return { success: false, error: auth.error };
 
@@ -217,7 +209,7 @@ export async function testExistingConnection(
       return { success: false, error: result.error };
     }
 
-    return { success: true, userName: result.user?.name };
+    return { success: true };
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }

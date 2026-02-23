@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { requireAdmin } from "@/lib/auth";
 import { WPClient } from "@/lib/wordpress/wp-client";
 import { createClient } from "@/lib/supabase/server";
+import { getAnthropicApiKey } from "@/lib/actions/admin-settings";
 import type { DebugLogEntry } from "@/types/wordpress";
 
 const SYSTEM_PROMPT = `You are an expert WordPress developer and DevOps engineer analyzing a debug.log file. Provide a concise, actionable analysis.
@@ -44,10 +45,10 @@ export async function POST(
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicApiKey();
   if (!apiKey) {
     return NextResponse.json(
-      { error: "AI analysis not configured (ANTHROPIC_API_KEY missing)" },
+      { error: "AI not configured. Set the API key in Admin > AI Settings, or set the ANTHROPIC_API_KEY environment variable." },
       { status: 503 }
     );
   }

@@ -235,10 +235,333 @@ export const wpAITools: Tool[] = [
       required: ["menu_id", "title"],
     },
   },
+  // ─── Plugin/Theme/Core Updates ──────────────────────────────────
+
+  {
+    name: "update_plugin",
+    description:
+      "Update a WordPress plugin to its latest version. Requires the mu-plugin. Use list_plugins first to see which plugins have updates available.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        plugin: {
+          type: "string",
+          description: 'Plugin file path (e.g., "akismet/akismet.php"). Get this from list_plugins.',
+        },
+      },
+      required: ["plugin"],
+    },
+  },
+  {
+    name: "list_themes",
+    description:
+      "List all installed themes with activation status, version, and update availability.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "update_theme",
+    description:
+      "Update a WordPress theme to its latest version. Use list_themes first to check for updates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        theme: {
+          type: "string",
+          description: "Theme slug (directory name)",
+        },
+      },
+      required: ["theme"],
+    },
+  },
+  {
+    name: "update_core",
+    description:
+      "Update WordPress core to the latest version. Use get_site_health first to check current version.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+
+  // ─── WooCommerce ─────────────────────────────────────────────────
+
+  {
+    name: "get_wc_orders",
+    description:
+      "List WooCommerce orders. Returns order ID, status, total, customer, items. Requires WooCommerce to be active.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        per_page: { type: "number", description: "Orders per page (max 100)", default: 10 },
+        page: { type: "number", description: "Page number", default: 1 },
+        status: {
+          type: "string",
+          description: "Filter by status: processing, on-hold, completed, cancelled, refunded, failed, or any",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_wc_order",
+    description:
+      "Get full details of a single WooCommerce order including items, billing, shipping, and order notes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "The order ID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_wc_stats",
+    description:
+      "Get WooCommerce store stats: today/month orders and revenue, orders by status, low stock products, total products.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "list_wc_products",
+    description:
+      "List WooCommerce products with name, price, SKU, stock, and image. Use to find products before updating them.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        per_page: { type: "number", description: "Products per page (max 100)", default: 20 },
+        page: { type: "number", description: "Page number", default: 1 },
+        search: { type: "string", description: "Search by product name" },
+        status: { type: "string", description: "Filter by status: publish, draft, pending, private", default: "publish" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_wc_product",
+    description:
+      "Get full details of a single WooCommerce product including description, prices, stock, images, categories, and tags.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "number", description: "The product ID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "update_wc_product",
+    description:
+      "Update a WooCommerce product. Can change name, price, sale price, description, SKU, stock, status, or image. For image changes, provide an attachment ID from the media library.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        product_id: { type: "number", description: "The product ID to update" },
+        name: { type: "string", description: "Product name/title" },
+        regular_price: { type: "string", description: "Regular price (e.g. '29.99')" },
+        sale_price: { type: "string", description: "Sale price (empty string to remove sale)" },
+        description: { type: "string", description: "Full product description (HTML)" },
+        short_description: { type: "string", description: "Short description (HTML)" },
+        sku: { type: "string", description: "Product SKU" },
+        status: { type: "string", description: "Product status: publish, draft, pending, private" },
+        stock_quantity: { type: "number", description: "Stock quantity" },
+        stock_status: { type: "string", description: "Stock status: instock, outofstock, onbackorder" },
+        image_id: { type: "number", description: "Media library attachment ID for product image" },
+      },
+      required: ["product_id"],
+    },
+  },
+  {
+    name: "update_wc_order",
+    description:
+      "Update a WooCommerce order status (e.g., mark as completed, processing, cancelled). Optionally add an order note.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        order_id: { type: "number", description: "The order ID" },
+        status: {
+          type: "string",
+          description: "New status: pending, processing, on-hold, completed, cancelled, refunded, failed",
+        },
+        note: { type: "string", description: "Optional note to add to the order" },
+      },
+      required: ["order_id", "status"],
+    },
+  },
+
+  // ─── Content Creation ──────────────────────────────────────────────
+
+  {
+    name: "create_post",
+    description:
+      "Create a new WordPress blog post with full SEO optimization. The post is created as a DRAFT by default so the user can review before publishing. When the user asks you to write a blog post: 1) Research the topic, 2) Generate SEO-optimized title, content with proper H2/H3 headings, meta description, focus keyword, and excerpt, 3) Call this tool to create it. Always use proper HTML headings (h2, h3), paragraphs, and lists in content.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Post title (SEO-optimized, include primary keyword)" },
+        content: { type: "string", description: "Full post content in HTML. Use <h2>, <h3> for headings, <p> for paragraphs, <ul>/<ol> for lists. Structure for SEO: intro, multiple sections with headings, conclusion." },
+        excerpt: { type: "string", description: "Short excerpt/summary (1-2 sentences)" },
+        slug: { type: "string", description: "URL-friendly slug (lowercase, hyphens, include keyword)" },
+        status: { type: "string", description: "Post status: draft (default, recommended), publish, pending, private", default: "draft" },
+        categories: {
+          type: "array",
+          items: { type: "string" },
+          description: "Category names (will be created if they don't exist)",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tag names for the post",
+        },
+        featured_image_id: { type: "number", description: "Media library attachment ID for featured image" },
+        meta_description: { type: "string", description: "SEO meta description (max 160 chars, include primary keyword)" },
+        focus_keyword: { type: "string", description: "Yoast SEO focus keyword/keyphrase" },
+        seo_title: { type: "string", description: "Custom SEO title if different from post title (max 60 chars)" },
+      },
+      required: ["title", "content"],
+    },
+  },
+
+  // ─── User Management ─────────────────────────────────────────────
+
+  {
+    name: "list_wp_users",
+    description:
+      "List all WordPress users with their roles, emails, and registration dates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "create_wp_user",
+    description:
+      "Create a new WordPress user. Generates a secure password if not provided.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        username: { type: "string", description: "Login username" },
+        email: { type: "string", description: "Email address" },
+        role: {
+          type: "string",
+          description: "WordPress role: administrator, editor, author, contributor, subscriber, shop_manager, customer",
+          default: "subscriber",
+        },
+        password: { type: "string", description: "Password (auto-generated if omitted)" },
+        first_name: { type: "string" },
+        last_name: { type: "string" },
+      },
+      required: ["username", "email"],
+    },
+  },
+  {
+    name: "update_wp_user",
+    description:
+      "Update an existing WordPress user's email, name, role, or password.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "The user ID" },
+        email: { type: "string" },
+        first_name: { type: "string" },
+        last_name: { type: "string" },
+        display_name: { type: "string" },
+        role: { type: "string" },
+        password: { type: "string" },
+      },
+      required: ["user_id"],
+    },
+  },
+  {
+    name: "delete_wp_user",
+    description:
+      "Delete a WordPress user and reassign their content to another user.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "User ID to delete" },
+        reassign: { type: "number", description: "User ID to reassign content to (default: 1 = admin)" },
+      },
+      required: ["user_id"],
+    },
+  },
+  {
+    name: "send_password_reset",
+    description:
+      "Send a password reset email to a WordPress user. Uses WordPress built-in password reset system. The user will receive an email with a link to set a new password.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: { type: "number", description: "The user ID to send the reset email to" },
+      },
+      required: ["user_id"],
+    },
+  },
+
+  // ─── Debug & Maintenance ─────────────────────────────────────────
+
+  {
+    name: "get_debug_log",
+    description:
+      "Read the WordPress debug.log file. Returns parsed entries with severity levels (fatal, warning, notice, deprecated). Use to diagnose site issues.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        lines: {
+          type: "number",
+          description: "Number of recent log lines to fetch (max 2000)",
+          default: 200,
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_db_health",
+    description:
+      "Get WordPress database health: revisions count, transients, autoload size, spam comments. Use to diagnose performance issues.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "clear_cache",
+    description:
+      "Clear all WordPress caches: object cache, page cache plugins (WP Rocket, W3TC, LiteSpeed, etc.), and transients.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "toggle_maintenance",
+    description: "Enable or disable WordPress maintenance mode.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        enable: { type: "boolean", description: "true to enable, false to disable" },
+      },
+      required: ["enable"],
+    },
+  },
+
+  // ─── Proposals ───────────────────────────────────────────────────
+
   {
     name: "propose_changes",
     description:
-      "When you have determined what changes need to be made, use this tool to propose them to the user for review. The user will see a table of proposed changes and can select which ones to apply. ALWAYS use this tool instead of directly making changes.",
+      "When you have determined what changes need to be made, use this tool to propose them to the user for review. The user will see a table of proposed changes and can select which ones to apply. ALWAYS use this tool for content changes (pages, posts, media ALT text). Direct action tools (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, clear_cache, toggle_maintenance) execute immediately without proposals.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -253,7 +576,7 @@ export const wpAITools: Tool[] = [
             properties: {
               resource_type: {
                 type: "string",
-                description: "Type: media, page, post, plugin, menu_item",
+                description: "Type: media, page, post, plugin, theme, menu_item, user",
               },
               resource_id: { type: "string", description: "Resource ID" },
               resource_title: {

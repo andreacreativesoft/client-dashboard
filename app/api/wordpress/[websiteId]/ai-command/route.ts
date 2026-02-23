@@ -4,22 +4,50 @@ import { requireAdmin } from "@/lib/auth";
 import { WPClient } from "@/lib/wordpress/wp-client";
 import { wpAITools } from "@/lib/wordpress/ai-tools";
 import { createClient } from "@/lib/supabase/server";
+import { getAnthropicApiKey } from "@/lib/actions/admin-settings";
 
 const SYSTEM_PROMPT = `You are a WordPress management assistant for a client dashboard.
-You have access to tools that interact with a WordPress site's REST API.
+You have access to tools that interact with a WordPress site via REST API and a custom mu-plugin.
 
 CRITICAL RULES:
-1. NEVER make changes directly. Always use the "propose_changes" tool to show the user what you want to change.
-2. First gather data using list/get tools, then analyze, then propose changes.
-3. For ALT text generation, use the analyze_image tool to see each image before generating ALT text.
-4. Be specific and actionable in your proposals.
-5. If you need more context, explain what information would help rather than guessing.
+1. For EDITING existing content (pages, posts, media, menus) — ALWAYS use "propose_changes" first so the user can review.
+2. For DIRECT ACTIONS (update_plugin, update_theme, update_core, create_wp_user, delete_wp_user, send_password_reset, update_wc_order, update_wc_product, clear_cache, toggle_maintenance) — these execute immediately. Confirm with the user in your message before calling them.
+3. For CREATING new blog posts — use "create_post" tool directly. Posts are created as DRAFT by default so the user can review.
+4. First gather data using list/get tools, then analyze, then act.
+5. For ALT text generation, use the analyze_image tool to see each image before generating ALT text.
+6. Be specific and actionable. Use real data, not placeholders.
+7. If the mu-plugin returns an error about an endpoint not existing, tell the user they need to update the mu-plugin.
+8. If WooCommerce tools return errors, WooCommerce may not be installed on the site.
 
-WORKFLOW:
+AVAILABLE CAPABILITIES:
+- Content: Read/edit pages, posts, media ALT text, menus
+- Content Creation: Create new blog posts with full SEO optimization
+- Plugins: List, activate/deactivate, update to latest version
+- Themes: List, update to latest version
+- WordPress Core: Update to latest version
+- Users: List, create, update roles/email/password, delete, send password reset email
+- WooCommerce: List/update orders, order details, store stats, list/view/update products
+- Diagnostics: Debug log, database health, site health, cache clearing
+- Maintenance: Toggle maintenance mode
+
+BLOG POST CREATION WORKFLOW:
+When asked to write/create a blog post:
+1. Generate an SEO-optimized title (include primary keyword, under 60 chars)
+2. Write well-structured HTML content with proper headings (h2, h3), paragraphs, lists
+3. Create a compelling meta description (under 160 chars, include keyword)
+4. Choose a focus keyword/keyphrase for Yoast SEO
+5. Generate a short excerpt (1-2 sentences)
+6. Create a URL-friendly slug
+7. Suggest relevant categories and tags
+8. Call create_post with all fields — status defaults to "draft" so the user can review
+
+GENERAL WORKFLOW:
 1. Understand the user's command
 2. Fetch relevant data from WordPress
 3. Analyze the data
-4. Use propose_changes to present a table of changes for user review`;
+4. For content edits: use propose_changes
+5. For new posts: use create_post (draft by default)
+6. For direct actions: explain what you'll do, then execute`;
 
 const MAX_ITERATIONS = 20;
 
@@ -32,10 +60,10 @@ export async function POST(
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicApiKey();
   if (!apiKey) {
     return NextResponse.json(
-      { error: "AI not configured (ANTHROPIC_API_KEY missing)" },
+      { error: "AI not configured. Set the API key in Admin > AI Settings, or set the ANTHROPIC_API_KEY environment variable." },
       { status: 503 }
     );
   }
@@ -157,37 +185,123 @@ async function executeWPTool(
 ): Promise<unknown> {
   try {
     switch (toolName) {
+      // ─── Content (read) ─────────────────────────────────────────
       case "list_media":
         return await client.getMedia(input as { per_page?: number; page?: number; search?: string });
       case "get_media_item":
         return await client.getMediaItem(input.id as number);
-      case "update_media_alt":
-        // Don't execute — just acknowledge for proposal
-        return { noted: true, id: input.id, alt_text: input.alt_text };
       case "list_pages":
         return await client.getPages(input as { per_page?: number; page?: number; search?: string; status?: string });
       case "get_page":
         return await client.getPage(input.id as number);
-      case "update_page":
-        return { noted: true, ...input };
       case "list_posts":
         return await client.getPosts(input as { per_page?: number; page?: number; search?: string; status?: string });
       case "get_post":
         return await client.getPost(input.id as number);
-      case "update_post":
-        return { noted: true, ...input };
-      case "get_site_health":
-        return await client.getSiteHealth();
-      case "list_plugins":
-        return await client.getPlugins();
-      case "toggle_plugin":
-        return { noted: true, ...input };
       case "list_menus":
         return await client.getMenus();
       case "get_menu_items":
         return await client.getMenuItems(input.menu_id as number);
+
+      // ─── Content (write — proposal only) ────────────────────────
+      case "update_media_alt":
+        return { noted: true, id: input.id, alt_text: input.alt_text };
+      case "update_page":
+        return { noted: true, ...input };
+      case "update_post":
+        return { noted: true, ...input };
+      case "toggle_plugin":
+        return { noted: true, ...input };
       case "create_menu_item":
         return { noted: true, ...input };
+
+      // ─── Site Health & Diagnostics (read) ───────────────────────
+      case "get_site_health":
+        return await client.getSiteHealth();
+      case "list_plugins":
+        return await client.getPlugins();
+      case "list_themes":
+        return await client.getThemes();
+      case "get_debug_log":
+        return await client.getDebugLog(input.lines as number | undefined);
+      case "get_db_health":
+        return await client.getDbHealth();
+
+      // ─── Direct Actions (execute immediately) ───────────────────
+      case "update_plugin":
+        return await client.updatePlugin(input.plugin as string);
+      case "update_theme":
+        return await client.updateTheme(input.theme as string);
+      case "update_core":
+        return await client.updateCore();
+      case "clear_cache":
+        return await client.clearCache();
+      case "toggle_maintenance":
+        return await client.toggleMaintenance(input.enable as boolean);
+
+      // ─── WooCommerce (read) ─────────────────────────────────────
+      case "get_wc_orders":
+        return await client.getWcOrders(input as { per_page?: number; page?: number; status?: string });
+      case "get_wc_order":
+        return await client.getWcOrder(input.id as number);
+      case "get_wc_stats":
+        return await client.getWcStats();
+      case "list_wc_products":
+        return await client.getWcProducts(input as { per_page?: number; page?: number; search?: string; status?: string });
+      case "get_wc_product":
+        return await client.getWcProduct(input.id as number);
+      case "update_wc_product": {
+        const { product_id, ...productData } = input;
+        return await client.updateWcProduct(product_id as number, productData);
+      }
+      case "update_wc_order":
+        return await client.updateWcOrder(
+          input.order_id as number,
+          input.status as string,
+          input.note as string | undefined
+        );
+
+      // ─── Content Creation ─────────────────────────────────────────
+      case "create_post":
+        return await client.createPostWithSeo(input as {
+          title: string;
+          content: string;
+          status?: string;
+          excerpt?: string;
+          slug?: string;
+          categories?: string[];
+          tags?: string[];
+          featured_image_id?: number;
+          meta_description?: string;
+          focus_keyword?: string;
+          seo_title?: string;
+        });
+
+      // ─── User Management ────────────────────────────────────────
+      case "list_wp_users":
+        return await client.getWpUsers();
+      case "create_wp_user":
+        return await client.createWpUser(input as {
+          username: string;
+          email: string;
+          role?: string;
+          password?: string;
+          first_name?: string;
+          last_name?: string;
+        });
+      case "update_wp_user": {
+        const { user_id, ...userData } = input;
+        return await client.updateWpUser(user_id as number, userData);
+      }
+      case "delete_wp_user":
+        return await client.deleteWpUser(
+          input.user_id as number,
+          (input.reassign as number) || 1
+        );
+      case "send_password_reset":
+        return await client.sendPasswordReset(input.user_id as number);
+
+      // ─── Image Analysis (Claude Vision) ─────────────────────────
       case "analyze_image": {
         const anthropic = new Anthropic({ apiKey });
         const visionResponse = await anthropic.messages.create({
@@ -217,6 +331,8 @@ async function executeWPTool(
           suggested_alt_text: textBlock?.type === "text" ? textBlock.text : "",
         };
       }
+
+      // ─── Proposals ──────────────────────────────────────────────
       case "propose_changes":
         return {
           acknowledged: true,

@@ -291,3 +291,10 @@ See `.env.example` for the full template.
 - Phase 11: Admin Tools ✅ (broken link checker, SEO auditor, uptime monitor)
 - Phase 12: GA4 Analytics ✅ (sessions, users, pageviews, bounce rate, CTA events, top pages, traffic sources, 30-min caching, auto token refresh)
 - Phase 13: Webhook Enhancements ✅ (CORS, form-urlencoded, multi-language field detection, auto-detect by value pattern)
+
+## WordPress AI Dashboard
+
+The AI command system lets admins manage WordPress sites via natural language.
+Full capabilities reference: **`lib/wordpress/AI_CAPABILITIES.md`**
+
+**Rule:** When adding, removing, or changing any AI tool, endpoint, or capability, always update `lib/wordpress/AI_CAPABILITIES.md` to match. This file is the single source of truth for what the dashboard AI can and cannot do.

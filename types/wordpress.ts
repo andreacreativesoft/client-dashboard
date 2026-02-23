@@ -140,11 +140,14 @@ export interface DashboardAnalyticsData {
 
 // ─── Database Row Types ──────────────────────────────────────────────
 
+export type AnalysisMode = "online" | "local";
+
 export interface WPSiteConfig {
   id: string;
   website_id: string;
   local_path: string;
   deploy_method: "none" | "git" | "wp_migrate";
+  analysis_mode: AnalysisMode;
   created_at: string;
   updated_at: string;
 }
@@ -154,6 +157,7 @@ export interface WPAnalysis {
   website_id: string;
   client_id: string;
   status: "running" | "completed" | "failed";
+  analysis_mode: AnalysisMode;
   site_data: WPCrawlResult | Record<string, unknown>;
   recommendations: AIRecommendation[];
   scores: AnalysisScores | Record<string, unknown>;
@@ -173,8 +177,8 @@ export interface WordPressCredentials {
   id: string;
   integration_id: string;
   site_url: string;
-  username: string;
-  app_password: string;
+  username?: string;
+  app_password?: string;
   shared_secret: string;
   ssh_host?: string;
   ssh_user?: string;
@@ -208,9 +212,9 @@ export interface WordPressCredentialsEncrypted {
 export interface ConnectWordPressInput {
   website_id: string;
   site_url: string;
-  username: string;
-  app_password: string;
-  shared_secret?: string;
+  shared_secret: string;
+  username?: string;
+  app_password?: string;
   ssh_host?: string;
   ssh_user?: string;
   ssh_key?: string;

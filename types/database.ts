@@ -7,7 +7,7 @@ export type CheckType = "broken_links" | "seo_audit" | "uptime" | "security";
 export type CheckStatus = "running" | "completed" | "failed";
 export type WPAnalysisStatus = "running" | "completed" | "failed";
 export type WPDeployMethod = "none" | "git" | "wp_migrate";
-export type AppLanguage = "en" | "fr-BE";
+export type AppLanguage = "en" | "fr-BE" | "ro";
 export type TicketStatus = "open" | "in_progress" | "waiting_on_client" | "closed";
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 export type TicketCategory = "bug" | "feature_request" | "support" | "billing";
@@ -57,9 +57,6 @@ export type Website = {
   git_repo_url: string | null;
   asana_project_url: string | null;
   figma_url: string | null;
-  content_hash: string | null;
-  last_checked_at: string | null;
-  has_changes: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -194,6 +191,7 @@ export type WPSiteConfigRow = {
   id: string;
   website_id: string;
   local_path: string;
+  analysis_mode: "online" | "local";
   deploy_method: WPDeployMethod;
   created_at: string;
   updated_at: string;
@@ -321,6 +319,18 @@ export type WPActiveSessionRow = {
   created_at: string;
 };
 
+// Admin settings (platform-level key-value store)
+export type AdminSetting = {
+  id: string;
+  key: string;
+  value: string;
+  is_encrypted: boolean;
+  description: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // WordPress debug log types
 export type WPDebugLogLevel = "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
 
@@ -390,9 +400,6 @@ export type Database = {
           git_repo_url?: string | null;
           asana_project_url?: string | null;
           figma_url?: string | null;
-          content_hash?: string | null;
-          last_checked_at?: string | null;
-          has_changes?: boolean;
           is_active: boolean;
         };
         Update: Partial<Omit<Website, "id" | "created_at">>;
@@ -557,6 +564,16 @@ export type Database = {
           resource_id?: string | null;
         };
         Update: Partial<Omit<WPActiveSessionRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      admin_settings: {
+        Row: AdminSetting;
+        Insert: Omit<AdminSetting, "id" | "created_at" | "updated_at" | "description" | "updated_by" | "is_encrypted"> & {
+          description?: string | null;
+          updated_by?: string | null;
+          is_encrypted?: boolean;
+        };
+        Update: Partial<Omit<AdminSetting, "id" | "created_at">>;
         Relationships: [];
       };
     };

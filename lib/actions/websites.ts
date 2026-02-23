@@ -5,15 +5,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
+import { WPClient } from "@/lib/wordpress/wp-client";
 import type { Website } from "@/types/database";
 
 export type WebsiteFormData = {
   name: string;
   url: string;
   source_type: string;
-  git_repo_url?: string;
-  asana_project_url?: string;
-  figma_url?: string;
 };
 
 function generateApiKey(): string {
@@ -60,9 +58,6 @@ export async function createWebsiteAction(
       name: formData.name,
       url: formData.url,
       source_type: formData.source_type || "elementor",
-      git_repo_url: formData.git_repo_url || null,
-      asana_project_url: formData.asana_project_url || null,
-      figma_url: formData.figma_url || null,
       api_key: apiKey,
       webhook_secret: webhookSecret,
       is_active: true,
@@ -101,14 +96,44 @@ export async function updateWebsiteAction(
       name: formData.name,
       url: formData.url,
       source_type: formData.source_type,
-      git_repo_url: formData.git_repo_url || null,
-      asana_project_url: formData.asana_project_url || null,
-      figma_url: formData.figma_url || null,
     })
     .eq("id", id);
 
   if (error) {
     console.error("Error updating website:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (website) {
+    revalidatePath(`/admin/clients/${website.client_id}`);
+  }
+  revalidatePath("/admin/websites");
+  return { success: true };
+}
+
+export async function updateProjectLinkAction(
+  websiteId: string,
+  field: "git_repo_url" | "asana_project_url" | "figma_url",
+  value: string
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.success) return { success: false, error: auth.error };
+
+  const supabase = await createClient();
+
+  const { data: website } = await supabase
+    .from("websites")
+    .select("client_id")
+    .eq("id", websiteId)
+    .single<{ client_id: string }>();
+
+  const { error } = await supabase
+    .from("websites")
+    .update({ [field]: value || null })
+    .eq("id", websiteId);
+
+  if (error) {
+    console.error("Error updating project link:", error);
     return { success: false, error: error.message };
   }
 
@@ -190,28 +215,24 @@ export async function regenerateApiKeyAction(
     return { success: false, error: error.message };
   }
 
+  // Push updated key to WordPress if connected
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (appUrl) {
+    try {
+      const client = await WPClient.fromWebsiteId(id);
+      await client.pushWebhookConfig({
+        api_key: newApiKey,
+        dashboard_url: appUrl.replace(/\/+$/, ""),
+        webhook_url: `${appUrl.replace(/\/+$/, "")}/api/webhooks/lead?key=${newApiKey}`,
+        website_id: id,
+      });
+    } catch {
+      // Non-fatal — WordPress may not be connected
+    }
+  }
+
   revalidatePath("/admin/websites");
   return { success: true, apiKey: newApiKey };
 }
 
-export async function acknowledgeChangesAction(
-  id: string
-): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
 
-  const supabase = await createClient();
-
-  const { error } = await supabase
-    .from("websites")
-    .update({ has_changes: false })
-    .eq("id", id);
-
-  if (error) {
-    console.error("Error acknowledging changes:", error);
-    return { success: false, error: error.message };
-  }
-
-  revalidatePath("/admin/websites");
-  return { success: true };
-}

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
+import { useLanguage } from "@/lib/i18n/language-context";
 import type { GBPAnalyticsData } from "@/lib/actions/analytics";
 
 type Props = {
@@ -23,6 +24,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
     initialClientId || clientsWithGBP[0]?.clientId || ""
   );
   const [period, setPeriod] = useState<"7d" | "30d">("30d");
+  const { t } = useLanguage();
 
   // Sync with header client selector
   useEffect(() => {
@@ -78,9 +80,9 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
       <Card>
         <CardContent className="p-6">
           <div className="text-center">
-            <p className="text-lg font-medium">No Google Business Profile</p>
+            <p className="text-lg font-medium">{t("gbp.no_integrations")}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Connect Google Business Profile in a client&apos;s settings to see direction requests, calls, and website clicks.
+              {t("gbp.no_integrations_desc")}
             </p>
           </div>
         </CardContent>
@@ -101,7 +103,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
           )}
           {cached && (
             <Badge variant="secondary" className="text-xs">
-              Cached
+              {t("ga4.cached")}
             </Badge>
           )}
         </div>
@@ -116,7 +118,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              7 days
+              {t("ga4.7_days")}
             </button>
             <button
               onClick={() => setPeriod("30d")}
@@ -126,7 +128,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              30 days
+              {t("ga4.30_days")}
             </button>
           </div>
 
@@ -136,7 +138,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
             onClick={() => fetchData(true)}
             disabled={loading}
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? t("common.loading") : t("ga4.refresh")}
           </Button>
         </div>
       </div>
@@ -167,25 +169,25 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.directionRequests)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Direction Requests</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.direction_requests")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.callClicks)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Call Clicks</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.call_clicks")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.websiteClicks)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Website Clicks</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.website_clicks")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.totalInteractions)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Total Interactions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.total_interactions")}</p>
               </CardContent>
             </Card>
           </div>
@@ -195,19 +197,19 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.totalImpressions)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Total Impressions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.total_impressions")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.impressionsSearch)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Search Impressions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.search_impressions")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.totals.impressionsMaps)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Maps Impressions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gbp.maps_impressions")}</p>
               </CardContent>
             </Card>
           </div>
@@ -216,7 +218,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Daily Interactions ({period === "7d" ? "7 days" : "30 days"})
+                {t("gbp.daily_interactions")} ({period === "7d" ? t("ga4.7_days") : t("ga4.30_days")})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -249,11 +251,11 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
 
                   {/* Legend */}
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                    <span>Hover bars for breakdown</span>
+                    <span>{t("gbp.hover_breakdown")}</span>
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">No interaction data available</p>
+                <p className="text-sm text-muted-foreground">{t("gbp.no_interactions")}</p>
               )}
             </CardContent>
           </Card>
@@ -262,13 +264,13 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
             {/* Interaction breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Interaction Breakdown</CardTitle>
+                <CardTitle className="text-base">{t("gbp.interaction_breakdown")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {[
                     {
-                      label: "Direction Requests",
+                      label: t("gbp.direction_requests"),
                       count: data.totals.directionRequests,
                       icon: (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -278,7 +280,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                       ),
                     },
                     {
-                      label: "Call Clicks",
+                      label: t("gbp.call_clicks"),
                       count: data.totals.callClicks,
                       icon: (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -287,7 +289,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                       ),
                     },
                     {
-                      label: "Website Clicks",
+                      label: t("gbp.website_clicks"),
                       count: data.totals.websiteClicks,
                       icon: (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -324,10 +326,10 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  Search Keywords
+                  {t("gbp.search_keywords")}
                   {data.searchKeywords.length > 0 && (
                     <span className="ml-2 text-sm font-normal text-muted-foreground">
-                      (monthly)
+                      ({t("gbp.monthly")})
                     </span>
                   )}
                 </CardTitle>
@@ -335,7 +337,7 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
               <CardContent>
                 {data.searchKeywords.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No search keyword data available. Keywords may take time to appear.
+                    {t("gbp.no_keywords")}
                   </p>
                 ) : (
                   <div className="space-y-2">

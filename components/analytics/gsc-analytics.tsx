@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
+import { useLanguage } from "@/lib/i18n/language-context";
 import type { GSCAnalyticsData } from "@/lib/actions/analytics";
 
 type Props = {
@@ -23,6 +24,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
     initialClientId || clientsWithGSC[0]?.clientId || ""
   );
   const [period, setPeriod] = useState<"7d" | "30d">("30d");
+  const { t } = useLanguage();
 
   // Sync with header client selector
   useEffect(() => {
@@ -77,9 +79,9 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
       <Card>
         <CardContent className="p-6">
           <div className="text-center">
-            <p className="text-lg font-medium">No Google Search Console Integrations</p>
+            <p className="text-lg font-medium">{t("gsc.no_integrations")}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Connect Google Search Console in a client&apos;s settings to see organic search data here.
+              {t("gsc.no_integrations_desc")}
             </p>
           </div>
         </CardContent>
@@ -100,7 +102,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
           )}
           {cached && (
             <Badge variant="secondary" className="text-xs">
-              Cached
+              {t("ga4.cached")}
             </Badge>
           )}
         </div>
@@ -117,7 +119,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              7 days
+              {t("ga4.7_days")}
             </button>
             <button
               onClick={() => setPeriod("30d")}
@@ -127,7 +129,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              30 days
+              {t("ga4.30_days")}
             </button>
           </div>
 
@@ -138,7 +140,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             onClick={() => fetchData(true)}
             disabled={loading}
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? t("common.loading") : t("ga4.refresh")}
           </Button>
         </div>
       </div>
@@ -169,13 +171,13 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.overview.totalClicks)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Total Clicks</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gsc.total_clicks")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.overview.totalImpressions)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Total Impressions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gsc.total_impressions")}</p>
               </CardContent>
             </Card>
             <Card>
@@ -183,7 +185,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 <p className="text-2xl font-bold">
                   {(data.overview.averageCTR * 100).toFixed(1)}%
                 </p>
-                <p className="text-xs font-medium text-muted-foreground">Average CTR</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gsc.average_ctr")}</p>
               </CardContent>
             </Card>
             <Card>
@@ -191,7 +193,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 <p className="text-2xl font-bold">
                   {data.overview.averagePosition.toFixed(1)}
                 </p>
-                <p className="text-xs font-medium text-muted-foreground">Avg Position</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("gsc.avg_position")}</p>
               </CardContent>
             </Card>
           </div>
@@ -200,7 +202,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Organic Clicks ({period === "7d" ? "7 days" : "30 days"})
+                {t("gsc.organic_clicks")} ({period === "7d" ? t("ga4.7_days") : t("ga4.30_days")})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -228,7 +230,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">No search data available</p>
+                <p className="text-sm text-muted-foreground">{t("gsc.no_search_data")}</p>
               )}
             </CardContent>
           </Card>
@@ -238,7 +240,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  Top Keywords
+                  {t("gsc.top_keywords")}
                   {data.topQueries.length > 0 && (
                     <span className="ml-2 text-sm font-normal text-muted-foreground">
                       ({data.topQueries.length})
@@ -248,7 +250,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
               </CardHeader>
               <CardContent>
                 {data.topQueries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No keyword data available</p>
+                  <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
                 ) : (
                   <div className="space-y-2">
                     {data.topQueries.slice(0, 10).map((query, i) => (
@@ -280,11 +282,11 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             {/* Top Pages */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Top Pages</CardTitle>
+                <CardTitle className="text-base">{t("gsc.top_pages")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.topPages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No page data available</p>
+                  <p className="text-sm text-muted-foreground">{t("gsc.no_pages")}</p>
                 ) : (
                   <div className="space-y-2">
                     {data.topPages.slice(0, 8).map((page, i) => {
@@ -325,11 +327,11 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             {/* Device Breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Device Breakdown</CardTitle>
+                <CardTitle className="text-base">{t("gsc.device_breakdown")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.deviceBreakdown.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No device data available</p>
+                  <p className="text-sm text-muted-foreground">{t("gsc.no_devices")}</p>
                 ) : (
                   <div className="space-y-3">
                     {data.deviceBreakdown.map((device) => {
@@ -364,11 +366,11 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
             {/* Query Performance (detailed) */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Keyword Performance</CardTitle>
+                <CardTitle className="text-base">{t("gsc.keyword_performance")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.topQueries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No keyword data available</p>
+                  <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
                 ) : (
                   <div className="space-y-3">
                     {data.topQueries.slice(0, 8).map((query) => {

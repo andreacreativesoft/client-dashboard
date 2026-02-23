@@ -4,12 +4,14 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import { crawlWordPressSite } from "@/lib/wordpress/crawler";
+import { crawlWordPressSiteOnline } from "@/lib/wordpress/online-crawler";
 import { analyzeWithClaude } from "@/lib/wordpress/ai-analyzer";
 import type {
   WPSiteConfig,
   WPAnalysis,
   WPCrawlResult,
   AnalysisScores,
+  AnalysisMode,
   DashboardAnalyticsData,
 } from "@/types/wordpress";
 
@@ -72,14 +74,15 @@ export async function getWebsiteConfig(
 export async function saveWebsiteConfig(
   websiteId: string,
   localPath: string,
-  deployMethod: "none" | "git" | "wp_migrate" = "none"
+  deployMethod: "none" | "git" | "wp_migrate" = "none",
+  analysisMode: AnalysisMode = "online"
 ): Promise<ConfigResult> {
   const auth = await requireAdmin();
   if (!auth.success) return { success: false, error: auth.error };
 
-  // Validate path (basic check)
-  if (!localPath.trim()) {
-    return { success: false, error: "Local path is required" };
+  // Local path is only required for local mode
+  if (analysisMode === "local" && !localPath.trim()) {
+    return { success: false, error: "Local path is required for local mode" };
   }
 
   const supabase = createAdminClient();
@@ -91,14 +94,16 @@ export async function saveWebsiteConfig(
     .eq("website_id", websiteId)
     .maybeSingle();
 
+  const configData = {
+    local_path: localPath.trim() || "",
+    deploy_method: deployMethod,
+    analysis_mode: analysisMode,
+  };
+
   if (existing) {
-    // Update existing
     const { data, error } = await supabase
       .from("wp_site_configs")
-      .update({
-        local_path: localPath.trim(),
-        deploy_method: deployMethod,
-      })
+      .update(configData)
       .eq("website_id", websiteId)
       .select()
       .single();
@@ -111,13 +116,11 @@ export async function saveWebsiteConfig(
     revalidatePath(`/admin/websites/${websiteId}`);
     return { success: true, config: data as WPSiteConfig };
   } else {
-    // Create new
     const { data, error } = await supabase
       .from("wp_site_configs")
       .insert({
         website_id: websiteId,
-        local_path: localPath.trim(),
-        deploy_method: deployMethod,
+        ...configData,
       })
       .select()
       .single();
@@ -429,23 +432,28 @@ export async function analyzeWebsite(
 
   const { data: config } = await supabase
     .from("wp_site_configs")
-    .select("local_path")
+    .select("local_path, analysis_mode")
     .eq("website_id", websiteId)
-    .single();
+    .maybeSingle();
 
-  if (!config?.local_path) {
-    return {
-      success: false,
-      error: "WordPress local path not configured. Please set the local path first.",
-    };
-  }
+  // Determine mode — default to online if no config exists
+  const mode: AnalysisMode = (config?.analysis_mode as AnalysisMode) || "online";
 
-  // Detect Vercel/serverless environment — local file access is not available
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    return {
-      success: false,
-      error: "AI Analysis requires access to the local WordPress filesystem. Please run this from your local development server (localhost:3000), not from the deployed Vercel instance.",
-    };
+  // Validate requirements per mode
+  if (mode === "local") {
+    if (!config?.local_path) {
+      return {
+        success: false,
+        error: "WordPress local path not configured. Please set the local path first.",
+      };
+    }
+
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      return {
+        success: false,
+        error: "Local mode requires access to the WordPress filesystem. Please run from your local development server (localhost:3000), or switch to Online mode.",
+      };
+    }
   }
 
   // 2. Create analysis record (status: running)
@@ -455,6 +463,7 @@ export async function analyzeWebsite(
       website_id: websiteId,
       client_id: website.client_id,
       status: "running",
+      analysis_mode: mode,
       started_at: new Date().toISOString(),
     })
     .select("id")
@@ -467,9 +476,15 @@ export async function analyzeWebsite(
 
   const analysisId = analysis.id as string;
 
-  // 3. Run the full analysis pipeline (awaited — server action stays alive)
-  // The pipeline checks for cancellation at key checkpoints.
-  await runAnalysisPipeline(analysisId, websiteId, website.client_id, config.local_path);
+  // 3. Run the full analysis pipeline
+  await runAnalysisPipeline(
+    analysisId,
+    websiteId,
+    website.client_id,
+    mode,
+    website.url,
+    config?.local_path || ""
+  );
 
   return {
     success: true,
@@ -504,6 +519,8 @@ async function runAnalysisPipeline(
   analysisId: string,
   websiteId: string,
   clientId: string,
+  mode: AnalysisMode,
+  siteUrl: string,
   localPath: string
 ): Promise<void> {
   const supabase = createAdminClient();
@@ -516,8 +533,13 @@ async function runAnalysisPipeline(
   try {
     await Promise.race([
       (async () => {
-        // Step 1: Crawl WordPress site
-        const crawlData: WPCrawlResult = await crawlWordPressSite(localPath);
+        // Step 1: Crawl WordPress site — online or local
+        let crawlData: WPCrawlResult;
+        if (mode === "online") {
+          crawlData = await crawlWordPressSiteOnline(websiteId, siteUrl);
+        } else {
+          crawlData = await crawlWordPressSite(localPath);
+        }
 
         // Check if user cancelled between steps
         await checkCancelled(analysisId);

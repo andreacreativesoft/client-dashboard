@@ -139,6 +139,21 @@ export async function POST(
           });
           break;
 
+        case "plugin":
+          if (change.field === "status") {
+            await client.togglePlugin(
+              change.resource_id,
+              change.proposed_value === "active"
+            );
+          }
+          break;
+
+        case "user":
+          await client.updateWpUser(resourceId, {
+            [change.field]: change.proposed_value,
+          });
+          break;
+
         default:
           throw new Error(`Unsupported resource type: ${change.resource_type}`);
       }

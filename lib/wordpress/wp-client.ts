@@ -1,6 +1,7 @@
 /**
- * WordPress REST API client — class-based with shared secret support.
- * Authenticates via Application Password + X-Dashboard-Secret header.
+ * WordPress REST API client — class-based with shared secret auth.
+ * Authenticates via X-Dashboard-Secret header only.
+ * Application Password (Basic Auth) is optional for backwards compatibility.
  */
 
 import { createClient } from "@/lib/supabase/server";
@@ -19,15 +20,18 @@ import type {
 
 export class WPClient {
   private siteUrl: string;
-  private authHeader: string;
+  private authHeader: string | null;
   private secretHeader: string;
   private integrationId: string;
 
   constructor(credentials: WordPressCredentials) {
     this.siteUrl = credentials.site_url.replace(/\/+$/, "");
+    // Basic Auth is optional — only set if username + app_password provided (legacy)
     this.authHeader =
-      "Basic " +
-      Buffer.from(`${credentials.username}:${credentials.app_password}`).toString("base64");
+      credentials.username && credentials.app_password
+        ? "Basic " +
+          Buffer.from(`${credentials.username}:${credentials.app_password}`).toString("base64")
+        : null;
     this.secretHeader = credentials.shared_secret;
     this.integrationId = credentials.integration_id;
   }
@@ -103,10 +107,13 @@ export class WPClient {
     }
 
     const headers: Record<string, string> = {
-      Authorization: this.authHeader,
       "Content-Type": "application/json",
       "X-Dashboard-Secret": this.secretHeader,
     };
+
+    if (this.authHeader) {
+      headers["Authorization"] = this.authHeader;
+    }
 
     if (confirmAction) {
       headers["X-Dashboard-Action"] = "confirm";
@@ -134,10 +141,15 @@ export class WPClient {
 
   async testConnection(): Promise<{ success: boolean; user?: WPUser; error?: string }> {
     try {
-      const user = await this.request<WPUser>("/users/me", {
-        params: { context: "edit" },
-      });
-      return { success: true, user };
+      // Test via mu-plugin endpoint (secret-only, no Application Password needed)
+      const health = await this.request<SiteHealthData & { connector_version?: string }>(
+        "/site-health",
+        { isCustomEndpoint: true }
+      );
+      if (health) {
+        return { success: true };
+      }
+      return { success: false, error: "No response from site-health endpoint" };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -154,6 +166,26 @@ export class WPClient {
       return { installed: true, version: health.connector_version };
     } catch {
       return { installed: false };
+    }
+  }
+
+  // ─── Push Webhook Config ─────────────────────────────────────────
+
+  async pushWebhookConfig(config: {
+    api_key: string;
+    dashboard_url: string;
+    webhook_url: string;
+    website_id: string;
+  }): Promise<{ success: boolean }> {
+    try {
+      return await this.request("/webhook-config", {
+        isCustomEndpoint: true,
+        method: "POST",
+        body: config,
+      });
+    } catch {
+      // Non-fatal — older mu-plugin versions won't have this endpoint
+      return { success: false };
     }
   }
 
@@ -212,6 +244,270 @@ export class WPClient {
       isCustomEndpoint: true,
       method: "POST",
       body: { enable },
+      confirmAction: true,
+    });
+  }
+
+  async getDbHealth(): Promise<{
+    revisions: number;
+    transients: number;
+    expired_transients: number;
+    autoload_kb: number;
+    spam_comments: number;
+    db_size_mb: string;
+    total_posts: number;
+    total_pages: number;
+  }> {
+    return this.request("/db-health", { isCustomEndpoint: true });
+  }
+
+  // ─── Plugin/Theme/Core Updates (mu-plugin required) ──────────────
+
+  async updatePlugin(plugin: string): Promise<{
+    success: boolean;
+    plugin: string;
+    old_version: string;
+    new_version: string;
+  }> {
+    return this.request("/plugins/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { plugin },
+      confirmAction: true,
+    });
+  }
+
+  async getThemes(): Promise<Array<{
+    slug: string;
+    name: string;
+    version: string;
+    active: boolean;
+    is_child_theme: boolean;
+    parent_theme: string | null;
+    author: string;
+    update_available: boolean;
+    update_version: string | null;
+  }>> {
+    return this.request("/themes", { isCustomEndpoint: true });
+  }
+
+  async updateTheme(theme: string): Promise<{
+    success: boolean;
+    theme: string;
+    old_version: string;
+    new_version: string;
+  }> {
+    return this.request("/themes/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { theme },
+      confirmAction: true,
+    });
+  }
+
+  async updateCore(): Promise<{
+    success: boolean;
+    old_version?: string;
+    new_version?: string;
+    message?: string;
+  }> {
+    return this.request("/core/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: {},
+      confirmAction: true,
+    });
+  }
+
+  // ─── WooCommerce (mu-plugin required) ───────────────────────────
+
+  async getWcOrders(params?: {
+    per_page?: number;
+    page?: number;
+    status?: string;
+  }): Promise<{
+    orders: Array<{
+      id: number;
+      status: string;
+      total: string;
+      currency: string;
+      date_created: string | null;
+      customer_name: string;
+      customer_email: string;
+      payment_method: string;
+      items: Array<{ name: string; quantity: number; total: string }>;
+      items_count: number;
+    }>;
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    return this.request("/woocommerce/orders", {
+      isCustomEndpoint: true,
+      params: {
+        per_page: String(params?.per_page || 10),
+        page: String(params?.page || 1),
+        ...(params?.status && { status: params.status }),
+      },
+    });
+  }
+
+  async getWcOrder(id: number): Promise<Record<string, unknown>> {
+    return this.request(`/woocommerce/order/${id}`, { isCustomEndpoint: true });
+  }
+
+  async getWcProducts(params?: {
+    per_page?: number;
+    page?: number;
+    search?: string;
+    status?: string;
+  }): Promise<{
+    products: Array<{
+      id: number;
+      name: string;
+      slug: string;
+      type: string;
+      status: string;
+      sku: string;
+      price: string;
+      regular_price: string;
+      sale_price: string;
+      stock_status: string;
+      stock_quantity: number | null;
+      image_url: string | null;
+      categories: string[];
+    }>;
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    return this.request("/woocommerce/products", {
+      isCustomEndpoint: true,
+      params: {
+        per_page: String(params?.per_page || 20),
+        page: String(params?.page || 1),
+        ...(params?.search && { search: params.search }),
+        ...(params?.status && { status: params.status }),
+      },
+    });
+  }
+
+  async getWcProduct(id: number): Promise<Record<string, unknown>> {
+    return this.request(`/woocommerce/product/${id}`, { isCustomEndpoint: true });
+  }
+
+  async updateWcProduct(
+    productId: number,
+    data: Record<string, unknown>
+  ): Promise<{ success: boolean; product_id: number; updated: string[] }> {
+    return this.request("/woocommerce/product/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { product_id: productId, ...data },
+      confirmAction: true,
+    });
+  }
+
+  async updateWcOrder(
+    orderId: number,
+    status: string,
+    note?: string
+  ): Promise<{ success: boolean; order_id: number; old_status: string; new_status: string }> {
+    return this.request("/woocommerce/order/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { order_id: orderId, status, ...(note && { note }) },
+      confirmAction: true,
+    });
+  }
+
+  async getWcStats(): Promise<{
+    today_orders: number;
+    today_revenue: number;
+    month_orders: number;
+    month_revenue: number;
+    currency: string;
+    orders_by_status: Record<string, number>;
+    low_stock: Array<{ id: number; name: string; stock: number; sku: string }>;
+    total_products: number;
+  }> {
+    return this.request("/woocommerce/stats", { isCustomEndpoint: true });
+  }
+
+  // ─── User Management (mu-plugin required) ───────────────────────
+
+  async getWpUsers(): Promise<Array<{
+    id: number;
+    username: string;
+    email: string;
+    display_name: string;
+    first_name: string;
+    last_name: string;
+    role: string;
+    registered: string;
+    last_login: string | null;
+  }>> {
+    return this.request("/users", { isCustomEndpoint: true });
+  }
+
+  async createWpUser(data: {
+    username: string;
+    email: string;
+    role?: string;
+    password?: string;
+    first_name?: string;
+    last_name?: string;
+  }): Promise<{
+    success: boolean;
+    user_id: number;
+    username: string;
+    email: string;
+    role: string;
+  }> {
+    return this.request("/users/create", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: data as Record<string, unknown>,
+      confirmAction: true,
+    });
+  }
+
+  async updateWpUser(
+    userId: number,
+    data: Record<string, unknown>
+  ): Promise<{ success: boolean; user_id: number }> {
+    return this.request("/users/update", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId, ...data },
+      confirmAction: true,
+    });
+  }
+
+  async deleteWpUser(
+    userId: number,
+    reassign: number = 1
+  ): Promise<{ success: boolean; user_id: number; reassigned_to: number }> {
+    return this.request("/users/delete", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId, reassign },
+      confirmAction: true,
+    });
+  }
+
+  async sendPasswordReset(userId: number): Promise<{
+    success: boolean;
+    user_id: number;
+    email: string;
+    message: string;
+  }> {
+    return this.request("/users/password-reset", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { user_id: userId },
       confirmAction: true,
     });
   }
@@ -297,6 +593,34 @@ export class WPClient {
     });
   }
 
+  async createPostWithSeo(data: {
+    title: string;
+    content: string;
+    status?: string;
+    excerpt?: string;
+    slug?: string;
+    categories?: string[];
+    tags?: string[];
+    featured_image_id?: number;
+    meta_description?: string;
+    focus_keyword?: string;
+    seo_title?: string;
+  }): Promise<{
+    success: boolean;
+    post_id: number;
+    title: string;
+    status: string;
+    url: string;
+    edit_url: string;
+  }> {
+    return this.request("/posts/create", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: data as Record<string, unknown>,
+      confirmAction: true,
+    });
+  }
+
   async getMenus(): Promise<unknown[]> {
     return this.request("/menus", { params: { context: "edit" } });
   }
@@ -337,8 +661,8 @@ export class WPClient {
 // ─── Encryption Helpers ──────────────────────────────────────────────
 
 export function encryptCredentials(creds: {
-  username: string;
-  app_password: string;
+  username?: string;
+  app_password?: string;
   shared_secret: string;
   ssh_host?: string;
   ssh_user?: string;
@@ -352,8 +676,8 @@ export function encryptCredentials(creds: {
   ssh_key_encrypted?: string;
 } {
   return {
-    username_encrypted: encryptToken(creds.username),
-    app_password_encrypted: encryptToken(creds.app_password),
+    username_encrypted: encryptToken(creds.username || ""),
+    app_password_encrypted: encryptToken(creds.app_password || ""),
     shared_secret_encrypted: encryptToken(creds.shared_secret),
     ...(creds.ssh_host && { ssh_host_encrypted: encryptToken(creds.ssh_host) }),
     ...(creds.ssh_user && { ssh_user_encrypted: encryptToken(creds.ssh_user) }),
@@ -368,8 +692,8 @@ export function decryptCredentials(
     id: creds.id,
     integration_id: creds.integration_id,
     site_url: creds.site_url,
-    username: decryptToken(creds.username_encrypted),
-    app_password: decryptToken(creds.app_password_encrypted),
+    username: creds.username_encrypted ? decryptToken(creds.username_encrypted) : undefined,
+    app_password: creds.app_password_encrypted ? decryptToken(creds.app_password_encrypted) : undefined,
     shared_secret: decryptToken(creds.shared_secret_encrypted),
     ...(creds.ssh_host_encrypted && { ssh_host: decryptToken(creds.ssh_host_encrypted) }),
     ...(creds.ssh_user_encrypted && { ssh_user: decryptToken(creds.ssh_user_encrypted) }),

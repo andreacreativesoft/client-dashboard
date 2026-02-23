@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { setImpersonatedClientId, getImpersonatedClientId } from "@/lib/impersonate";
+import { setSelectedClientId } from "@/lib/selected-client";
 
 export async function startImpersonation(clientId: string) {
   const supabase = await createClient();
@@ -32,6 +33,8 @@ export async function startImpersonation(clientId: string) {
     return { success: false, error: "Client not found" };
   }
 
+  // Clear any stale selected-client cookie so impersonation takes clean effect
+  await setSelectedClientId(null);
   await setImpersonatedClientId(clientId);
   revalidatePath("/", "layout");
 

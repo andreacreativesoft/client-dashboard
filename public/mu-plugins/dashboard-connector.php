@@ -1784,15 +1784,13 @@ class Dashboard_Connector {
     public function enqueue_admin_assets($hook) {
         if ($hook !== 'settings_page_dashboard-connector') return;
 
-        wp_enqueue_style(
-            'dashboard-connector-admin',
-            false // inline only
-        );
-
-        // Inline CSS for the admin page
+        // Register with empty source so wp_add_inline_style has a valid handle
+        wp_register_style('dashboard-connector-admin', false);
+        wp_enqueue_style('dashboard-connector-admin');
         wp_add_inline_style('dashboard-connector-admin', $this->get_admin_css());
 
-        // Clipboard JS
+        // Clipboard + interaction JS
+        wp_enqueue_script('jquery');
         wp_add_inline_script('jquery', $this->get_admin_js());
     }
 

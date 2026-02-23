@@ -17,8 +17,7 @@ interface WPConnectFormProps {
 export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps) {
   const router = useRouter();
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
-  const [username, setUsername] = useState("");
-  const [appPassword, setAppPassword] = useState("");
+  const [sharedSecret, setSharedSecret] = useState("");
   const [sshHost, setSshHost] = useState("");
   const [sshUser, setSshUser] = useState("");
   const [sshPort, setSshPort] = useState("22");
@@ -34,8 +33,7 @@ export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps
       const result = await connectWordPress({
         website_id: websiteId,
         site_url: url,
-        username,
-        app_password: appPassword,
+        shared_secret: sharedSecret,
         ssh_host: sshHost || undefined,
         ssh_user: sshUser || undefined,
         ssh_port: sshPort ? parseInt(sshPort, 10) : undefined,
@@ -58,9 +56,6 @@ export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium">Connect WordPress</p>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px]">
-            Requires Application Password
-          </Badge>
           <Badge variant="outline" className="text-[10px]">
             Requires mu-plugin
           </Badge>
@@ -92,34 +87,20 @@ export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="wp_username" className="text-xs">
-          WordPress Username
+        <Label htmlFor="wp_secret" className="text-xs">
+          Shared Secret
         </Label>
         <Input
-          id="wp_username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          placeholder="admin"
-          className="h-8 text-xs"
-        />
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="wp_app_password" className="text-xs">
-          Application Password
-        </Label>
-        <Input
-          id="wp_app_password"
+          id="wp_secret"
           type="password"
-          value={appPassword}
-          onChange={(e) => setAppPassword(e.target.value)}
+          value={sharedSecret}
+          onChange={(e) => setSharedSecret(e.target.value)}
           required
-          placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+          placeholder="From WP Settings → Dashboard Connector"
           className="h-8 text-xs"
         />
         <p className="text-[10px] text-muted-foreground">
-          WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords
+          WordPress Admin &rarr; Settings &rarr; Dashboard Connector
         </p>
       </div>
 
@@ -185,10 +166,10 @@ export function WPConnectForm({ websiteId, siteUrl, onDone }: WPConnectFormProps
         <Button
           type="submit"
           size="sm"
-          disabled={isPending || !url || !username || !appPassword}
+          disabled={isPending || !url || !sharedSecret}
           className="h-7 text-xs"
         >
-          {isPending ? "Connecting..." : "Connect & Save"}
+          {isPending ? "Connecting..." : "Connect"}
         </Button>
         <Button
           type="button"

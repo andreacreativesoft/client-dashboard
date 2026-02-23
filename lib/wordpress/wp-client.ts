@@ -1,6 +1,7 @@
 /**
- * WordPress REST API client — class-based with shared secret support.
- * Authenticates via Application Password + X-Dashboard-Secret header.
+ * WordPress REST API client — class-based with shared secret auth.
+ * Authenticates via X-Dashboard-Secret header only.
+ * Application Password (Basic Auth) is optional for backwards compatibility.
  */
 
 import { createClient } from "@/lib/supabase/server";
@@ -19,15 +20,18 @@ import type {
 
 export class WPClient {
   private siteUrl: string;
-  private authHeader: string;
+  private authHeader: string | null;
   private secretHeader: string;
   private integrationId: string;
 
   constructor(credentials: WordPressCredentials) {
     this.siteUrl = credentials.site_url.replace(/\/+$/, "");
+    // Basic Auth is optional — only set if username + app_password provided (legacy)
     this.authHeader =
-      "Basic " +
-      Buffer.from(`${credentials.username}:${credentials.app_password}`).toString("base64");
+      credentials.username && credentials.app_password
+        ? "Basic " +
+          Buffer.from(`${credentials.username}:${credentials.app_password}`).toString("base64")
+        : null;
     this.secretHeader = credentials.shared_secret;
     this.integrationId = credentials.integration_id;
   }
@@ -103,10 +107,13 @@ export class WPClient {
     }
 
     const headers: Record<string, string> = {
-      Authorization: this.authHeader,
       "Content-Type": "application/json",
       "X-Dashboard-Secret": this.secretHeader,
     };
+
+    if (this.authHeader) {
+      headers["Authorization"] = this.authHeader;
+    }
 
     if (confirmAction) {
       headers["X-Dashboard-Action"] = "confirm";
@@ -134,10 +141,15 @@ export class WPClient {
 
   async testConnection(): Promise<{ success: boolean; user?: WPUser; error?: string }> {
     try {
-      const user = await this.request<WPUser>("/users/me", {
-        params: { context: "edit" },
-      });
-      return { success: true, user };
+      // Test via mu-plugin endpoint (secret-only, no Application Password needed)
+      const health = await this.request<SiteHealthData & { connector_version?: string }>(
+        "/site-health",
+        { isCustomEndpoint: true }
+      );
+      if (health) {
+        return { success: true };
+      }
+      return { success: false, error: "No response from site-health endpoint" };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -649,8 +661,8 @@ export class WPClient {
 // ─── Encryption Helpers ──────────────────────────────────────────────
 
 export function encryptCredentials(creds: {
-  username: string;
-  app_password: string;
+  username?: string;
+  app_password?: string;
   shared_secret: string;
   ssh_host?: string;
   ssh_user?: string;
@@ -664,8 +676,8 @@ export function encryptCredentials(creds: {
   ssh_key_encrypted?: string;
 } {
   return {
-    username_encrypted: encryptToken(creds.username),
-    app_password_encrypted: encryptToken(creds.app_password),
+    username_encrypted: encryptToken(creds.username || ""),
+    app_password_encrypted: encryptToken(creds.app_password || ""),
     shared_secret_encrypted: encryptToken(creds.shared_secret),
     ...(creds.ssh_host && { ssh_host_encrypted: encryptToken(creds.ssh_host) }),
     ...(creds.ssh_user && { ssh_user_encrypted: encryptToken(creds.ssh_user) }),
@@ -680,8 +692,8 @@ export function decryptCredentials(
     id: creds.id,
     integration_id: creds.integration_id,
     site_url: creds.site_url,
-    username: decryptToken(creds.username_encrypted),
-    app_password: decryptToken(creds.app_password_encrypted),
+    username: creds.username_encrypted ? decryptToken(creds.username_encrypted) : undefined,
+    app_password: creds.app_password_encrypted ? decryptToken(creds.app_password_encrypted) : undefined,
     shared_secret: decryptToken(creds.shared_secret_encrypted),
     ...(creds.ssh_host_encrypted && { ssh_host: decryptToken(creds.ssh_host_encrypted) }),
     ...(creds.ssh_user_encrypted && { ssh_user: decryptToken(creds.ssh_user_encrypted) }),

@@ -19,7 +19,6 @@ import {
 interface ConnectedProps {
   websiteId: string;
   siteUrl: string;
-  username: string;
   muPluginInstalled: boolean;
   muPluginVersion?: string;
   lastHealthCheck?: string;
@@ -29,7 +28,6 @@ interface ConnectedProps {
 function ConnectedState({
   websiteId,
   siteUrl,
-  username,
   muPluginInstalled,
   muPluginVersion,
   lastHealthCheck,
@@ -49,7 +47,7 @@ function ConnectedState({
     startTransition(async () => {
       const result = await testExistingConnection(websiteId);
       if (result.success) {
-        setTestResult({ type: "success", message: `Connected as: ${result.userName}` });
+        setTestResult({ type: "success", message: "Connection OK" });
       } else {
         setTestResult({ type: "error", message: result.error || "Connection failed" });
       }
@@ -85,10 +83,6 @@ function ConnectedState({
             <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
               {siteUrl}
             </a>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Username</span>
-            <span>{username}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">mu-plugin</span>
@@ -208,15 +202,13 @@ interface ConnectFormProps {
 function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
   const router = useRouter();
   const [url, setUrl] = useState(siteUrl.replace(/\/+$/, ""));
-  const [username, setUsername] = useState("");
-  const [appPassword, setAppPassword] = useState("");
+  const [sharedSecret, setSharedSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // Success state
   const [connectResult, setConnectResult] = useState<{
     mu_plugin_installed: boolean;
-    wp_user?: string;
   } | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
@@ -227,14 +219,12 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
       const result = await connectWordPress({
         website_id: websiteId,
         site_url: url,
-        username,
-        app_password: appPassword,
+        shared_secret: sharedSecret,
       });
 
       if (result.success) {
         setConnectResult({
           mu_plugin_installed: result.mu_plugin_installed!,
-          wp_user: result.wp_user,
         });
       } else {
         setError(result.error || "Failed to connect");
@@ -254,17 +244,8 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm">
-            Connected as <strong>{connectResult.wp_user || username}</strong>.
+            Connected to <strong>{url}</strong> via shared secret.
           </p>
-
-          <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-700 dark:bg-green-950">
-            <p className="text-sm font-medium text-green-900 dark:text-green-200">
-              Shared secret registered automatically.
-            </p>
-            <p className="mt-1 text-xs text-green-800 dark:text-green-300">
-              The mu-plugin stores it in the WordPress database — no manual configuration needed.
-            </p>
-          </div>
 
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">mu-plugin:</span>
@@ -278,7 +259,7 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
           {!connectResult.mu_plugin_installed && (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
-                The mu-plugin is required for debug logs, site health, and advanced features.
+                The mu-plugin is required for all features. Upload it first, then reconnect.
               </p>
               <a
                 href="/mu-plugins/dashboard-connector.php"
@@ -307,7 +288,7 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Connect WordPress</CardTitle>
           <Badge variant="outline" className="text-xs">
-            Requires Application Password
+            Requires mu-plugin
           </Badge>
         </div>
       </CardHeader>
@@ -325,28 +306,17 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="wp_user">WordPress Username</Label>
+            <Label htmlFor="wp_secret">Shared Secret</Label>
             <Input
-              id="wp_user"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              placeholder="admin"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="wp_pass">Application Password</Label>
-            <Input
-              id="wp_pass"
+              id="wp_secret"
               type="password"
-              value={appPassword}
-              onChange={(e) => setAppPassword(e.target.value)}
+              value={sharedSecret}
+              onChange={(e) => setSharedSecret(e.target.value)}
               required
-              placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+              placeholder="Paste the secret from WordPress Settings → Dashboard Connector"
             />
             <p className="text-xs text-muted-foreground">
-              WordPress Admin &rarr; Users &rarr; Profile &rarr; Application Passwords
+              WordPress Admin &rarr; Settings &rarr; Dashboard Connector &rarr; copy the Shared Secret
             </p>
           </div>
 
@@ -354,9 +324,9 @@ function ConnectForm({ websiteId, siteUrl }: ConnectFormProps) {
 
           <Button
             type="submit"
-            disabled={isPending || !url || !username || !appPassword}
+            disabled={isPending || !url || !sharedSecret}
           >
-            {isPending ? "Connecting..." : "Connect & Save"}
+            {isPending ? "Connecting..." : "Connect"}
           </Button>
         </form>
       </CardContent>
@@ -391,7 +361,6 @@ export function ConnectWordPressForm({
       <ConnectedState
         websiteId={websiteId}
         siteUrl={status.site_url || siteUrl}
-        username={status.username || ""}
         muPluginInstalled={status.mu_plugin_installed || false}
         muPluginVersion={status.mu_plugin_version}
         lastHealthCheck={status.last_health_check}

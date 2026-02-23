@@ -2,16 +2,16 @@
 /**
  * Plugin Name: Andrea Creative Dashboard Connector
  * Description: REST API endpoints for Andrea Creative Client Dashboard
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: Andrea Creative
  *
  * Drop this file into wp-content/mu-plugins/
- * The shared secret is registered automatically by the dashboard during connection.
+ * A shared secret is auto-generated on install. No Application Password needed.
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.2.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.3.0');
 
 class Dashboard_Connector {
 
@@ -23,6 +23,56 @@ class Dashboard_Connector {
         add_action('rest_api_init', [$this, 'register_routes']);
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+
+        // Auto-generate shared secret on first load
+        $this->ensure_secret();
+
+        // Authenticate standard WP REST API requests (/wp/v2/*) via shared secret
+        // so no Application Password is needed
+        add_filter('determine_current_user', [$this, 'authenticate_via_secret'], 20);
+    }
+
+    /**
+     * Auto-generate shared secret if none exists.
+     */
+    private function ensure_secret() {
+        $secret = get_option('dashboard_shared_secret', '');
+        if (empty($secret)) {
+            $secret = bin2hex(random_bytes(32));
+            update_option('dashboard_shared_secret', $secret, true);
+        }
+    }
+
+    /**
+     * Authenticate WP REST API requests via X-Dashboard-Secret header.
+     * This allows the dashboard to call standard /wp/v2/* endpoints
+     * without needing an Application Password.
+     */
+    public function authenticate_via_secret($user_id) {
+        // Don't override if already authenticated
+        if ($user_id) return $user_id;
+
+        // Only act on REST API requests
+        if (!defined('REST_REQUEST') || !REST_REQUEST) return $user_id;
+
+        $secret = isset($_SERVER['HTTP_X_DASHBOARD_SECRET'])
+            ? $_SERVER['HTTP_X_DASHBOARD_SECRET']
+            : '';
+
+        if (empty($secret)) return $user_id;
+
+        $expected = $this->get_expected_secret();
+        if (empty($expected)) return $user_id;
+
+        if (!hash_equals($expected, $secret)) return $user_id;
+
+        // Valid secret — authenticate as the first administrator
+        $admins = get_users(['role' => 'administrator', 'number' => 1, 'orderby' => 'ID', 'order' => 'ASC']);
+        if (!empty($admins)) {
+            return $admins[0]->ID;
+        }
+
+        return $user_id;
     }
 
     // ═══════════════════════════════════════════
@@ -346,24 +396,20 @@ class Dashboard_Connector {
         return '';
     }
 
+    /**
+     * Permission check for custom endpoints — shared secret only.
+     * No Application Password or WordPress user login required.
+     */
     public function check_permissions(WP_REST_Request $request) {
-        if (!is_user_logged_in()) {
-            return new WP_Error('rest_not_logged_in', 'Authentication required.', ['status' => 401]);
-        }
-
-        if (!current_user_can('manage_options')) {
-            return new WP_Error('rest_forbidden', 'Administrator access required.', ['status' => 403]);
-        }
-
         $secret = $request->get_header('X-Dashboard-Secret');
         $expected = $this->get_expected_secret();
 
         if (empty($expected)) {
-            return new WP_Error('rest_config_error', 'Dashboard shared secret not registered. Reconnect from the dashboard.', ['status' => 500]);
+            return new WP_Error('rest_config_error', 'Shared secret not configured. Check Settings > Dashboard Connector.', ['status' => 500]);
         }
 
-        if (!hash_equals($expected, (string) $secret)) {
-            return new WP_Error('rest_forbidden', 'Invalid dashboard secret.', ['status' => 403]);
+        if (empty($secret) || !hash_equals($expected, (string) $secret)) {
+            return new WP_Error('rest_forbidden', 'Invalid or missing dashboard secret.', ['status' => 403]);
         }
 
         $rate_check = $this->check_rate_limit();
@@ -1770,21 +1816,24 @@ class Dashboard_Connector {
                 <span class="dc-version">v<?php echo esc_html(DASHBOARD_CONNECTOR_VERSION); ?></span>
             </h1>
 
+            <!-- Shared Secret -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Shared Secret</h2>
+                <p class="dc-description">Copy this secret into the Dashboard when connecting this website. No Application Password needed.</p>
+
+                <div class="dc-key-box">
+                    <code id="dc-shared-secret"><?php echo esc_html($secret); ?></code>
+                    <button type="button" class="button dc-copy-btn" data-target="dc-shared-secret" title="Copy shared secret">
+                        <span class="dashicons dashicons-clipboard"></span> Copy
+                    </button>
+                </div>
+                <p class="dc-hint">This secret was auto-generated when the plugin was installed. It authenticates the Dashboard connection.</p>
+            </div>
+
             <!-- Connection Status -->
             <div class="dc-card">
                 <h2 class="dc-card-title">Connection Status</h2>
                 <table class="dc-table">
-                    <tr>
-                        <td class="dc-label">Shared Secret</td>
-                        <td>
-                            <?php if ($has_secret): ?>
-                                <span class="dc-badge dc-badge-ok">Registered</span>
-                            <?php else: ?>
-                                <span class="dc-badge dc-badge-warn">Not registered</span>
-                                <p class="dc-hint">Connect this site from the Dashboard to register the secret automatically.</p>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
                     <?php if ($dashboard_url): ?>
                     <tr>
                         <td class="dc-label">Dashboard URL</td>
@@ -1910,16 +1959,16 @@ class Dashboard_Connector {
             </div>
 
             <?php else: ?>
-            <!-- Not connected at all -->
+            <!-- Not connected yet -->
             <div class="dc-card dc-card-empty">
-                <span class="dashicons dashicons-info-outline dc-empty-icon"></span>
-                <h3>Webhook Not Configured</h3>
-                <p>Connect this WordPress site from the Dashboard to get started.</p>
+                <span class="dashicons dashicons-admin-links dc-empty-icon"></span>
+                <h3>Connect to Dashboard</h3>
+                <p>Copy the Shared Secret above and connect this site from the Dashboard.</p>
                 <ol>
-                    <li>Go to <strong>Admin &rarr; Clients &rarr; [Client] &rarr; Website</strong></li>
+                    <li>Go to <strong>Dashboard &rarr; Admin &rarr; Clients &rarr; [Client] &rarr; Website</strong></li>
                     <li>Click <strong>Connect WordPress</strong></li>
-                    <li>Enter this site's URL, username, and application password</li>
-                    <li>Then click <strong>Generate Random Key</strong> here</li>
+                    <li>Enter this site's URL and paste the <strong>Shared Secret</strong></li>
+                    <li>Then click <strong>Generate Random Key</strong> here for the webhook</li>
                 </ol>
             </div>
             <?php endif; ?>

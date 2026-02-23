@@ -177,8 +177,8 @@ export interface WordPressCredentials {
   id: string;
   integration_id: string;
   site_url: string;
-  username: string;
-  app_password: string;
+  username?: string;
+  app_password?: string;
   shared_secret: string;
   ssh_host?: string;
   ssh_user?: string;
@@ -212,9 +212,9 @@ export interface WordPressCredentialsEncrypted {
 export interface ConnectWordPressInput {
   website_id: string;
   site_url: string;
-  username: string;
-  app_password: string;
-  shared_secret?: string;
+  shared_secret: string;
+  username?: string;
+  app_password?: string;
   ssh_host?: string;
   ssh_user?: string;
   ssh_key?: string;

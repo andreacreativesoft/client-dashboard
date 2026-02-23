@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateAdminSetting, SETTING_KEYS } from "@/lib/actions/admin-settings";
+import { updateAdminSetting } from "@/lib/actions/admin-settings";
+import { SETTING_KEYS } from "@/lib/constants/admin-settings";
 import { wpAITools } from "@/lib/wordpress/ai-tools";
 
 type Tab = "settings" | "authentication" | "tools";

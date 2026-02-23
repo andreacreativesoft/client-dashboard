@@ -5,18 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptToken, decryptToken } from "@/lib/google";
 import type { AdminSetting } from "@/types/database";
-
-// ─── Known setting keys ─────────────────────────────────────────────────
-export const SETTING_KEYS = {
-  ANTHROPIC_API_KEY: "anthropic_api_key",
-  AI_ENABLED: "ai_enabled",
-  AI_MODEL: "ai_model",
-  AI_READ_TOOLS_ENABLED: "ai_read_tools_enabled",
-  AI_WRITE_TOOLS_ENABLED: "ai_write_tools_enabled",
-  AI_DELETE_TOOLS_ENABLED: "ai_delete_tools_enabled",
-  AI_WOOCOMMERCE_TOOLS_ENABLED: "ai_woocommerce_tools_enabled",
-  AI_USER_MANAGEMENT_ENABLED: "ai_user_management_enabled",
-} as const;
+import { SETTING_KEYS } from "@/lib/constants/admin-settings";
 
 // Keys that contain sensitive values and should be encrypted
 const ENCRYPTED_KEYS: Set<string> = new Set([SETTING_KEYS.ANTHROPIC_API_KEY]);

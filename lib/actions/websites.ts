@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
+import { WPClient } from "@/lib/wordpress/wp-client";
 import type { Website } from "@/types/database";
 
 export type WebsiteFormData = {
@@ -212,6 +213,22 @@ export async function regenerateApiKeyAction(
   if (error) {
     console.error("Error regenerating API key:", error);
     return { success: false, error: error.message };
+  }
+
+  // Push updated key to WordPress if connected
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (appUrl) {
+    try {
+      const client = await WPClient.fromWebsiteId(id);
+      await client.pushWebhookConfig({
+        api_key: newApiKey,
+        dashboard_url: appUrl.replace(/\/+$/, ""),
+        webhook_url: `${appUrl.replace(/\/+$/, "")}/api/webhooks/lead?key=${newApiKey}`,
+        website_id: id,
+      });
+    } catch {
+      // Non-fatal — WordPress may not be connected
+    }
   }
 
   revalidatePath("/admin/websites");

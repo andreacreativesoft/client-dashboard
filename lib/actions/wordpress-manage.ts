@@ -149,6 +149,23 @@ export async function connectWordPress(
         mu_plugin_version: muPluginCheck.version,
       })
       .eq("integration_id", integration.id);
+
+    // Push webhook config to WordPress so it shows in WP admin
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const { data: websiteRow } = await supabase
+      .from("websites")
+      .select("api_key")
+      .eq("id", input.website_id)
+      .single();
+
+    if (websiteRow?.api_key && appUrl) {
+      await testClient.pushWebhookConfig({
+        api_key: websiteRow.api_key,
+        dashboard_url: appUrl.replace(/\/+$/, ""),
+        webhook_url: `${appUrl.replace(/\/+$/, "")}/api/webhooks/lead?key=${websiteRow.api_key}`,
+        website_id: input.website_id,
+      });
+    }
   }
 
   // Log activity

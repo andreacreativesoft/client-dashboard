@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Andrea Creative Dashboard Connector
  * Description: REST API endpoints for Andrea Creative Client Dashboard
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Andrea Creative
  *
  * Drop this file into wp-content/mu-plugins/
@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.1.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.2.0');
 
 class Dashboard_Connector {
 
@@ -21,6 +21,8 @@ class Dashboard_Connector {
 
     public function __construct() {
         add_action('rest_api_init', [$this, 'register_routes']);
+        add_action('admin_menu', [$this, 'add_admin_menu']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
     }
 
     // ═══════════════════════════════════════════
@@ -275,6 +277,31 @@ class Dashboard_Connector {
             'permission_callback' => [$this, 'check_admin_only'],
             'args' => [
                 'secret' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
+
+        // Webhook config — pushed from dashboard on connect / key regenerate
+        register_rest_route($this->namespace, '/webhook-config', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'save_webhook_config'],
+            'permission_callback' => [$this, 'check_permissions'],
+            'args' => [
+                'api_key' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+                'dashboard_url' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'esc_url_raw',
+                ],
+                'webhook_url' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'esc_url_raw',
+                ],
+                'website_id' => [
                     'required'          => true,
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
@@ -1671,6 +1698,367 @@ class Dashboard_Connector {
             'success' => true,
             'message' => 'Shared secret registered successfully.',
         ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ENDPOINT: WEBHOOK CONFIG
+    // ═══════════════════════════════════════════
+
+    public function save_webhook_config(WP_REST_Request $request) {
+        $config = [
+            'api_key'       => $request->get_param('api_key'),
+            'dashboard_url' => untrailingslashit($request->get_param('dashboard_url')),
+            'webhook_url'   => $request->get_param('webhook_url'),
+            'website_id'    => $request->get_param('website_id'),
+            'updated_at'    => current_time('mysql'),
+        ];
+
+        update_option('dashboard_webhook_config', $config, false);
+
+        return rest_ensure_response([
+            'success' => true,
+            'message' => 'Webhook configuration saved.',
+        ]);
+    }
+
+    // ═══════════════════════════════════════════
+    //  ADMIN MENU & SETTINGS PAGE
+    // ═══════════════════════════════════════════
+
+    public function add_admin_menu() {
+        add_options_page(
+            'Dashboard Connector',
+            'Dashboard Connector',
+            'manage_options',
+            'dashboard-connector',
+            [$this, 'render_admin_page']
+        );
+    }
+
+    public function enqueue_admin_assets($hook) {
+        if ($hook !== 'settings_page_dashboard-connector') return;
+
+        wp_enqueue_style(
+            'dashboard-connector-admin',
+            false // inline only
+        );
+
+        // Inline CSS for the admin page
+        wp_add_inline_style('dashboard-connector-admin', $this->get_admin_css());
+
+        // Clipboard JS
+        wp_add_inline_script('jquery', $this->get_admin_js());
+    }
+
+    public function render_admin_page() {
+        $config = get_option('dashboard_webhook_config', []);
+        $secret = $this->get_expected_secret();
+        $has_secret = !empty($secret);
+
+        $api_key       = $config['api_key'] ?? '';
+        $dashboard_url = $config['dashboard_url'] ?? '';
+        $webhook_url   = $config['webhook_url'] ?? '';
+        $website_id    = $config['website_id'] ?? '';
+        $updated_at    = $config['updated_at'] ?? '';
+
+        $is_configured = !empty($api_key) && !empty($webhook_url);
+        ?>
+        <div class="wrap dc-wrap">
+            <h1 class="dc-title">
+                <span class="dc-logo">AC</span>
+                Dashboard Connector
+                <span class="dc-version">v<?php echo esc_html(DASHBOARD_CONNECTOR_VERSION); ?></span>
+            </h1>
+
+            <!-- Connection Status -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Connection Status</h2>
+                <table class="dc-table">
+                    <tr>
+                        <td class="dc-label">Shared Secret</td>
+                        <td>
+                            <?php if ($has_secret): ?>
+                                <span class="dc-badge dc-badge-ok">Registered</span>
+                            <?php else: ?>
+                                <span class="dc-badge dc-badge-warn">Not registered</span>
+                                <p class="dc-hint">Connect this site from the Dashboard to register the secret automatically.</p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php if ($dashboard_url): ?>
+                    <tr>
+                        <td class="dc-label">Dashboard URL</td>
+                        <td><a href="<?php echo esc_url($dashboard_url); ?>" target="_blank"><?php echo esc_html($dashboard_url); ?></a></td>
+                    </tr>
+                    <?php endif; ?>
+                    <?php if ($updated_at): ?>
+                    <tr>
+                        <td class="dc-label">Last Updated</td>
+                        <td><?php echo esc_html($updated_at); ?></td>
+                    </tr>
+                    <?php endif; ?>
+                </table>
+            </div>
+
+            <?php if ($is_configured): ?>
+            <!-- Webhook API Key -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Webhook API Key</h2>
+                <p class="dc-description">Use this key to send leads from your contact forms to the Dashboard.</p>
+
+                <div class="dc-key-box">
+                    <code id="dc-api-key"><?php echo esc_html($api_key); ?></code>
+                    <button type="button" class="button dc-copy-btn" data-target="dc-api-key" title="Copy API key">
+                        <span class="dashicons dashicons-clipboard"></span> Copy
+                    </button>
+                </div>
+
+                <div class="dc-key-box dc-key-box-url">
+                    <label class="dc-label">Full Webhook URL</label>
+                    <code id="dc-webhook-url"><?php echo esc_html($webhook_url); ?></code>
+                    <button type="button" class="button dc-copy-btn" data-target="dc-webhook-url" title="Copy webhook URL">
+                        <span class="dashicons dashicons-clipboard"></span> Copy
+                    </button>
+                </div>
+
+                <?php if ($dashboard_url && $website_id): ?>
+                <div class="dc-regenerate">
+                    <button type="button" class="button" id="dc-regenerate-btn">
+                        <span class="dashicons dashicons-update"></span> Regenerate Key
+                    </button>
+                    <span id="dc-regenerate-status"></span>
+                    <input type="hidden" id="dc-website-id" value="<?php echo esc_attr($website_id); ?>" />
+                    <input type="hidden" id="dc-dashboard-url" value="<?php echo esc_attr($dashboard_url); ?>" />
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Form Plugin Setup -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Form Plugin Setup</h2>
+                <p class="dc-description">Copy the webhook URL above and paste it into your form plugin:</p>
+
+                <div class="dc-accordion">
+                    <details>
+                        <summary><strong>Elementor Forms</strong></summary>
+                        <ol>
+                            <li>Edit the form widget</li>
+                            <li>Go to <strong>Actions After Submit</strong></li>
+                            <li>Add <strong>Webhook</strong></li>
+                            <li>Paste the webhook URL into the <strong>URL</strong> field</li>
+                        </ol>
+                    </details>
+
+                    <details>
+                        <summary><strong>Contact Form 7</strong></summary>
+                        <ol>
+                            <li>Install a CF7 webhook plugin (e.g. CF7 to Webhook)</li>
+                            <li>Edit your form &rarr; <strong>Webhook</strong> tab</li>
+                            <li>Paste the webhook URL</li>
+                            <li>Set method to <strong>POST</strong></li>
+                        </ol>
+                    </details>
+
+                    <details>
+                        <summary><strong>WPForms</strong></summary>
+                        <ol>
+                            <li>Edit your form &rarr; <strong>Settings &rarr; Notifications</strong></li>
+                            <li>Or use the Webhooks addon</li>
+                            <li>Paste the webhook URL</li>
+                        </ol>
+                    </details>
+
+                    <details>
+                        <summary><strong>Gravity Forms</strong></summary>
+                        <ol>
+                            <li>Edit form &rarr; <strong>Settings &rarr; Webhooks</strong></li>
+                            <li>Add feed &rarr; paste the webhook URL</li>
+                            <li>Request method: <strong>POST</strong>, format: <strong>JSON</strong></li>
+                        </ol>
+                    </details>
+
+                    <details>
+                        <summary><strong>Any Other Form</strong></summary>
+                        <p>Send a <strong>POST</strong> request to the webhook URL with a JSON body:</p>
+                        <pre>{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "phone": "+1234567890",
+  "message": "Your message"
+}</pre>
+                        <p class="dc-hint">The dashboard auto-detects field names in multiple languages (EN, RO, FR, NL, ES, DE, RU).</p>
+                    </details>
+                </div>
+            </div>
+
+            <?php else: ?>
+            <!-- Not configured yet -->
+            <div class="dc-card dc-card-empty">
+                <span class="dashicons dashicons-info-outline dc-empty-icon"></span>
+                <h3>Webhook Not Configured</h3>
+                <p>Connect this WordPress site from the Dashboard to automatically receive the webhook API key.</p>
+                <ol>
+                    <li>Go to <strong>Admin &rarr; Clients &rarr; [Client] &rarr; Website</strong></li>
+                    <li>Click <strong>Connect WordPress</strong></li>
+                    <li>Enter this site's URL, username, and application password</li>
+                    <li>The webhook key will appear here automatically</li>
+                </ol>
+            </div>
+            <?php endif; ?>
+
+            <!-- Test Webhook -->
+            <div class="dc-card">
+                <h2 class="dc-card-title">Test Webhook</h2>
+                <p class="dc-description">Send a test lead to verify your connection.</p>
+                <button type="button" class="button button-primary" id="dc-test-webhook" <?php echo $is_configured ? '' : 'disabled'; ?>>
+                    <span class="dashicons dashicons-megaphone"></span> Send Test Lead
+                </button>
+                <span id="dc-test-status"></span>
+            </div>
+        </div>
+        <?php
+    }
+
+    private function get_admin_css() {
+        return '
+        .dc-wrap { max-width: 720px; }
+        .dc-title { display: flex; align-items: center; gap: 10px; font-size: 22px; margin-bottom: 20px; }
+        .dc-logo { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #1d2327; color: #fff; border-radius: 8px; font-size: 14px; font-weight: 700; }
+        .dc-version { font-size: 12px; color: #999; font-weight: 400; }
+        .dc-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        .dc-card-title { font-size: 15px; margin: 0 0 6px; }
+        .dc-description { color: #666; font-size: 13px; margin: 0 0 16px; }
+        .dc-table { width: 100%; border-collapse: collapse; }
+        .dc-table td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; vertical-align: middle; }
+        .dc-table tr:last-child td { border-bottom: none; }
+        .dc-label { font-weight: 600; color: #555; width: 140px; }
+        .dc-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+        .dc-badge-ok { background: #d4edda; color: #155724; }
+        .dc-badge-warn { background: #fff3cd; color: #856404; }
+        .dc-hint { color: #999; font-size: 12px; margin-top: 4px; }
+        .dc-key-box { background: #f8f9fa; border: 1px solid #e2e4e7; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+        .dc-key-box-url { flex-direction: column; align-items: flex-start; }
+        .dc-key-box-url .dc-copy-btn { align-self: flex-end; }
+        .dc-key-box code { flex: 1; font-size: 13px; word-break: break-all; background: none; padding: 0; }
+        .dc-copy-btn { white-space: nowrap; }
+        .dc-copy-btn .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
+        .dc-regenerate { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
+        .dc-regenerate .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
+        .dc-card-empty { text-align: center; padding: 40px 20px; color: #666; }
+        .dc-empty-icon { font-size: 40px; width: 40px; height: 40px; color: #ccc; margin-bottom: 10px; }
+        .dc-card-empty ol { text-align: left; display: inline-block; }
+        .dc-accordion details { border-bottom: 1px solid #f0f0f0; padding: 8px 0; }
+        .dc-accordion details:last-child { border-bottom: none; }
+        .dc-accordion summary { cursor: pointer; padding: 4px 0; font-size: 13px; }
+        .dc-accordion ol, .dc-accordion p { font-size: 13px; margin: 8px 0 4px 20px; color: #555; }
+        .dc-accordion pre { background: #f1f1f1; padding: 10px; border-radius: 4px; font-size: 12px; overflow-x: auto; }
+        #dc-test-webhook .dashicons { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-top: -2px; }
+        ';
+    }
+
+    private function get_admin_js() {
+        return "
+        jQuery(function($) {
+            // Copy to clipboard
+            $(document).on('click', '.dc-copy-btn', function() {
+                var target = $(this).data('target');
+                var text = $('#' + target).text().trim();
+                navigator.clipboard.writeText(text).then(function() {
+                    var btn = $(this);
+                    var orig = btn.html();
+                    btn.html('<span class=\"dashicons dashicons-yes\"></span> Copied!');
+                    setTimeout(function() { btn.html(orig); }, 2000);
+                }.bind(this));
+            });
+
+            // Test webhook
+            $('#dc-test-webhook').on('click', function() {
+                var btn = $(this);
+                var status = $('#dc-test-status');
+                var webhookUrl = $('#dc-webhook-url').text().trim();
+
+                if (!webhookUrl) { status.text('No webhook URL configured.').css('color', '#dc3232'); return; }
+
+                btn.prop('disabled', true);
+                status.text('Sending...').css('color', '#666');
+
+                $.ajax({
+                    url: webhookUrl,
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        name: 'Test Lead from WordPress',
+                        email: 'test@' + window.location.hostname,
+                        phone: '+1234567890',
+                        message: 'This is a test lead sent from the Dashboard Connector settings page.',
+                        form_name: 'dashboard-connector-test'
+                    }),
+                    success: function(resp) {
+                        status.html('<span style=\"color:#46b450\">&#10003; Test lead sent successfully!</span>');
+                        btn.prop('disabled', false);
+                    },
+                    error: function(xhr) {
+                        status.html('<span style=\"color:#dc3232\">&#10007; Failed: ' + (xhr.responseJSON?.error || xhr.statusText) + '</span>');
+                        btn.prop('disabled', false);
+                    }
+                });
+            });
+
+            // Regenerate key
+            $('#dc-regenerate-btn').on('click', function() {
+                if (!confirm('Regenerate the webhook API key? The old key will stop working immediately.')) return;
+
+                var btn = $(this);
+                var status = $('#dc-regenerate-status');
+                var dashboardUrl = $('#dc-dashboard-url').val();
+                var websiteId = $('#dc-website-id').val();
+
+                btn.prop('disabled', true);
+                status.text('Regenerating...').css('color', '#666');
+
+                $.ajax({
+                    url: dashboardUrl + '/api/webhooks/' + websiteId + '/regenerate',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        shared_secret: '" . esc_js($this->get_expected_secret()) . "',
+                        site_url: window.location.origin
+                    }),
+                    success: function(resp) {
+                        if (resp.success && resp.api_key) {
+                            // Save updated config to WP options via REST API
+                            $.ajax({
+                                url: '" . esc_js(rest_url('dashboard/v1/webhook-config')) . "',
+                                method: 'POST',
+                                contentType: 'application/json',
+                                beforeSend: function(xhr) {
+                                    xhr.setRequestHeader('X-WP-Nonce', '" . esc_js(wp_create_nonce('wp_rest')) . "');
+                                    xhr.setRequestHeader('X-Dashboard-Secret', '" . esc_js($this->get_expected_secret()) . "');
+                                },
+                                data: JSON.stringify({
+                                    api_key: resp.api_key,
+                                    dashboard_url: dashboardUrl,
+                                    webhook_url: resp.webhook_url,
+                                    website_id: websiteId
+                                }),
+                                complete: function() {
+                                    status.html('<span style=\"color:#46b450\">&#10003; Key regenerated! Reloading...</span>');
+                                    setTimeout(function() { window.location.reload(); }, 1000);
+                                }
+                            });
+                        } else {
+                            status.html('<span style=\"color:#dc3232\">&#10007; ' + (resp.error || 'Failed') + '</span>');
+                            btn.prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr) {
+                        status.html('<span style=\"color:#dc3232\">&#10007; Failed: ' + (xhr.responseJSON?.error || xhr.statusText) + '</span>');
+                        btn.prop('disabled', false);
+                    }
+                });
+            });
+        });
+        ";
     }
 
     // ═══════════════════════════════════════════

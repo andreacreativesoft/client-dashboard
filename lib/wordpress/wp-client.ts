@@ -157,6 +157,26 @@ export class WPClient {
     }
   }
 
+  // ─── Push Webhook Config ─────────────────────────────────────────
+
+  async pushWebhookConfig(config: {
+    api_key: string;
+    dashboard_url: string;
+    webhook_url: string;
+    website_id: string;
+  }): Promise<{ success: boolean }> {
+    try {
+      return await this.request("/webhook-config", {
+        isCustomEndpoint: true,
+        method: "POST",
+        body: config,
+      });
+    } catch {
+      // Non-fatal — older mu-plugin versions won't have this endpoint
+      return { success: false };
+    }
+  }
+
   // ─── Custom Endpoints (mu-plugin required) ─────────────────────────
 
   async getDebugLog(lines: number = 200): Promise<DebugLogResponse> {

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
+import { useLanguage } from "@/lib/i18n/language-context";
 import type { GA4AnalyticsData } from "@/lib/actions/analytics";
 
 // Auto-detected GA4 events (built-in) — everything else is custom/CTA
@@ -40,6 +41,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
     initialClientId || clientsWithGA4[0]?.clientId || ""
   );
   const [period, setPeriod] = useState<"7d" | "30d">("30d");
+  const { t } = useLanguage();
 
   // Sync with header client selector
   useEffect(() => {
@@ -96,9 +98,9 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
       <Card>
         <CardContent className="p-6">
           <div className="text-center">
-            <p className="text-lg font-medium">No GA4 Integrations</p>
+            <p className="text-lg font-medium">{t("ga4.no_integrations")}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Connect Google Analytics 4 in a client&apos;s settings to see website analytics and CTA tracking here.
+              {t("ga4.no_integrations_desc")}
             </p>
           </div>
         </CardContent>
@@ -123,7 +125,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
           )}
           {cached && (
             <Badge variant="secondary" className="text-xs">
-              Cached
+              {t("ga4.cached")}
             </Badge>
           )}
         </div>
@@ -139,7 +141,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              7 days
+              {t("ga4.7_days")}
             </button>
             <button
               onClick={() => setPeriod("30d")}
@@ -149,7 +151,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                   : "hover:bg-muted"
               }`}
             >
-              30 days
+              {t("ga4.30_days")}
             </button>
           </div>
 
@@ -160,7 +162,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             onClick={() => fetchData(true)}
             disabled={loading}
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? t("common.loading") : t("ga4.refresh")}
           </Button>
         </div>
       </div>
@@ -191,19 +193,19 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.overview.sessions)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Sessions</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("ga4.sessions")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.overview.totalUsers)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Users</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("ga4.users")}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-2xl font-bold">{formatNumber(data.overview.pageViews)}</p>
-                <p className="text-xs font-medium text-muted-foreground">Page Views</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("ga4.page_views")}</p>
               </CardContent>
             </Card>
             <Card>
@@ -211,7 +213,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                 <p className="text-2xl font-bold">
                   {Math.round(data.overview.bounceRate * 100)}%
                 </p>
-                <p className="text-xs font-medium text-muted-foreground">Bounce Rate</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("ga4.bounce_rate")}</p>
               </CardContent>
             </Card>
             <Card>
@@ -219,7 +221,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                 <p className="text-2xl font-bold">
                   {Math.round(data.overview.avgSessionDuration)}s
                 </p>
-                <p className="text-xs font-medium text-muted-foreground">Avg Duration</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("ga4.avg_duration")}</p>
               </CardContent>
             </Card>
           </div>
@@ -228,7 +230,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Sessions ({period === "7d" ? "7 days" : "30 days"})
+                {t("ga4.sessions")} ({period === "7d" ? t("ga4.7_days") : t("ga4.30_days")})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -260,11 +262,11 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                         ? `${data.daily[0].date.slice(4, 6)}/${data.daily[0].date.slice(6, 8)}`
                         : ""}
                     </span>
-                    <span>Today</span>
+                    <span>{t("analytics.today")}</span>
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">No traffic data available</p>
+                <p className="text-sm text-muted-foreground">{t("ga4.no_traffic")}</p>
               )}
             </CardContent>
           </Card>
@@ -274,7 +276,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  CTA &amp; Custom Events
+                  {t("ga4.cta_custom_events")}
                   {customEvents.length > 0 && (
                     <span className="ml-2 text-sm font-normal text-muted-foreground">
                       ({customEvents.length})
@@ -286,10 +288,10 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                 {customEvents.length === 0 ? (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">
-                      No custom events tracked yet.
+                      {t("ga4.no_custom_events")}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Set up CTA tracking in Google Tag Manager or add gtag events to the website:
+                      {t("ga4.cta_setup_hint")}
                     </p>
                     <code className="block rounded bg-muted p-2 text-xs">
                       gtag(&apos;event&apos;, &apos;cta_click&apos;, &#123; button: &apos;call_now&apos; &#125;);
@@ -305,7 +307,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                           <div className="mb-1 flex items-center justify-between text-sm">
                             <span className="font-medium">{event.eventName}</span>
                             <span className="text-muted-foreground">
-                              {formatNumber(event.eventCount)} ({event.users} users)
+                              {formatNumber(event.eventCount)} ({event.users} {t("ga4.users").toLowerCase()})
                             </span>
                           </div>
                           <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -325,11 +327,11 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             {/* Auto-tracked events */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">GA4 Auto Events</CardTitle>
+                <CardTitle className="text-base">{t("ga4.auto_events")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {autoEvents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No events tracked</p>
+                  <p className="text-sm text-muted-foreground">{t("ga4.no_events")}</p>
                 ) : (
                   <div className="space-y-2">
                     {autoEvents.slice(0, 8).map((event) => (
@@ -349,11 +351,11 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             {/* Top Pages */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Top Pages</CardTitle>
+                <CardTitle className="text-base">{t("ga4.top_pages")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.topPages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No page data available</p>
+                  <p className="text-sm text-muted-foreground">{t("ga4.no_pages")}</p>
                 ) : (
                   <div className="space-y-2">
                     {data.topPages.slice(0, 8).map((page, i) => (
@@ -382,11 +384,11 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
             {/* Traffic Sources */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Traffic Sources</CardTitle>
+                <CardTitle className="text-base">{t("ga4.traffic_sources")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.trafficSources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No source data available</p>
+                  <p className="text-sm text-muted-foreground">{t("ga4.no_sources")}</p>
                 ) : (
                   <div className="space-y-3">
                     {data.trafficSources.map((source) => {
@@ -400,7 +402,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                           <div className="mb-1 flex items-center justify-between text-sm">
                             <span>{source.channel}</span>
                             <span className="text-muted-foreground">
-                              {formatNumber(source.sessions)} sessions
+                              {formatNumber(source.sessions)} {t("ga4.sessions").toLowerCase()}
                             </span>
                           </div>
                           <div className="h-2 overflow-hidden rounded-full bg-muted">

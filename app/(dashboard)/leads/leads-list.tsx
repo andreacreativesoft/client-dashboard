@@ -11,6 +11,7 @@ import {
   type LeadWithDetails,
 } from "@/lib/actions/leads";
 import { timeAgo } from "@/lib/utils";
+import { useLanguage } from "@/lib/i18n/language-context";
 import type { LeadStatus } from "@/types/database";
 
 interface PaginationInfo {
@@ -26,10 +27,10 @@ interface LeadsListProps {
   pagination?: PaginationInfo;
 }
 
-const STATUS_OPTIONS: { value: LeadStatus; label: string; color: string; activeColor: string }[] = [
-  { value: "new", label: "New", color: "border-red-300 text-red-600 hover:bg-red-50", activeColor: "bg-red-500 text-white border-red-500" },
-  { value: "contacted", label: "Contacted", color: "border-blue-300 text-blue-600 hover:bg-blue-50", activeColor: "bg-blue-500 text-white border-blue-500" },
-  { value: "done", label: "Done", color: "border-green-300 text-green-600 hover:bg-green-50", activeColor: "bg-green-500 text-white border-green-500" },
+const STATUS_OPTIONS: { value: LeadStatus; labelKey: "leads.new" | "leads.contacted" | "leads.done"; color: string; activeColor: string }[] = [
+  { value: "new", labelKey: "leads.new", color: "border-red-300 text-red-600 hover:bg-red-50", activeColor: "bg-red-500 text-white border-red-500" },
+  { value: "contacted", labelKey: "leads.contacted", color: "border-blue-300 text-blue-600 hover:bg-blue-50", activeColor: "bg-blue-500 text-white border-blue-500" },
+  { value: "done", labelKey: "leads.done", color: "border-green-300 text-green-600 hover:bg-green-50", activeColor: "bg-green-500 text-white border-green-500" },
 ];
 
 export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
@@ -38,6 +39,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [updating, setUpdating] = useState<string | null>(null);
+  const { t } = useLanguage();
 
   const currentStatus = searchParams.get("status") || "all";
   const currentPage = pagination?.page ?? 1;
@@ -82,24 +84,24 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
     setUpdating(null);
   }
 
+  const count = pagination ? pagination.total : filteredLeads.length;
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Leads</h1>
+        <h1 className="text-2xl font-bold">{t("leads.title")}</h1>
         <span className="text-sm text-muted-foreground">
-          {pagination
-            ? `${pagination.total} lead${pagination.total !== 1 ? "s" : ""}`
-            : `${filteredLeads.length} lead${filteredLeads.length !== 1 ? "s" : ""}`}
+          {count} {count !== 1 ? t("leads.leads") : t("leads.lead")}
         </span>
       </div>
 
       {/* Filters */}
       <div className="mb-6 flex flex-wrap gap-3">
         <Input
-          placeholder="Search leads..."
+          placeholder={t("leads.search_placeholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search leads"
+          aria-label={t("leads.search_placeholder")}
           className="w-full sm:w-64"
         />
         <div className="flex gap-2">
@@ -109,7 +111,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
             aria-pressed={currentStatus === "all"}
             onClick={() => handleStatusFilter("all")}
           >
-            All
+            {t("leads.all")}
           </Button>
           {STATUS_OPTIONS.map((status) => (
             <button
@@ -122,7 +124,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                   : status.color + " bg-background"
               }`}
             >
-              {status.label}
+              {t(status.labelKey)}
             </button>
           ))}
         </div>
@@ -134,8 +136,8 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground">
               {leads.length === 0
-                ? "No leads yet. Leads will appear here when they come in via webhooks."
-                : "No leads match your filters."}
+                ? t("leads.no_leads_empty")
+                : t("leads.no_match")}
             </p>
           </CardContent>
         </Card>
@@ -151,7 +153,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                         href={`/leads/${lead.id}`}
                         className="text-lg font-bold hover:underline"
                       >
-                        {lead.name || lead.email || lead.phone || "Unknown"}
+                        {lead.name || lead.email || lead.phone || t("leads.unknown")}
                       </Link>
                     </div>
 
@@ -168,18 +170,18 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>{timeAgo(lead.created_at)}</span>
-                      <span>•</span>
+                      <span>&bull;</span>
                       <span>{lead.website_name}</span>
                       {isAdmin && (
                         <>
-                          <span>•</span>
+                          <span>&bull;</span>
                           <span>{lead.client_name}</span>
                         </>
                       )}
                       {lead.form_name && (
                         <>
-                          <span>•</span>
-                          <span>Form: {lead.form_name}</span>
+                          <span>&bull;</span>
+                          <span>{t("leads.form")}: {lead.form_name}</span>
                         </>
                       )}
                     </div>
@@ -196,14 +198,14 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                           }}
                           disabled={updating === lead.id}
                           aria-pressed={lead.status === status.value}
-                          aria-label={`Mark as ${status.label}`}
+                          aria-label={t(status.labelKey)}
                           className={`flex-1 cursor-pointer px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:py-1.5 sm:text-xs ${
                             lead.status === status.value
                               ? status.activeColor
                               : status.color + " bg-background"
                           }`}
                         >
-                          {status.label}
+                          {t(status.labelKey)}
                         </button>
                       ))}
                     </div>
@@ -211,7 +213,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
                       href={`/leads/${lead.id}`}
                       className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:px-3"
                     >
-                      View
+                      {t("leads.view")}
                     </Link>
                   </div>
                 </div>
@@ -225,8 +227,8 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
       {pagination && pagination.totalPages > 1 && (
         <div className="mt-6 flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * pagination.perPage + 1}–
-            {Math.min(currentPage * pagination.perPage, pagination.total)} of{" "}
+            {t("leads.showing")} {(currentPage - 1) * pagination.perPage + 1}–
+            {Math.min(currentPage * pagination.perPage, pagination.total)} {t("leads.of")}{" "}
             {pagination.total}
           </p>
           <div className="flex gap-2">
@@ -236,7 +238,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
               disabled={currentPage <= 1}
               onClick={() => handlePageChange(currentPage - 1)}
             >
-              Previous
+              {t("leads.previous")}
             </Button>
             {/* Page numbers */}
             {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
@@ -268,7 +270,7 @@ export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
               disabled={currentPage >= pagination.totalPages}
               onClick={() => handlePageChange(currentPage + 1)}
             >
-              Next
+              {t("leads.next")}
             </Button>
           </div>
         </div>

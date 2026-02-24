@@ -240,6 +240,7 @@ export function SeoAuditor({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState<PageAudit | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   async function runCheck() {
     setLoading(true);
@@ -353,8 +354,18 @@ export function SeoAuditor({
           </div>
         )}
 
+        {/* Toggle to show/hide page details */}
+        {displayPages && displayPages.length > 0 && !showDetails && !selectedPage && (
+          <button
+            onClick={() => setShowDetails(true)}
+            className="w-full rounded-lg border border-border p-3 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            {displayPages.length} pages audited — click to view details
+          </button>
+        )}
+
         {/* Per-page results — detail view for selected page */}
-        {displayPages && displayPages.length > 0 && selectedPage && (
+        {displayPages && displayPages.length > 0 && showDetails && selectedPage && (
           <PageDetail
             page={selectedPage}
             siteWide={displaySiteWide}
@@ -362,7 +373,6 @@ export function SeoAuditor({
             onBack={() => setSelectedPage(null)}
             onPageUpdated={(updated) => {
               setSelectedPage(updated);
-              // Also update the page in the pages list so going back shows fresh data
               if (result?.pages) {
                 setResult({
                   ...result,
@@ -376,11 +386,19 @@ export function SeoAuditor({
         )}
 
         {/* Per-page results — pages list */}
-        {displayPages && displayPages.length > 0 && !selectedPage && (
+        {displayPages && displayPages.length > 0 && showDetails && !selectedPage && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {displayPages.length} pages audited — click to view details
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {displayPages.length} pages audited
+              </p>
+              <button
+                onClick={() => setShowDetails(false)}
+                className="text-[10px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Hide details
+              </button>
+            </div>
             {displayPages.map((page) => (
               <button
                 key={page.url}

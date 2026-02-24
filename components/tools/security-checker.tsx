@@ -48,6 +48,7 @@ export function SecurityChecker({
     results: SecurityResult[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("all");
 
@@ -165,42 +166,60 @@ export function SecurityChecker({
           </div>
         )}
 
-        {displayResults && displayResults.length > 0 && (
+        {/* Toggle to show/hide details */}
+        {displayResults && displayResults.length > 0 && !showDetails && (
+          <button
+            onClick={() => setShowDetails(true)}
+            className="w-full rounded-lg border border-border p-3 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            {displayResults.length} checks completed — click to view details
+          </button>
+        )}
+
+        {displayResults && displayResults.length > 0 && showDetails && (
           <div className="space-y-3">
             {/* Category filter */}
-            <div className="flex flex-wrap gap-1">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-wrap gap-1">
+                <button
+                  onClick={() => setActiveCategory("all")}
+                  className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                    activeCategory === "all" ? "bg-foreground text-background" : "bg-muted hover:bg-muted/80"
+                  }`}
+                >
+                  All ({displayResults.length})
+                </button>
+                {(["headers", "wordpress", "server", "access"] as const).map((cat) => {
+                  const count = displayResults.filter((r) => r.category === cat).length;
+                  const issues = categoryCounts?.[cat] || 0;
+                  if (count === 0) return null;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                        activeCategory === cat ? "bg-foreground text-background" : "bg-muted hover:bg-muted/80"
+                      }`}
+                    >
+                      {CATEGORY_LABELS[cat]} {issues > 0 && <span className="text-destructive">({issues})</span>}
+                    </button>
+                  );
+                })}
+              </div>
               <button
-                onClick={() => setActiveCategory("all")}
-                className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-                  activeCategory === "all" ? "bg-foreground text-background" : "bg-muted hover:bg-muted/80"
-                }`}
+                onClick={() => setShowDetails(false)}
+                className="text-[10px] font-medium text-muted-foreground hover:text-foreground"
               >
-                All ({displayResults.length})
+                Hide details
               </button>
-              {(["headers", "wordpress", "server", "access"] as const).map((cat) => {
-                const count = displayResults.filter((r) => r.category === cat).length;
-                const issues = categoryCounts?.[cat] || 0;
-                if (count === 0) return null;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCategory(cat)}
-                    className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-                      activeCategory === cat ? "bg-foreground text-background" : "bg-muted hover:bg-muted/80"
-                    }`}
-                  >
-                    {CATEGORY_LABELS[cat]} {issues > 0 && <span className="text-destructive">({issues})</span>}
-                  </button>
-                );
-              })}
             </div>
 
-            {/* Toggle */}
+            {/* Toggle pass/fail filter */}
             <button
               onClick={() => setExpanded(!expanded)}
               className="text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              {expanded ? "Collapse details" : "Show details"}
+              {expanded ? "Show issues only" : "Show all checks"}
             </button>
 
             {/* Results list */}
@@ -246,7 +265,7 @@ export function SecurityChecker({
               ))}
               {!expanded && filteredResults?.every((r) => r.status === "pass") && (
                 <p className="py-2 text-center text-xs text-muted-foreground">
-                  All checks passed. Click &quot;Show details&quot; to see all results.
+                  All checks passed. Click &quot;Show all checks&quot; to see all results.
                 </p>
               )}
             </div>

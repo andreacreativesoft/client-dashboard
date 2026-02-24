@@ -8,6 +8,11 @@ import { Label } from "@/components/ui/label";
 import { updateAdminSetting } from "@/lib/actions/admin-settings";
 import { SETTING_KEYS } from "@/lib/constants/admin-settings";
 import { wpAITools } from "@/lib/wordpress/ai-tools";
+import {
+  TOOL_COST_ESTIMATES,
+  CATEGORY_COST_SUMMARIES,
+  MODEL_PRICING,
+} from "@/lib/constants/ai-cost-estimates";
 
 type Tab = "settings" | "authentication" | "tools";
 
@@ -124,6 +129,30 @@ function SettingsTab({ initialSettings }: { initialSettings: Record<string, stri
             </select>
             <p className="text-xs text-muted-foreground">
               The AI model used for WordPress site analysis and commands.
+            </p>
+          </div>
+
+          {/* Model Pricing Reference */}
+          <div className="rounded-lg border border-border bg-muted/50 p-4">
+            <h4 className="text-sm font-medium mb-3">Model Pricing (per 1M tokens)</h4>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {Object.entries(MODEL_PRICING).map(([key, model]) => (
+                <div
+                  key={key}
+                  className={`rounded-lg border p-3 text-center ${
+                    aiModel === key ? "border-foreground bg-background" : "border-border"
+                  }`}
+                >
+                  <p className="text-xs font-medium">{model.label}</p>
+                  <div className="mt-1 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+                    <span>In: ${model.inputPer1M}</span>
+                    <span>Out: ${model.outputPer1M}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              A typical command costs $0.04–$0.12 with Sonnet 4. Haiku 4.5 is ~4× cheaper, Opus 4.6 is ~5× more expensive.
             </p>
           </div>
 
@@ -366,51 +395,144 @@ function ToolsTab({ initialSettings }: { initialSettings: Record<string, string>
     }
   }
 
+  // Helper: format cost in cents or dollars
+  function formatCost(usd: number): string {
+    if (usd < 0.01) return `<1¢`;
+    if (usd < 1) return `${Math.round(usd * 100)}¢`;
+    return `$${usd.toFixed(2)}`;
+  }
+
+  // Helper: format token count
+  function formatTokens(count: number): string {
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+    return String(count);
+  }
+
   return (
     <div className="space-y-6">
-      {/* Category toggles */}
-      {TOOL_CATEGORIES.map((cat) => (
-        <Card key={cat.settingKey}>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">{cat.label}</CardTitle>
-                <p className="text-sm text-muted-foreground">{cat.description}</p>
-              </div>
-              <button
-                onClick={() => handleToggle(cat.settingKey)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  toggles[cat.settingKey] ? "bg-foreground" : "bg-muted"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
-                    toggles[cat.settingKey] ? "translate-x-5" : "translate-x-0"
-                  }`}
-                />
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {cat.tools.map((toolName) => (
-                <div
-                  key={toolName}
-                  className="flex items-start gap-3 rounded-lg border border-border p-3"
-                >
-                  <div className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${toggles[cat.settingKey] ? "bg-green-500" : "bg-muted-foreground/30"}`} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium font-mono">{toolName}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {toolDescriptions[toolName] || "No description available."}
-                    </p>
-                  </div>
+      {/* ─── Cost Overview Card ─────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Estimated Cost Per Command</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Typical cost per AI command using Claude Sonnet 4. Actual cost depends on content size and command complexity.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CATEGORY_COST_SUMMARIES.map((cat) => (
+              <div key={cat.label} className="rounded-lg border border-border p-3">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-medium">{cat.label}</p>
+                  <p className="text-sm font-bold font-mono">
+                    {formatCost(cat.minCost)}–{formatCost(cat.maxCost)}
+                  </p>
                 </div>
-              ))}
+                <p className="mt-1 text-xs text-muted-foreground">{cat.description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3">
+            <div className="flex items-start gap-2">
+              <svg className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+              </svg>
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">How costs are calculated</p>
+                <p className="mt-1">
+                  Each command runs 2–4 API calls (loops). Base overhead per call: ~5,500 tokens
+                  (system prompt + 40 tool schemas). Cost formula: (input × $3 + output × $15) / 1M tokens.
+                  All usage is tracked in the <code className="rounded bg-muted px-1 py-0.5">wp_ai_usage</code> table.
+                </p>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ─── Category toggles with per-tool cost badges ──────────── */}
+      {TOOL_CATEGORIES.map((cat) => {
+        // Calculate category cost range
+        const catCosts = cat.tools
+          .map((t) => TOOL_COST_ESTIMATES[t]?.estimatedCostUsd)
+          .filter((c): c is number => c !== undefined);
+        const catMin = catCosts.length > 0 ? Math.min(...catCosts) : 0;
+        const catMax = catCosts.length > 0 ? Math.max(...catCosts) : 0;
+
+        return (
+          <Card key={cat.settingKey}>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{cat.label}</CardTitle>
+                    {catCosts.length > 0 && (
+                      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {formatCost(catMin)}–{formatCost(catMax)} / cmd
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">{cat.description}</p>
+                </div>
+                <button
+                  onClick={() => handleToggle(cat.settingKey)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    toggles[cat.settingKey] ? "bg-foreground" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
+                      toggles[cat.settingKey] ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {cat.tools.map((toolName) => {
+                  const estimate = TOOL_COST_ESTIMATES[toolName];
+                  return (
+                    <div
+                      key={toolName}
+                      className="flex items-start gap-3 rounded-lg border border-border p-3"
+                    >
+                      <div className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${toggles[cat.settingKey] ? "bg-green-500" : "bg-muted-foreground/30"}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium font-mono">{toolName}</p>
+                          {estimate && (
+                            <span className="shrink-0 inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground">
+                              ~{formatCost(estimate.estimatedCostUsd)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {toolDescriptions[toolName] || "No description available."}
+                        </p>
+                        {estimate && (
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                            <span title="Estimated input tokens">
+                              In: {formatTokens(estimate.inputTokens)}
+                            </span>
+                            <span title="Estimated output tokens">
+                              Out: {formatTokens(estimate.outputTokens)}
+                            </span>
+                            <span title="Typical number of API round-trips">
+                              Loops: {estimate.loops}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
 
       <div className="flex items-center gap-3">
         <Button onClick={handleSave} disabled={saving}>

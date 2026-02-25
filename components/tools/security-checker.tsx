@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,26 @@ interface SecurityCheckerProps {
   lastCheck?: SiteCheck | null;
   compact?: boolean;
 }
+
+/** All fixes that can be auto-applied via WordPress mu-plugin */
+const AUTO_FIXABLE = new Set([
+  "HSTS",
+  "X-Frame-Options",
+  "X-Content-Type-Options",
+  "Content-Security-Policy",
+  "Referrer-Policy",
+  "Permissions-Policy",
+  "X-Powered-By",
+  "Server Header",
+  "XML-RPC",
+  "wp-config.php Exposed",
+  "readme.html Exposed",
+  "Directory Listing",
+  "User Enumeration",
+  "WordPress Version Exposed",
+  "REST API User Listing",
+  "PHP Errors Visible",
+]);
 
 const CATEGORY_LABELS: Record<string, string> = {
   headers: "Security Headers",
@@ -370,6 +390,33 @@ export function SecurityChecker({
   const [expanded, setExpanded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("all");
 
+  // WordPress auto-fix state
+  const [wpConnected, setWpConnected] = useState<boolean | null>(null);
+  const [activeFixes, setActiveFixes] = useState<Set<string>>(new Set());
+  const [fixingItems, setFixingItems] = useState<Set<string>>(new Set());
+  const [fixAllLoading, setFixAllLoading] = useState(false);
+  const [fixMessage, setFixMessage] = useState<string | null>(null);
+
+  // Check if this website has a WordPress connection
+  const checkWpConnection = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tools/security/fix?websiteId=${websiteId}`);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setWpConnected(true);
+        setActiveFixes(new Set(data.active_fixes || []));
+      } else {
+        setWpConnected(false);
+      }
+    } catch {
+      setWpConnected(false);
+    }
+  }, [websiteId]);
+
+  useEffect(() => {
+    checkWpConnection();
+  }, [checkWpConnection]);
+
   async function runCheck() {
     setLoading(true);
     setError(null);
@@ -397,6 +444,81 @@ export function SecurityChecker({
       setError("Network error — could not run audit");
     } finally {
       setLoading(false);
+    }
+  }
+
+  /** Apply a single security fix via the WordPress mu-plugin */
+  async function applyFix(fixName: string) {
+    setFixingItems((prev) => new Set(prev).add(fixName));
+    setFixMessage(null);
+
+    try {
+      const res = await fetch("/api/tools/security/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId, fixes: [fixName] }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && data.applied?.length > 0) {
+        setActiveFixes((prev) => new Set([...prev, fixName]));
+        setFixMessage(`Applied: ${fixName}`);
+      } else {
+        const reason = data.failed?.[0]?.reason || data.error || "Fix failed";
+        setFixMessage(`Failed: ${reason}`);
+      }
+    } catch {
+      setFixMessage("Network error applying fix");
+    } finally {
+      setFixingItems((prev) => {
+        const next = new Set(prev);
+        next.delete(fixName);
+        return next;
+      });
+    }
+  }
+
+  /** Apply all available fixes at once */
+  async function applyAllFixes() {
+    const displayResults = result?.results || (lastCheck?.results as unknown as SecurityResult[] | undefined);
+    if (!displayResults) return;
+
+    const fixable = displayResults
+      .filter((r) => r.status !== "pass" && AUTO_FIXABLE.has(r.name) && !activeFixes.has(r.name))
+      .map((r) => r.name);
+
+    if (fixable.length === 0) return;
+
+    setFixAllLoading(true);
+    setFixMessage(null);
+
+    try {
+      const res = await fetch("/api/tools/security/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId, fixes: fixable }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.applied?.length > 0) {
+        const newFixes = new Set(activeFixes);
+        for (const a of data.applied) {
+          newFixes.add(a.name);
+        }
+        setActiveFixes(newFixes);
+        setFixMessage(
+          `Applied ${data.applied.length} fix${data.applied.length !== 1 ? "es" : ""}` +
+          (data.failed?.length > 0 ? `, ${data.failed.length} failed` : "")
+        );
+      } else {
+        setFixMessage(data.error || "No fixes could be applied");
+      }
+    } catch {
+      setFixMessage("Network error applying fixes");
+    } finally {
+      setFixAllLoading(false);
     }
   }
 
@@ -484,10 +606,48 @@ export function SecurityChecker({
           </div>
         )}
 
-        {/* .htaccess download */}
+        {/* .htaccess download + auto-fix bar */}
         {displayResults && displayResults.length > 0 && displayResults.some((r) => r.status !== "pass") && (
-          <div className="mb-3">
+          <div className="mb-3 space-y-2">
             <DownloadHtaccess results={displayResults} websiteName={websiteName} />
+
+            {/* Auto-fix via WordPress mu-plugin */}
+            {wpConnected && (() => {
+              const fixableCount = displayResults.filter(
+                (r) => r.status !== "pass" && AUTO_FIXABLE.has(r.name) && !activeFixes.has(r.name)
+              ).length;
+              if (fixableCount === 0) return null;
+              return (
+                <div className="rounded-lg border border-green-600/30 bg-green-600/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium">Auto-Fix via WordPress</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {fixableCount} issue{fixableCount !== 1 ? "s" : ""} can be fixed automatically on the server
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={applyAllFixes}
+                      disabled={fixAllLoading}
+                      className="shrink-0 gap-1.5 bg-green-600 hover:bg-green-700"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085" />
+                      </svg>
+                      {fixAllLoading ? "Fixing..." : "Fix All"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Fix status message */}
+            {fixMessage && (
+              <p className={`text-xs font-medium ${fixMessage.startsWith("Applied") ? "text-green-600" : "text-destructive"}`}>
+                {fixMessage}
+              </p>
+            )}
           </div>
         )}
 
@@ -549,40 +709,80 @@ export function SecurityChecker({
 
             {/* Results list */}
             <div className="space-y-1.5">
-              {(expanded ? filteredResults : filteredResults?.filter((r) => r.status !== "pass"))?.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between gap-2 rounded border border-border p-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-medium">{item.name}</p>
-                      <span className="text-[9px] text-muted-foreground uppercase">{item.category}</span>
-                      {item.status !== "pass" && <FixTooltip checkName={item.name} />}
+              {(expanded ? filteredResults : filteredResults?.filter((r) => r.status !== "pass"))?.map((item, i) => {
+                const isFixed = activeFixes.has(item.name);
+                const isFixing = fixingItems.has(item.name);
+                const canAutoFix = wpConnected && AUTO_FIXABLE.has(item.name) && item.status !== "pass" && !isFixed;
+
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-center justify-between gap-2 rounded border p-2 ${
+                      isFixed ? "border-green-600/30 bg-green-600/5" : "border-border"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium">{item.name}</p>
+                        <span className="text-[9px] text-muted-foreground uppercase">{item.category}</span>
+                        {item.status !== "pass" && !isFixed && <FixTooltip checkName={item.name} />}
+                        {isFixed && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-green-600">
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                            </svg>
+                            Fixed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {isFixed ? "Fix applied — re-run audit to verify" : item.details}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">{item.details}</p>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {item.status === "pass" ? (
+                        <Badge variant="success">{item.value}</Badge>
+                      ) : isFixed ? (
+                        <Badge variant="success">Fix Applied</Badge>
+                      ) : (
+                        <SeverityBadge name={item.name} value={item.value} />
+                      )}
+                      {canAutoFix && (
+                        <Button
+                          size="sm"
+                          onClick={() => applyFix(item.name)}
+                          disabled={isFixing}
+                          className="h-6 gap-1 bg-green-600 px-2 text-[10px] hover:bg-green-700"
+                          title="Auto-fix on server"
+                        >
+                          {isFixing ? (
+                            "..."
+                          ) : (
+                            <>
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085" />
+                              </svg>
+                              Fix
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {item.status !== "pass" && !isFixed && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={runCheck}
+                          disabled={loading}
+                          className="h-6 px-2 text-[10px]"
+                          title="Re-run security audit"
+                        >
+                          {loading ? "..." : "Retest"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {item.status === "pass" ? (
-                      <Badge variant="success">{item.value}</Badge>
-                    ) : (
-                      <SeverityBadge name={item.name} value={item.value} />
-                    )}
-                    {item.status !== "pass" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={runCheck}
-                        disabled={loading}
-                        className="h-6 px-2 text-[10px]"
-                        title="Re-run security audit"
-                      >
-                        {loading ? "..." : "Retest"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {!expanded && filteredResults?.every((r) => r.status === "pass") && (
                 <p className="py-2 text-center text-xs text-muted-foreground">
                   All checks passed. Click &quot;Show all checks&quot; to see all results.

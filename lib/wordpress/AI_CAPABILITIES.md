@@ -127,6 +127,18 @@ These run instantly when the AI calls them. The AI should confirm with the user 
 | `clear_cache` | Clear all caches (object, page, transients) |
 | `toggle_maintenance` | Enable/disable maintenance mode |
 
+### Security Hardening — Direct Action (via Admin Tools)
+| Endpoint | Description |
+|----------|-------------|
+| `POST /security/harden` | Apply security fixes (.htaccess rules + PHP-level hardening) |
+| `GET /security/status` | Get current active security hardening fixes |
+
+**Auto-fixable security issues (16 total):**
+- **.htaccess fixes (13):** HSTS, X-Frame-Options, X-Content-Type-Options, Content-Security-Policy, Referrer-Policy, Permissions-Policy, X-Powered-By, Server Header, XML-RPC, wp-config.php access, readme.html access, Directory Listing, User Enumeration
+- **PHP-level fixes (3):** WordPress Version Exposed, REST API User Listing, PHP Errors Visible
+
+Fixes are persistent — .htaccess rules are managed in a dedicated block, PHP fixes stored in wp_options and applied on every request. Backups are created automatically before any file modification.
+
 ### Proposals
 | Tool | Description |
 |------|-------------|
@@ -211,7 +223,7 @@ SEO meta fields set via mu-plugin:
 - **Create/refund WooCommerce orders** — can only update status of existing orders
 - **Create new products** — can only update existing ones
 - **Install new plugins/themes** — only update existing ones
-- **Edit wp-config.php or .htaccess** — no filesystem write access
+- **Edit wp-config.php or .htaccess manually** — only automated security hardening via `/security/harden` endpoint (managed block in .htaccess, debug mode toggle in wp-config.php)
 - **Run WP-CLI commands** — no shell access (unless SSH is configured separately)
 - **Manage taxonomies directly** (categories, tags) — only via post creation
 - **Manage comments** — no comment tools
@@ -224,7 +236,8 @@ SEO meta fields set via mu-plugin:
 
 ## Dependencies & Requirements
 
-- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, WooCommerce, users, plugin/theme/core updates, password reset, post creation with SEO)
+- **mu-plugin required for:** all custom endpoints (site-health, plugins, themes, debug-log, db-health, cache, maintenance, security hardening, WooCommerce, users, plugin/theme/core updates, password reset, post creation with SEO)
+- **mu-plugin v1.4.0+ required for:** security hardening (`.htaccess` write, PHP-level fixes)
 - **Standard WP REST API for:** media, pages, posts, menus (no mu-plugin needed)
 - **WooCommerce plugin required for:** all `wc_*` tools — returns error if not installed
 - **Yoast SEO for:** `meta_description`, `focus_keyword`, `seo_title` fields (writes to `_yoast_wpseo_*` meta)

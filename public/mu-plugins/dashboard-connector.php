@@ -11,7 +11,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('DASHBOARD_CONNECTOR_VERSION', '1.3.0');
+define('DASHBOARD_CONNECTOR_VERSION', '1.4.0');
 
 class Dashboard_Connector {
 
@@ -30,6 +30,9 @@ class Dashboard_Connector {
         // Authenticate standard WP REST API requests (/wp/v2/*) via shared secret
         // so no Application Password is needed
         add_filter('determine_current_user', [$this, 'authenticate_via_secret'], 20);
+
+        // Apply security hardening from stored settings
+        $this->apply_security_hardening();
     }
 
     /**
@@ -356,6 +359,27 @@ class Dashboard_Connector {
                     'sanitize_callback' => 'sanitize_text_field',
                 ],
             ],
+        ]);
+
+        // Security hardening
+        register_rest_route($this->namespace, '/security/harden', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'security_harden'],
+            'permission_callback' => [$this, 'check_write_permissions'],
+            'args' => [
+                'fixes' => [
+                    'required'          => true,
+                    'validate_callback' => function($value) {
+                        return is_array($value) && !empty($value);
+                    },
+                ],
+            ],
+        ]);
+
+        register_rest_route($this->namespace, '/security/status', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'security_status'],
+            'permission_callback' => [$this, 'check_permissions'],
         ]);
     }
 
@@ -2483,6 +2507,332 @@ class Dashboard_Connector {
         }
 
         return size_format($size);
+    }
+
+    // ═══════════════════════════════════════════
+    //  SECURITY HARDENING
+    // ═══════════════════════════════════════════
+
+    /**
+     * Valid security fixes that can be applied.
+     * Maps fix name → type (htaccess or php).
+     */
+    private function get_available_fixes() {
+        return [
+            // .htaccess fixes
+            'HSTS'                    => 'htaccess',
+            'X-Frame-Options'         => 'htaccess',
+            'X-Content-Type-Options'  => 'htaccess',
+            'Content-Security-Policy' => 'htaccess',
+            'Referrer-Policy'         => 'htaccess',
+            'Permissions-Policy'      => 'htaccess',
+            'X-Powered-By'           => 'htaccess',
+            'Server Header'           => 'htaccess',
+            'XML-RPC'                 => 'htaccess',
+            'wp-config.php Exposed'   => 'htaccess',
+            'readme.html Exposed'     => 'htaccess',
+            'Directory Listing'       => 'htaccess',
+            'User Enumeration'        => 'htaccess',
+            // PHP-level fixes (via wp_options)
+            'WordPress Version Exposed' => 'php',
+            'REST API User Listing'     => 'php',
+            'PHP Errors Visible'        => 'php',
+        ];
+    }
+
+    /**
+     * .htaccess rule templates for each fix.
+     */
+    private function get_htaccess_rules() {
+        return [
+            'HSTS' => '<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+</IfModule>',
+            'X-Frame-Options' => '<IfModule mod_headers.c>
+  Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>',
+            'X-Content-Type-Options' => '<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+</IfModule>',
+            'Content-Security-Policy' => '<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src \'self\'; script-src \'self\' \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: https:; font-src \'self\' data: https:;"
+</IfModule>',
+            'Referrer-Policy' => '<IfModule mod_headers.c>
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>',
+            'Permissions-Policy' => '<IfModule mod_headers.c>
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+</IfModule>',
+            'X-Powered-By' => '<IfModule mod_headers.c>
+  Header unset X-Powered-By
+  Header always unset X-Powered-By
+</IfModule>',
+            'Server Header' => 'ServerSignature Off',
+            'XML-RPC' => '<Files xmlrpc.php>
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+  </IfModule>
+</Files>',
+            'wp-config.php Exposed' => '<Files wp-config.php>
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+  </IfModule>
+</Files>',
+            'readme.html Exposed' => '<Files readme.html>
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+  </IfModule>
+</Files>',
+            'Directory Listing' => 'Options -Indexes',
+            'User Enumeration' => '<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{QUERY_STRING} author=\\d
+  RewriteRule ^ /? [L,R=301]
+</IfModule>',
+        ];
+    }
+
+    /**
+     * Apply security hardening fixes.
+     * POST /dashboard/v1/security/harden
+     * Body: { "fixes": ["HSTS", "XML-RPC", "WordPress Version Exposed", ...] }
+     */
+    public function security_harden(WP_REST_Request $request) {
+        $fixes = $request->get_param('fixes');
+        $available = $this->get_available_fixes();
+        $htaccess_rules = $this->get_htaccess_rules();
+
+        $applied = [];
+        $failed = [];
+        $skipped = [];
+
+        // Separate into htaccess and php fixes
+        $htaccess_fixes = [];
+        $php_fixes = [];
+
+        foreach ($fixes as $fix) {
+            $fix = sanitize_text_field($fix);
+            if (!isset($available[$fix])) {
+                $skipped[] = ['name' => $fix, 'reason' => 'Unknown fix'];
+                continue;
+            }
+            if ($available[$fix] === 'htaccess') {
+                $htaccess_fixes[] = $fix;
+            } else {
+                $php_fixes[] = $fix;
+            }
+        }
+
+        // ─── Apply .htaccess fixes ───────────────────────────────────
+        if (!empty($htaccess_fixes)) {
+            $htaccess_file = ABSPATH . '.htaccess';
+            $htaccess_content = '';
+
+            if (file_exists($htaccess_file)) {
+                $htaccess_content = file_get_contents($htaccess_file);
+                if ($htaccess_content === false) {
+                    foreach ($htaccess_fixes as $fix) {
+                        $failed[] = ['name' => $fix, 'reason' => 'Could not read .htaccess'];
+                    }
+                    $htaccess_fixes = [];
+                }
+            }
+
+            if (!empty($htaccess_fixes)) {
+                // Create backup
+                if (file_exists($htaccess_file)) {
+                    $backup = $htaccess_file . '.dashboard-backup-' . date('YmdHis');
+                    if (!copy($htaccess_file, $backup)) {
+                        foreach ($htaccess_fixes as $fix) {
+                            $failed[] = ['name' => $fix, 'reason' => 'Could not create .htaccess backup'];
+                        }
+                        $htaccess_fixes = [];
+                    }
+                }
+            }
+
+            if (!empty($htaccess_fixes)) {
+                $start_marker = '# BEGIN Dashboard Security Hardening';
+                $end_marker   = '# END Dashboard Security Hardening';
+
+                // Remove existing dashboard security block
+                $pattern = '/' . preg_quote($start_marker, '/') . '.*?' . preg_quote($end_marker, '/') . '\s*/s';
+                $htaccess_content = preg_replace($pattern, '', $htaccess_content);
+
+                // Load current active fixes from wp_options and merge
+                $current_fixes = get_option('dashboard_security_htaccess_fixes', []);
+                if (!is_array($current_fixes)) $current_fixes = [];
+                $all_htaccess_fixes = array_unique(array_merge($current_fixes, $htaccess_fixes));
+
+                // Build the security block
+                $security_block = $start_marker . "\n";
+                $security_block .= "# Managed by Andrea Creative Dashboard — do not edit manually\n";
+                $security_block .= "# Last updated: " . date('Y-m-d H:i:s') . "\n\n";
+
+                foreach ($all_htaccess_fixes as $fix) {
+                    if (isset($htaccess_rules[$fix])) {
+                        $security_block .= "# {$fix}\n";
+                        $security_block .= $htaccess_rules[$fix] . "\n\n";
+                    }
+                }
+
+                $security_block .= $end_marker . "\n\n";
+
+                // Prepend security block (before WordPress rewrite rules)
+                $wp_marker = '# BEGIN WordPress';
+                if (strpos($htaccess_content, $wp_marker) !== false) {
+                    $htaccess_content = str_replace($wp_marker, $security_block . $wp_marker, $htaccess_content);
+                } else {
+                    $htaccess_content = $security_block . $htaccess_content;
+                }
+
+                // Write the file
+                $result = file_put_contents($htaccess_file, $htaccess_content);
+                if ($result === false) {
+                    foreach ($htaccess_fixes as $fix) {
+                        $failed[] = ['name' => $fix, 'reason' => 'Could not write .htaccess'];
+                    }
+                    // Restore backup
+                    if (isset($backup) && file_exists($backup)) {
+                        copy($backup, $htaccess_file);
+                    }
+                } else {
+                    foreach ($htaccess_fixes as $fix) {
+                        $applied[] = ['name' => $fix, 'type' => 'htaccess'];
+                    }
+                    // Store which htaccess fixes are active
+                    update_option('dashboard_security_htaccess_fixes', $all_htaccess_fixes);
+                }
+            }
+        }
+
+        // ─── Apply PHP-level fixes ───────────────────────────────────
+        $current_php = get_option('dashboard_security_php_fixes', []);
+        if (!is_array($current_php)) $current_php = [];
+
+        foreach ($php_fixes as $fix) {
+            switch ($fix) {
+                case 'WordPress Version Exposed':
+                case 'REST API User Listing':
+                    $current_php[$fix] = true;
+                    $applied[] = ['name' => $fix, 'type' => 'php'];
+                    break;
+
+                case 'PHP Errors Visible':
+                    // Also disable display_errors via PHP
+                    @ini_set('display_errors', '0');
+                    $current_php[$fix] = true;
+                    $applied[] = ['name' => $fix, 'type' => 'php'];
+                    // Also update wp-config.php debug settings
+                    $config_file = ABSPATH . 'wp-config.php';
+                    if (is_writable($config_file)) {
+                        $config_content = file_get_contents($config_file);
+                        if ($config_content !== false) {
+                            $backup_cfg = $config_file . '.dashboard-backup-' . date('YmdHis');
+                            copy($config_file, $backup_cfg);
+                            $config_content = preg_replace(
+                                "/define\s*\(\s*['\"]WP_DEBUG_DISPLAY['\"]\s*,\s*true\s*\)\s*;/",
+                                "define('WP_DEBUG_DISPLAY', false);",
+                                $config_content
+                            );
+                            file_put_contents($config_file, $config_content);
+                        }
+                    }
+                    break;
+
+                default:
+                    $skipped[] = ['name' => $fix, 'reason' => 'Unknown PHP fix'];
+            }
+        }
+
+        if (!empty($php_fixes)) {
+            update_option('dashboard_security_php_fixes', $current_php);
+        }
+
+        return rest_ensure_response([
+            'success' => !empty($applied),
+            'applied' => $applied,
+            'failed'  => $failed,
+            'skipped' => $skipped,
+            'active_fixes' => array_merge(
+                get_option('dashboard_security_htaccess_fixes', []),
+                array_keys(array_filter(get_option('dashboard_security_php_fixes', [])))
+            ),
+        ]);
+    }
+
+    /**
+     * Get current security hardening status.
+     * GET /dashboard/v1/security/status
+     */
+    public function security_status(WP_REST_Request $request) {
+        $htaccess_fixes = get_option('dashboard_security_htaccess_fixes', []);
+        $php_fixes = get_option('dashboard_security_php_fixes', []);
+
+        if (!is_array($htaccess_fixes)) $htaccess_fixes = [];
+        if (!is_array($php_fixes)) $php_fixes = [];
+
+        $active = array_merge($htaccess_fixes, array_keys(array_filter($php_fixes)));
+
+        return rest_ensure_response([
+            'active_fixes'   => $active,
+            'htaccess_fixes' => $htaccess_fixes,
+            'php_fixes'      => array_keys(array_filter($php_fixes)),
+            'available'      => array_keys($this->get_available_fixes()),
+        ]);
+    }
+
+    /**
+     * Apply active PHP-level security hardening.
+     * Called from __construct on every request.
+     */
+    private function apply_security_hardening() {
+        $fixes = get_option('dashboard_security_php_fixes', []);
+        if (!is_array($fixes) || empty($fixes)) return;
+
+        // WordPress Version Exposed
+        if (!empty($fixes['WordPress Version Exposed'])) {
+            remove_action('wp_head', 'wp_generator');
+            add_filter('the_generator', '__return_empty_string');
+            // Remove ver= from scripts and styles
+            add_filter('style_loader_src', function($src) {
+                return remove_query_arg('ver', $src);
+            }, 9999);
+            add_filter('script_loader_src', function($src) {
+                return remove_query_arg('ver', $src);
+            }, 9999);
+        }
+
+        // REST API User Listing
+        if (!empty($fixes['REST API User Listing'])) {
+            add_filter('rest_endpoints', function($endpoints) {
+                if (isset($endpoints['/wp/v2/users'])) {
+                    unset($endpoints['/wp/v2/users']);
+                }
+                if (isset($endpoints['/wp/v2/users/(?P<id>[\d]+)'])) {
+                    unset($endpoints['/wp/v2/users/(?P<id>[\d]+)']);
+                }
+                return $endpoints;
+            });
+        }
+
+        // PHP Errors Visible
+        if (!empty($fixes['PHP Errors Visible'])) {
+            @ini_set('display_errors', '0');
+            @error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
+        }
     }
 }
 

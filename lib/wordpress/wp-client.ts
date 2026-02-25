@@ -621,6 +621,32 @@ export class WPClient {
     });
   }
 
+  // ─── Security Hardening ────────────────────────────────────────────
+
+  async securityHarden(fixes: string[]): Promise<{
+    success: boolean;
+    applied: { name: string; type: string }[];
+    failed: { name: string; reason: string }[];
+    skipped: { name: string; reason: string }[];
+    active_fixes: string[];
+  }> {
+    return this.request("/security/harden", {
+      isCustomEndpoint: true,
+      method: "POST",
+      body: { fixes },
+      confirmAction: true,
+    });
+  }
+
+  async securityStatus(): Promise<{
+    active_fixes: string[];
+    htaccess_fixes: string[];
+    php_fixes: string[];
+    available: string[];
+  }> {
+    return this.request("/security/status", { isCustomEndpoint: true });
+  }
+
   async getMenus(): Promise<unknown[]> {
     return this.request("/menus", { params: { context: "edit" } });
   }

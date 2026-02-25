@@ -11,6 +11,7 @@ interface BrokenLinksResult {
   statusCode: number | null;
   error: string | null;
   isInternal: boolean;
+  foundOn?: string[];
 }
 
 interface BrokenLinksCheckerProps {
@@ -30,7 +31,7 @@ export function BrokenLinksChecker({
 }: BrokenLinksCheckerProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
-    summary: { totalLinks: number; brokenCount: number };
+    summary: { totalLinks: number; brokenCount: number; pagesCrawled?: number };
     results: BrokenLinksResult[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export function BrokenLinksChecker({
   }
 
   const displayResult = result;
-  const displaySummary = displayResult?.summary || (lastCheck?.summary as { totalLinks?: number; brokenCount?: number } | undefined);
+  const displaySummary = displayResult?.summary || (lastCheck?.summary as { totalLinks?: number; brokenCount?: number; pagesCrawled?: number } | undefined);
   const displayResults = displayResult?.results || (lastCheck?.results as unknown as BrokenLinksResult[] | undefined);
   const brokenLinks = displayResults?.filter((r) => r.statusCode === null || (r.statusCode && r.statusCode >= 400)) || [];
 
@@ -113,12 +114,13 @@ export function BrokenLinksChecker({
         )}
 
         {displaySummary && (
-          <div className="mb-3 flex items-center gap-3">
+          <div className="mb-3 flex flex-wrap items-center gap-3">
             <Badge variant={displaySummary.brokenCount === 0 ? "default" : "destructive"}>
               {displaySummary.brokenCount === 0 ? "All Links OK" : `${displaySummary.brokenCount} Broken Links`}
             </Badge>
             <span className="text-xs text-muted-foreground">
               {displaySummary.totalLinks} links checked
+              {displaySummary.pagesCrawled ? ` across ${displaySummary.pagesCrawled} pages` : ""}
             </span>
           </div>
         )}
@@ -136,16 +138,16 @@ export function BrokenLinksChecker({
                 <table className="w-full text-xs">
                   <thead className="bg-muted">
                     <tr>
-                      <th className="p-2 text-left font-medium">URL</th>
+                      <th className="p-2 text-left font-medium">Broken URL</th>
                       <th className="p-2 text-left font-medium">Status</th>
+                      <th className="p-2 text-left font-medium">Found On</th>
                       <th className="p-2 text-left font-medium">Type</th>
-                      <th className="p-2 text-left font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {brokenLinks.map((link, i) => (
                       <tr key={i} className="border-t border-border">
-                        <td className="max-w-xs truncate p-2">
+                        <td className="max-w-[200px] truncate p-2">
                           <a href={link.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
                             {link.url}
                           </a>
@@ -155,18 +157,24 @@ export function BrokenLinksChecker({
                             {link.statusCode || link.error || "Failed"}
                           </Badge>
                         </td>
-                        <td className="p-2">{link.isInternal ? "Internal" : "External"}</td>
-                        <td className="p-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={runCheck}
-                            disabled={loading}
-                            className="h-6 px-2 text-[10px]"
-                          >
-                            {loading ? "..." : "Retest"}
-                          </Button>
+                        <td className="max-w-[160px] p-2">
+                          {link.foundOn && link.foundOn.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {link.foundOn.map((page, j) => (
+                                <span
+                                  key={j}
+                                  className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                                  title={page}
+                                >
+                                  {page.length > 30 ? page.slice(0, 30) + "..." : page}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">/</span>
+                          )}
                         </td>
+                        <td className="p-2">{link.isInternal ? "Internal" : "External"}</td>
                       </tr>
                     ))}
                   </tbody>

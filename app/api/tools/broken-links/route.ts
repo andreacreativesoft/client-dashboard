@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
 
-const MAX_LINKS = 50;
+const MAX_PAGES = 10;
+const MAX_LINKS = 100;
 const FETCH_TIMEOUT = 5000;
 
 function extractLinks(html: string, baseUrl: string): string[] {
@@ -25,7 +26,26 @@ function extractLinks(html: string, baseUrl: string): string[] {
     }
   }
 
-  return Array.from(links).slice(0, MAX_LINKS);
+  return Array.from(links);
+}
+
+async function fetchPage(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "ClientDashboard-LinkChecker/1.0" },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("text/html")) return null;
+    return await res.text();
+  } catch {
+    clearTimeout(timeout);
+    return null;
+  }
 }
 
 async function checkLink(url: string): Promise<{ url: string; statusCode: number | null; error: string | null; type: string }> {
@@ -150,28 +170,55 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Fetch homepage
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const pageRes = await fetch(website.url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "ClientDashboard-LinkChecker/1.0" },
-    });
-    clearTimeout(timeout);
+    const baseUrl = website.url.replace(/\/$/, "");
+    const baseHost = new URL(baseUrl).hostname;
 
-    if (!pageRes.ok) {
-      throw new Error(`Failed to fetch homepage: HTTP ${pageRes.status}`);
+    // ─── Crawl pages to discover links ─────────────────────────────
+    // Track which page(s) each link was found on
+    const linkSources = new Map<string, Set<string>>(); // link URL → set of source pages
+    const crawledPages = new Set<string>();
+    const pagesToCrawl: string[] = [baseUrl];
+
+    while (pagesToCrawl.length > 0 && crawledPages.size < MAX_PAGES) {
+      const pageUrl = pagesToCrawl.shift()!;
+      if (crawledPages.has(pageUrl)) continue;
+      crawledPages.add(pageUrl);
+
+      const html = await fetchPage(pageUrl);
+      if (!html) continue;
+
+      const pageLabel = pageUrl === baseUrl ? "/" : pageUrl.replace(baseUrl, "") || "/";
+      const links = extractLinks(html, pageUrl);
+
+      for (const link of links) {
+        if (!linkSources.has(link)) {
+          linkSources.set(link, new Set());
+        }
+        linkSources.get(link)!.add(pageLabel);
+
+        // Queue internal pages for crawling (only HTML pages, skip assets)
+        try {
+          const linkUrl = new URL(link);
+          if (
+            linkUrl.hostname === baseHost &&
+            !link.match(/\.(jpg|jpeg|png|gif|svg|webp|css|js|pdf|zip|mp4|mp3|woff|woff2|ttf|ico)(\?|$)/i) &&
+            crawledPages.size + pagesToCrawl.length < MAX_PAGES
+          ) {
+            const normalized = linkUrl.origin + linkUrl.pathname.replace(/\/$/, "");
+            if (!crawledPages.has(normalized) && !pagesToCrawl.includes(normalized)) {
+              pagesToCrawl.push(normalized);
+            }
+          }
+        } catch { /* skip */ }
+      }
     }
 
-    const html = await pageRes.text();
-    const links = extractLinks(html, website.url);
+    // ─── Check all unique links ────────────────────────────────────
+    const uniqueLinks = Array.from(linkSources.keys()).slice(0, MAX_LINKS);
+    const results: { url: string; statusCode: number | null; error: string | null; type: string; isInternal: boolean; foundOn: string[] }[] = [];
 
-    // Check all links concurrently (batches of 10)
-    const results: { url: string; statusCode: number | null; error: string | null; type: string; isInternal: boolean }[] = [];
-    const baseHost = new URL(website.url).hostname;
-
-    for (let i = 0; i < links.length; i += 10) {
-      const batch = links.slice(i, i + 10);
+    for (let i = 0; i < uniqueLinks.length; i += 10) {
+      const batch = uniqueLinks.slice(i, i + 10);
       const batchResults = await Promise.all(batch.map(checkLink));
 
       for (const r of batchResults) {
@@ -180,7 +227,8 @@ export async function POST(request: NextRequest) {
           isInternal = new URL(r.url).hostname === baseHost;
         } catch { /* external */ }
 
-        results.push({ ...r, isInternal });
+        const foundOn = Array.from(linkSources.get(r.url) || []);
+        results.push({ ...r, isInternal, foundOn });
       }
     }
 
@@ -192,6 +240,7 @@ export async function POST(request: NextRequest) {
       brokenCount: brokenLinks.length,
       internalBroken: brokenLinks.filter((r) => r.isInternal).length,
       externalBroken: brokenLinks.filter((r) => !r.isInternal).length,
+      pagesCrawled: crawledPages.size,
     };
 
     // Update check record

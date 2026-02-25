@@ -447,6 +447,46 @@ export function SecurityChecker({
     }
   }
 
+  /** Retest a single security check without re-running the full audit */
+  const [retesting, setRetesting] = useState<string | null>(null);
+
+  async function retestSingle(checkName: string) {
+    setRetesting(checkName);
+
+    try {
+      const res = await fetch("/api/tools/security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteId, checks: [checkName] }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && data.results?.length > 0) {
+        // Update just this check in the current results
+        setResult((prev) => {
+          if (!prev) return prev;
+          const updatedResults = prev.results.map((r) =>
+            r.name === checkName ? data.results[0] : r
+          );
+          const passCount = updatedResults.filter((r: SecurityResult) => r.status === "pass").length;
+          const warnCount = updatedResults.filter((r: SecurityResult) => r.status === "warning").length;
+          const failCount = updatedResults.filter((r: SecurityResult) => r.status === "fail").length;
+          const total = updatedResults.length;
+          return {
+            score: Math.round(((passCount + warnCount * 0.4) / total) * 100),
+            summary: { passed: passCount, warnings: warnCount, failed: failCount, totalChecks: total },
+            results: updatedResults,
+          };
+        });
+      }
+    } catch {
+      // Silent fail for single retest
+    } finally {
+      setRetesting(null);
+    }
+  }
+
   /** Apply a single security fix via the WordPress mu-plugin */
   async function applyFix(fixName: string) {
     setFixingItems((prev) => new Set(prev).add(fixName));
@@ -771,12 +811,12 @@ export function SecurityChecker({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={runCheck}
-                          disabled={loading}
+                          onClick={() => retestSingle(item.name)}
+                          disabled={retesting === item.name}
                           className="h-6 px-2 text-[10px]"
-                          title="Re-run security audit"
+                          title={`Retest ${item.name} only`}
                         >
-                          {loading ? "..." : "Retest"}
+                          {retesting === item.name ? "..." : "Retest"}
                         </Button>
                       )}
                     </div>

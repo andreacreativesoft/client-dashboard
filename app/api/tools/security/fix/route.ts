@@ -70,7 +70,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET — fetch current security hardening status for a website.
+ * GET — check if a website has a WordPress connection and fetch active fixes.
+ * First checks the DB for an active WordPress integration (fast, no remote call).
+ * Then optionally tries to get active fixes from the remote site.
  */
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -99,24 +101,48 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Step 1: Check if this website's client has an active WordPress integration (DB only)
+  const { data: website } = await supabase
+    .from("websites")
+    .select("id, client_id")
+    .eq("id", websiteId)
+    .single();
+
+  if (!website) {
+    return NextResponse.json(
+      { success: false, error: "Website not found" },
+      { status: 404 }
+    );
+  }
+
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id")
+    .eq("client_id", website.client_id)
+    .eq("type", "wordpress")
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (!integration) {
+    // No WordPress integration — Fix buttons should not be shown
+    return NextResponse.json({ success: false, wp_connected: false });
+  }
+
+  // Step 2: WordPress integration exists — try to get active fixes from remote
+  let active_fixes: string[] = [];
   try {
     const client = await WPClient.fromWebsiteId(websiteId);
     const status = await client.securityStatus();
-
-    return NextResponse.json({
-      success: true,
-      ...status,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          e instanceof Error
-            ? e.message
-            : "Failed to fetch security status",
-      },
-      { status: 500 }
-    );
+    active_fixes = status.active_fixes || [];
+  } catch {
+    // Remote call failed (old mu-plugin version, site down, etc.)
+    // Still show Fix buttons — the fix attempt will report errors
   }
+
+  return NextResponse.json({
+    success: true,
+    wp_connected: true,
+    active_fixes,
+  });
 }

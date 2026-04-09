@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+
+const BAR_COLORS = ["#2A5959", "#B5C3BE", "#F2612E", "#B5C3BE", "#2E2E2E"];
+function barColor(i: number) { return BAR_COLORS[i % BAR_COLORS.length]!; }
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
@@ -252,28 +255,20 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 {data.topQueries.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
                 ) : (
-                  <div className="space-y-2">
-                    {data.topQueries.slice(0, 10).map((query, i) => (
-                      <div
-                        key={query.query}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs">
-                            {i + 1}
-                          </span>
-                          <span className="truncate text-sm" title={query.query}>
-                            {query.query}
-                          </span>
+                  <div className="space-y-4">
+                    {data.topQueries.slice(0, 10).map((query, i) => {
+                      const maxClicks = Math.max(...data.topQueries.slice(0, 10).map((q) => q.clicks), 1);
+                      const percent = Math.round((query.clicks / maxClicks) * 100);
+                      return (
+                        <div key={query.query} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={query.query}>{query.query}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
+                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(query.clicks)}</span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-3 text-xs">
-                          <span className="font-medium">{formatNumber(query.clicks)}</span>
-                          <span className="text-muted-foreground" title="Position">
-                            #{query.position.toFixed(1)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -288,34 +283,19 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 {data.topPages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("gsc.no_pages")}</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-4">
                     {data.topPages.slice(0, 8).map((page, i) => {
-                      // Show just the path portion
                       let displayPath = page.page;
-                      try {
-                        displayPath = new URL(page.page).pathname;
-                      } catch {
-                        // Keep original
-                      }
+                      try { displayPath = new URL(page.page).pathname; } catch { /* keep */ }
+                      const maxClicks = Math.max(...data.topPages.slice(0, 8).map((p) => p.clicks), 1);
+                      const percent = Math.round((page.clicks / maxClicks) * 100);
                       return (
-                        <div
-                          key={page.page}
-                          className="flex items-center justify-between gap-2"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs">
-                              {i + 1}
-                            </span>
-                            <span className="truncate text-sm" title={page.page}>
-                              {displayPath}
-                            </span>
+                        <div key={page.page} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={page.page}>{displayPath}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
                           </div>
-                          <div className="flex shrink-0 items-center gap-3 text-xs">
-                            <span className="font-medium">{formatNumber(page.clicks)}</span>
-                            <span className="text-muted-foreground" title="Impressions">
-                              {formatNumber(page.impressions)}
-                            </span>
-                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(page.clicks)}</span>
                         </div>
                       );
                     })}
@@ -333,28 +313,18 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 {data.deviceBreakdown.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("gsc.no_devices")}</p>
                 ) : (
-                  <div className="space-y-3">
-                    {data.deviceBreakdown.map((device) => {
-                      const totalClicks = Math.max(
-                        data.deviceBreakdown.reduce((sum, d) => sum + d.clicks, 0),
-                        1
-                      );
-                      const percent = Math.round((device.clicks / totalClicks) * 100);
+                  <div className="space-y-4">
+                    {data.deviceBreakdown.map((device, i) => {
+                      const maxClicks = Math.max(...data.deviceBreakdown.map((d) => d.clicks), 1);
+                      const percent = Math.round((device.clicks / maxClicks) * 100);
                       const deviceLabel = device.device.charAt(0).toUpperCase() + device.device.slice(1).toLowerCase();
                       return (
-                        <div key={device.device}>
-                          <div className="mb-1 flex items-center justify-between text-sm">
-                            <span>{deviceLabel}</span>
-                            <span className="text-muted-foreground">
-                              {formatNumber(device.clicks)} clicks ({percent}%)
-                            </span>
+                        <div key={device.device} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 text-[14px] text-[#2E2E2E]">{deviceLabel}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
-                            />
-                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(device.clicks)}</span>
                         </div>
                       );
                     })}
@@ -372,26 +342,17 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                 {data.topQueries.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
                 ) : (
-                  <div className="space-y-3">
-                    {data.topQueries.slice(0, 8).map((query) => {
-                      const maxClicks = Math.max(...data.topQueries.map((q) => q.clicks), 1);
+                  <div className="space-y-4">
+                    {data.topQueries.slice(0, 8).map((query, i) => {
+                      const maxClicks = Math.max(...data.topQueries.slice(0, 8).map((q) => q.clicks), 1);
                       const percent = Math.round((query.clicks / maxClicks) * 100);
                       return (
-                        <div key={query.query}>
-                          <div className="mb-1 flex items-center justify-between text-sm">
-                            <span className="truncate font-medium" title={query.query}>
-                              {query.query}
-                            </span>
-                            <span className="shrink-0 text-muted-foreground">
-                              {(query.ctr * 100).toFixed(1)}% CTR
-                            </span>
+                        <div key={query.query} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={query.query}>{query.query}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
-                            />
-                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(query.clicks)}</span>
                         </div>
                       );
                     })}

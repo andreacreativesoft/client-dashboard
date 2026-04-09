@@ -297,24 +297,16 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                         </svg>
                       ),
                     },
-                  ].map((item) => {
-                    const percent = data.totals.totalInteractions > 0
-                      ? Math.round((item.count / data.totals.totalInteractions) * 100)
-                      : 0;
+                  ].map((item, i) => {
+                    const maxCount = Math.max(data.totals.directionRequests, data.totals.callClicks, data.totals.websiteClicks, 1);
+                    const percent = Math.round((item.count / maxCount) * 100);
                     return (
-                      <div key={item.label}>
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="flex items-center gap-1.5">{item.icon} {item.label}</span>
-                          <span className="text-muted-foreground">
-                            {formatNumber(item.count)} ({percent}%)
-                          </span>
+                      <div key={item.label} className="flex items-center gap-4">
+                        <span className="w-[200px] shrink-0 text-[14px] text-[#2E2E2E]">{item.label}</span>
+                        <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: ["#2A5959", "#B5C3BE", "#F2612E"][i] || "#2A5959" }} />
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
-                          />
-                        </div>
+                        <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(item.count)}</span>
                       </div>
                     );
                   })}
@@ -340,23 +332,20 @@ export function GBPAnalytics({ clientsWithGBP, isAdmin, initialClientId }: Props
                     {t("gbp.no_keywords")}
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {data.searchKeywords.slice(0, 10).map((kw, i) => (
-                      <div
-                        key={kw.keyword}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs">
-                            {i + 1}
-                          </span>
-                          <span className="truncate text-sm">{kw.keyword}</span>
+                  <div className="space-y-4">
+                    {data.searchKeywords.slice(0, 10).map((kw, i) => {
+                      const maxImpr = Math.max(...data.searchKeywords.slice(0, 10).map((k) => k.impressions), 1);
+                      const percent = Math.round((kw.impressions / maxImpr) * 100);
+                      return (
+                        <div key={kw.keyword} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]">{kw.keyword}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: ["#2A5959", "#B5C3BE", "#F2612E", "#B5C3BE", "#2E2E2E"][i % 5] }} />
+                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(kw.impressions)}</span>
                         </div>
-                        <span className="shrink-0 text-sm font-medium">
-                          {formatNumber(kw.impressions)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

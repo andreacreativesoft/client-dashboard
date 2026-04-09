@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+
+const BAR_COLORS = ["#2A5959", "#B5C3BE", "#F2612E", "#B5C3BE", "#2E2E2E"];
+function barColor(i: number) { return BAR_COLORS[i % BAR_COLORS.length]!; }
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
@@ -298,24 +301,17 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                     </code>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {customEvents.map((event) => {
+                  <div className="space-y-4">
+                    {customEvents.map((event, i) => {
                       const maxCount = Math.max(...customEvents.map((e) => e.eventCount), 1);
                       const percent = Math.round((event.eventCount / maxCount) * 100);
                       return (
-                        <div key={event.eventName}>
-                          <div className="mb-1 flex items-center justify-between text-sm">
-                            <span className="font-medium">{event.eventName}</span>
-                            <span className="text-muted-foreground">
-                              {formatNumber(event.eventCount)} ({event.users} {t("ga4.users").toLowerCase()})
-                            </span>
+                        <div key={event.eventName} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 text-[14px] text-[#2E2E2E]">{event.eventName}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
-                            />
-                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(event.eventCount)}</span>
                         </div>
                       );
                     })}
@@ -357,25 +353,20 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                 {data.topPages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("ga4.no_pages")}</p>
                 ) : (
-                  <div className="space-y-2">
-                    {data.topPages.slice(0, 8).map((page, i) => (
-                      <div
-                        key={page.pagePath}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs">
-                            {i + 1}
-                          </span>
-                          <span className="truncate text-sm" title={page.pagePath}>
-                            {page.pagePath}
-                          </span>
+                  <div className="space-y-4">
+                    {data.topPages.slice(0, 8).map((page, i) => {
+                      const maxViews = Math.max(...data.topPages.slice(0, 8).map((p) => p.pageViews), 1);
+                      const percent = Math.round((page.pageViews / maxViews) * 100);
+                      return (
+                        <div key={page.pagePath} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={page.pagePath}>{page.pagePath}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
+                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(page.pageViews)}</span>
                         </div>
-                        <span className="shrink-0 text-sm font-medium">
-                          {formatNumber(page.pageViews)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -390,27 +381,17 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                 {data.trafficSources.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("ga4.no_sources")}</p>
                 ) : (
-                  <div className="space-y-3">
-                    {data.trafficSources.map((source) => {
-                      const maxSessions = Math.max(
-                        ...data.trafficSources.map((s) => s.sessions),
-                        1
-                      );
+                  <div className="space-y-4">
+                    {data.trafficSources.map((source, i) => {
+                      const maxSessions = Math.max(...data.trafficSources.map((s) => s.sessions), 1);
                       const percent = Math.round((source.sessions / maxSessions) * 100);
                       return (
-                        <div key={source.channel}>
-                          <div className="mb-1 flex items-center justify-between text-sm">
-                            <span>{source.channel}</span>
-                            <span className="text-muted-foreground">
-                              {formatNumber(source.sessions)} {t("ga4.sessions").toLowerCase()}
-                            </span>
+                        <div key={source.channel} className="flex items-center gap-4">
+                          <span className="w-[200px] shrink-0 text-[14px] text-[#2E2E2E]">{source.channel}</span>
+                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
-                            />
-                          </div>
+                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(source.sessions)}</span>
                         </div>
                       );
                     })}

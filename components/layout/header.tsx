@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { ClientSelect } from "@/components/client-select";
 import { ClientSwitcher } from "@/components/client-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 interface HeaderProps {
@@ -52,6 +54,8 @@ export function Header({ userName, isAdmin, avatarUrl, showClientSwitcher, selec
         {isAdmin && (
           <span className="text-xs text-muted-foreground">{t("header.admin")}</span>
         )}
+        <LanguageSwitcher />
+        <ThemeToggle />
       </div>
     </header>
   );

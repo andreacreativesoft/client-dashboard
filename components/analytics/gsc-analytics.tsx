@@ -209,7 +209,7 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
               {data.daily.length > 0 ? (
                 <>
                   <div className="flex h-32 items-end gap-1">
-                    {data.daily.map((day) => {
+                    {data.daily.map((day, index) => {
                       const maxClicks = Math.max(...data.daily.map((d) => d.clicks), 1);
                       const height = day.clicks > 0
                         ? Math.max((day.clicks / maxClicks) * 100, 4)
@@ -217,8 +217,8 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                       return (
                         <div
                           key={day.date}
-                          className="flex-1 rounded-t bg-foreground transition-all hover:bg-foreground/80"
-                          style={{ height: `${height}%` }}
+                          className="flex-1 rounded-t transition-all"
+                          style={{ height: `${height}%`, backgroundColor: index % 2 === 0 ? "#2A5959" : "#F2612E" }}
                           title={`${day.date}: ${day.clicks} clicks, ${formatNumber(day.impressions)} impressions, ${(day.ctr * 100).toFixed(1)}% CTR, pos ${day.position.toFixed(1)}`}
                         />
                       );
@@ -349,10 +349,10 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                               {formatNumber(device.clicks)} clicks ({percent}%)
                             </span>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
                             <div
-                              className="h-full bg-foreground transition-all"
-                              style={{ width: `${percent}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
                             />
                           </div>
                         </div>
@@ -386,10 +386,10 @@ export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props
                               {(query.ctr * 100).toFixed(1)}% CTR
                             </span>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
                             <div
-                              className="h-full bg-foreground transition-all"
-                              style={{ width: `${percent}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
                             />
                           </div>
                         </div>

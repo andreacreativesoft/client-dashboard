@@ -237,7 +237,7 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
               {data.daily.length > 0 ? (
                 <>
                   <div className="flex h-32 items-end gap-1">
-                    {data.daily.map((day) => {
+                    {data.daily.map((day, i) => {
                       const maxSessions = Math.max(...data.daily.map((d) => d.sessions), 1);
                       const height = day.sessions > 0
                         ? Math.max((day.sessions / maxSessions) * 100, 4)
@@ -249,8 +249,8 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                       return (
                         <div
                           key={day.date}
-                          className="flex-1 rounded-t bg-foreground transition-all hover:bg-foreground/80"
-                          style={{ height: `${height}%` }}
+                          className="flex-1 rounded-t transition-all"
+                          style={{ height: `${height}%`, backgroundColor: i % 2 === 0 ? "#2A5959" : "#F2612E" }}
                           title={`${dateStr}: ${day.sessions} sessions, ${day.users} users, ${day.pageViews} views`}
                         />
                       );
@@ -310,10 +310,10 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                               {formatNumber(event.eventCount)} ({event.users} {t("ga4.users").toLowerCase()})
                             </span>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
                             <div
-                              className="h-full bg-foreground transition-all"
-                              style={{ width: `${percent}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
                             />
                           </div>
                         </div>
@@ -405,10 +405,10 @@ export function GA4Analytics({ clientsWithGA4, isAdmin, initialClientId }: Props
                               {formatNumber(source.sessions)} {t("ga4.sessions").toLowerCase()}
                             </span>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
                             <div
-                              className="h-full bg-foreground transition-all"
-                              style={{ width: `${percent}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${percent}%`, backgroundColor: "#2A5959" }}
                             />
                           </div>
                         </div>

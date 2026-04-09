@@ -145,97 +145,88 @@ export default async function AnalyticsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Lead Trend - Simple bar visualization */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t(lang, "analytics.lead_trend")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex h-32 items-end gap-1">
-              {Object.entries(dailyLeads).map(([date, count]) => {
-                const maxCount = Math.max(...Object.values(dailyLeads), 1);
-                const height = count > 0 ? Math.max((count / maxCount) * 100, 4) : 2;
-                return (
-                  <div
-                    key={date}
-                    className="flex-1 rounded-t bg-foreground transition-all hover:bg-foreground/80"
-                    style={{ height: `${height}%` }}
-                    title={`${date}: ${count} leads`}
-                  />
-                );
-              })}
-            </div>
-            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>{t(lang, "analytics.days_ago")}</span>
-              <span>{t(lang, "analytics.today")}</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="rounded-[24px] bg-white p-6 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
+          <p className="mb-4 text-[16px] font-bold text-[#2E2E2E]">{t(lang, "analytics.lead_trend")}</p>
+          <div className="flex h-32 items-end gap-1">
+            {Object.entries(dailyLeads).map(([date, count], i) => {
+              const maxCount = Math.max(...Object.values(dailyLeads), 1);
+              const height = count > 0 ? Math.max((count / maxCount) * 100, 4) : 2;
+              return (
+                <div
+                  key={date}
+                  className="flex-1 rounded-t transition-all"
+                  style={{
+                    height: `${height}%`,
+                    backgroundColor: i % 2 === 0 ? "#2A5959" : "#F2612E",
+                  }}
+                  title={`${date}: ${count} leads`}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-2 flex justify-between text-xs text-[#6D6A65]">
+            <span>{t(lang, "analytics.days_ago")}</span>
+            <span>{t(lang, "analytics.today")}</span>
+          </div>
+        </div>
 
         {/* Status Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t(lang, "analytics.status_breakdown")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {[
-                { label: t(lang, "dashboard.new"), count: statusCounts.new, color: "bg-foreground" },
-                { label: t(lang, "dashboard.contacted"), count: statusCounts.contacted, color: "bg-warning" },
-                { label: t(lang, "dashboard.done"), count: statusCounts.done, color: "bg-success" },
-              ].map((status) => {
-                const percent =
-                  last30Days.length > 0
-                    ? Math.round((status.count / last30Days.length) * 100)
-                    : 0;
-                return (
-                  <div key={status.label}>
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span>{status.label}</span>
-                      <span className="text-muted-foreground">
-                        {status.count} ({percent}%)
-                      </span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={`h-full ${status.color} transition-all`}
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
+        <div className="rounded-[24px] bg-white p-6 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
+          <p className="mb-4 text-[16px] font-bold text-[#2E2E2E]">{t(lang, "analytics.status_breakdown")}</p>
+          <div className="space-y-4">
+            {[
+              { label: t(lang, "dashboard.new"), count: statusCounts.new, color: "#2A5959" },
+              { label: t(lang, "dashboard.contacted"), count: statusCounts.contacted, color: "#F2612E" },
+              { label: t(lang, "dashboard.done"), count: statusCounts.done, color: "#2A5959" },
+            ].map((status) => {
+              const percent =
+                last30Days.length > 0
+                  ? Math.round((status.count / last30Days.length) * 100)
+                  : 0;
+              return (
+                <div key={status.label}>
+                  <div className="mb-1 flex justify-between text-[14px]">
+                    <span className="text-[#2E2E2E]">{status.label}</span>
+                    <span className="text-[#6D6A65]">
+                      {status.count} ({percent}%)
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                  <div className="h-2 overflow-hidden rounded-full bg-[#DDE9E5]">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${percent}%`, backgroundColor: status.color }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Top Sources */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t(lang, "analytics.top_sources")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {topSources.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t(lang, "analytics.no_leads_yet")}</p>
-            ) : (
-              <div className="space-y-3">
-                {topSources.map(([source, count], index) => (
-                  <div
-                    key={source}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm">{source}</span>
-                    </div>
-                    <span className="text-sm font-medium">{count}</span>
+        <div className="rounded-[24px] bg-white p-6 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
+          <p className="mb-4 text-[16px] font-bold text-[#2E2E2E]">{t(lang, "analytics.top_sources")}</p>
+          {topSources.length === 0 ? (
+            <p className="text-[14px] text-[#6D6A65]">{t(lang, "analytics.no_leads_yet")}</p>
+          ) : (
+            <div className="space-y-3">
+              {topSources.map(([source, count], index) => (
+                <div
+                  key={source}
+                  className="flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: index % 2 === 0 ? "#2A5959" : "#F2612E" }}>
+                      {index + 1}
+                    </span>
+                    <span className="text-[14px] text-[#2E2E2E]">{source}</span>
+                  </div>
+                  <span className="text-[14px] font-bold text-[#2E2E2E]">{count}</span>
                   </div>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
       </div>
     </div>
   );

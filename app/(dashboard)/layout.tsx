@@ -58,7 +58,7 @@ export default async function DashboardLayout({
   return (
     <LanguageProvider language={language}>
       <SidebarProvider>
-        <div className="flex min-h-dvh">
+        <div className="flex min-h-dvh bg-[#F9F9F9]">
           {/* Desktop sidebar */}
           <Sidebar isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="hidden md:flex" />
 

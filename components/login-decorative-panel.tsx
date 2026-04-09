@@ -110,7 +110,7 @@ export function LoginDecorativePanel() {
       </FloatingCard>
 
       {/* Card 2: Center-right — Profitability with donut */}
-      <FloatingCard className="right-[40px] top-1/2 w-[220px] -translate-y-1/2">
+      <FloatingCard className="right-[40px] top-1/2 w-[277px] -translate-y-1/2">
         <div className="px-6 pb-5 pt-6">
           <p className="text-[16px] font-bold uppercase leading-none text-[#2E2E2E]">
             Profitability

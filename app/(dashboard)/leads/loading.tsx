@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function LeadsLoading() {
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <Skeleton className="mb-6 h-8 w-32" />
 
       <div className="space-y-3">

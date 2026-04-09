@@ -10,7 +10,7 @@ export default async function ClientsPage() {
   const clients = await getClients();
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <ClientsList clients={clients} />
     </div>
   );

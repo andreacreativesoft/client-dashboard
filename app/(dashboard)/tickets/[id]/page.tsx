@@ -63,7 +63,7 @@ export default async function TicketDetailPage({ params }: PageProps) {
   const websites = isAdmin ? await getWebsitesForClient(ticket.client_id) : [];
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <div className="mb-6">
         <Link
           href="/tickets"

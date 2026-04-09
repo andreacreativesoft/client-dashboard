@@ -46,7 +46,7 @@ export default async function WebsiteDetailPage({
   const wpStatus = await getWordPressStatus(id);
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       {/* Breadcrumb */}
       <div className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
         <Link href="/admin/websites" className="hover:underline">

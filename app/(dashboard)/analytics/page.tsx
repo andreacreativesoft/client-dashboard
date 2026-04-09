@@ -66,7 +66,7 @@ export default async function AnalyticsPage() {
     .slice(0, 5);
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <h1 className="mb-6 text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>{t(lang, "analytics.title")}</h1>
 
       {/* ─── GA4 Website Analytics ─────────────────────────────────── */}

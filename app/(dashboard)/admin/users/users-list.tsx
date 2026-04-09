@@ -122,7 +122,7 @@ export function UsersList({ users, clients, pendingInvites, currentUserId }: Use
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Users</h1>
+        <h1 className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Users</h1>
         <Button onClick={() => setFormOpen(true)}>
           <svg
             className="mr-2 h-4 w-4"

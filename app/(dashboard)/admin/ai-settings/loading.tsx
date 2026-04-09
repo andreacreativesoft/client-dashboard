@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AISettingsLoading() {
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <div className="mb-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="mt-2 h-4 w-96" />

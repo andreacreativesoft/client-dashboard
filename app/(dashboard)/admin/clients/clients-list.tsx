@@ -46,7 +46,7 @@ export function ClientsList({ clients }: ClientsListProps) {
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Clients</h1>
+        <h1 className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Clients</h1>
         <Button onClick={() => setFormOpen(true)}>Add Client</Button>
       </div>
 

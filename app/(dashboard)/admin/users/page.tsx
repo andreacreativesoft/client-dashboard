@@ -22,7 +22,7 @@ export default async function UsersPage() {
   ]);
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <UsersList
         users={users}
         clients={clients}

@@ -23,9 +23,9 @@ export default async function ToolsPage() {
   );
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="px-8 py-12">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Admin Tools</h1>
+        <h1 className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Admin Tools</h1>
         <p className="text-sm text-muted-foreground">
           Run broken link checks, SEO audits, and uptime monitoring for your client websites.
         </p>

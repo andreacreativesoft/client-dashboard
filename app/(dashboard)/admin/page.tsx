@@ -58,18 +58,14 @@ export default async function AdminPage() {
   const clients = clientsData.data || [];
 
   return (
-    <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">Admin Panel</h1>
+    <div className="px-8 py-12">
+      <h1 className="mb-6 text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Admin Panel</h1>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Link key={stat.title} href={stat.href}>
-            <Card className="transition-colors hover:bg-muted/50">
-              <CardContent className="p-4">
-                <p className="text-3xl font-bold">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.title}</p>
-              </CardContent>
-            </Card>
+          <Link key={stat.title} href={stat.href} className="flex flex-col items-center gap-2 rounded-[24px] bg-white p-5 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)] transition-shadow hover:shadow-md">
+            <p className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#F2612E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>{stat.value}</p>
+            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">{stat.title}</p>
           </Link>
         ))}
       </div>

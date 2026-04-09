@@ -100,7 +100,7 @@ export function LoginDecorativePanel() {
           <p className="text-[16px] font-bold uppercase leading-none text-[#2E2E2E]">
             Profitability
           </p>
-          <p className="mt-1 text-[20px] font-bold text-[#2E2E2E]">
+          <p className="mt-1 text-[16px] font-bold uppercase leading-none text-[#2E2E2E]">
             $2,222.65
           </p>
           <div className="mt-3">

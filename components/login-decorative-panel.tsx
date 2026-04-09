@@ -97,7 +97,6 @@ export function LoginDecorativePanel() {
         src="/login/line-bottom.svg"
         alt=""
         className="pointer-events-none absolute -bottom-[50px] -left-[200px] w-[160%]"
-        style={{ transform: "rotate(150deg)" }}
       />
 
       {/* Card 1: Top-left — Profitability with bar chart */}

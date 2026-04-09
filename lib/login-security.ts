@@ -104,8 +104,10 @@ export async function verifyRecaptcha(token: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error("reCAPTCHA verification error:", err);
-    // Fail open on network errors to not lock out users
-    return true;
+    // Fail closed: if reCAPTCHA is configured (secretKey exists), a network
+    // failure should not silently bypass verification — that would let bots
+    // through whenever the Google API is unreachable.
+    return false;
   }
 }
 

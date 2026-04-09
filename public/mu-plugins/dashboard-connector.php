@@ -361,6 +361,23 @@ class Dashboard_Connector {
             ],
         ]);
 
+        // Proxy key regeneration — keeps shared secret server-side
+        register_rest_route($this->namespace, '/regenerate-key', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'proxy_regenerate_key'],
+            'permission_callback' => [$this, 'check_admin_only'],
+            'args' => [
+                'dashboard_url' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'esc_url_raw',
+                ],
+                'website_id' => [
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ],
+            ],
+        ]);
+
         // Security hardening
         register_rest_route($this->namespace, '/security/harden', [
             'methods'             => 'POST',
@@ -1791,6 +1808,57 @@ class Dashboard_Connector {
         ]);
     }
 
+    /**
+     * Server-side proxy for key regeneration.
+     * The shared secret stays on the server — never sent to the browser.
+     */
+    public function proxy_regenerate_key(WP_REST_Request $request) {
+        $dashboard_url = untrailingslashit($request->get_param('dashboard_url'));
+        $website_id    = $request->get_param('website_id');
+        $secret        = $this->get_expected_secret();
+
+        if (empty($secret)) {
+            return new WP_Error('rest_config_error', 'Shared secret not configured.', ['status' => 500]);
+        }
+
+        // Call the dashboard API server-side
+        $response = wp_remote_post($dashboard_url . '/api/webhooks/' . $website_id . '/regenerate', [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body'    => wp_json_encode([
+                'shared_secret' => $secret,
+                'site_url'      => site_url(),
+            ]),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return new WP_Error('rest_request_failed', $response->get_error_message(), ['status' => 502]);
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body        = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($status_code !== 200 || empty($body['success'])) {
+            return new WP_Error('rest_upstream_error', $body['error'] ?? 'Upstream request failed.', ['status' => $status_code]);
+        }
+
+        // Save the updated config locally
+        $config = [
+            'api_key'       => $body['api_key'] ?? '',
+            'dashboard_url' => $dashboard_url,
+            'webhook_url'   => $body['webhook_url'] ?? '',
+            'website_id'    => $website_id,
+            'updated_at'    => current_time('mysql'),
+        ];
+        update_option('dashboard_webhook_config', $config, false);
+
+        return rest_ensure_response([
+            'success'     => true,
+            'api_key'     => $body['api_key'] ?? '',
+            'webhook_url' => $body['webhook_url'] ?? '',
+        ]);
+    }
+
     // ═══════════════════════════════════════════
     //  ADMIN MENU & SETTINGS PAGE
     // ═══════════════════════════════════════════
@@ -2368,44 +2436,30 @@ class Dashboard_Connector {
                 btn.prop('disabled', true);
                 status.text(action === 'generate' ? 'Generating...' : 'Regenerating...').css('color', '#666');
 
+                // Use server-side proxy so the shared secret never reaches the browser
                 $.ajax({
-                    url: dashboardUrl + '/api/webhooks/' + websiteId + '/regenerate',
+                    url: '" . esc_js(rest_url('dashboard/v1/regenerate-key')) . "',
                     method: 'POST',
                     contentType: 'application/json',
+                    beforeSend: function(xhr) {
+                        xhr.setRequestHeader('X-WP-Nonce', '" . esc_js(wp_create_nonce('wp_rest')) . "');
+                    },
                     data: JSON.stringify({
-                        shared_secret: '" . esc_js($this->get_expected_secret()) . "',
-                        site_url: window.location.origin
+                        dashboard_url: dashboardUrl,
+                        website_id: websiteId
                     }),
                     success: function(resp) {
-                        if (resp.success && resp.api_key) {
-                            // Save updated config to WP options via REST API
-                            $.ajax({
-                                url: '" . esc_js(rest_url('dashboard/v1/webhook-config')) . "',
-                                method: 'POST',
-                                contentType: 'application/json',
-                                beforeSend: function(xhr) {
-                                    xhr.setRequestHeader('X-WP-Nonce', '" . esc_js(wp_create_nonce('wp_rest')) . "');
-                                    xhr.setRequestHeader('X-Dashboard-Secret', '" . esc_js($this->get_expected_secret()) . "');
-                                },
-                                data: JSON.stringify({
-                                    api_key: resp.api_key,
-                                    dashboard_url: dashboardUrl,
-                                    webhook_url: resp.webhook_url,
-                                    website_id: websiteId
-                                }),
-                                complete: function() {
-                                    var msg = action === 'generate' ? 'Key generated!' : 'Key regenerated!';
-                                    status.html('<span style=\"color:#46b450\">&#10003; ' + msg + ' Reloading...</span>');
-                                    setTimeout(function() { window.location.reload(); }, 1000);
-                                }
-                            });
+                        if (resp.success) {
+                            var msg = action === 'generate' ? 'Key generated!' : 'Key regenerated!';
+                            status.html('<span style=\"color:#46b450\">&#10003; ' + msg + ' Reloading...</span>');
+                            setTimeout(function() { window.location.reload(); }, 1000);
                         } else {
                             status.html('<span style=\"color:#dc3232\">&#10007; ' + (resp.error || 'Failed') + '</span>');
                             btn.prop('disabled', false);
                         }
                     },
                     error: function(xhr) {
-                        status.html('<span style=\"color:#dc3232\">&#10007; Failed: ' + (xhr.responseJSON?.error || xhr.statusText) + '</span>');
+                        status.html('<span style=\"color:#dc3232\">&#10007; Failed: ' + (xhr.responseJSON?.message || xhr.statusText) + '</span>');
                         btn.prop('disabled', false);
                     }
                 });

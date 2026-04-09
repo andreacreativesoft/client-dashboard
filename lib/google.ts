@@ -89,8 +89,10 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
 // Token encryption for secure storage (random salt per token)
 export function encryptToken(token: string): string {
   if (!TOKEN_ENCRYPTION_KEY) {
-    console.warn("TOKEN_ENCRYPTION_KEY not set, storing token in plain text");
-    return token;
+    throw new Error(
+      "TOKEN_ENCRYPTION_KEY is not set. Refusing to store tokens in plain text. " +
+      "Set TOKEN_ENCRYPTION_KEY (min 32 bytes) in your environment variables."
+    );
   }
 
   const salt = crypto.randomBytes(16);
@@ -107,6 +109,14 @@ export function encryptToken(token: string): string {
 
 export function decryptToken(encryptedToken: string): string {
   if (!TOKEN_ENCRYPTION_KEY) {
+    // If the token looks encrypted (salt:iv:data or iv:data format), refuse to return it raw
+    if (encryptedToken.includes(":")) {
+      throw new Error(
+        "TOKEN_ENCRYPTION_KEY is not set but token appears encrypted. " +
+        "Set TOKEN_ENCRYPTION_KEY to decrypt stored tokens."
+      );
+    }
+    // Plain text token from before encryption was enforced — still usable
     return encryptedToken;
   }
 

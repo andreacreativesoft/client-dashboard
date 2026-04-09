@@ -1,16 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import {
-  updateLeadStatusAction,
-  type LeadWithDetails,
-} from "@/lib/actions/leads";
-import { timeAgo } from "@/lib/utils";
+import { updateLeadStatusAction, type LeadWithDetails } from "@/lib/actions/leads";
+import { formatDate } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n/language-context";
 import type { LeadStatus } from "@/types/database";
 
@@ -27,92 +21,28 @@ interface LeadsListProps {
   pagination?: PaginationInfo;
 }
 
-const STATUS_OPTIONS: { value: LeadStatus; labelKey: "leads.new" | "leads.contacted" | "leads.done"; color: string; activeColor: string }[] = [
-  { value: "new", labelKey: "leads.new", color: "border-red-300 text-red-600 hover:bg-red-50", activeColor: "bg-red-500 text-white border-red-500" },
-  { value: "contacted", labelKey: "leads.contacted", color: "border-blue-300 text-blue-600 hover:bg-blue-50", activeColor: "bg-blue-500 text-white border-blue-500" },
-  { value: "done", labelKey: "leads.done", color: "border-green-300 text-green-600 hover:bg-green-50", activeColor: "bg-green-500 text-white border-green-500" },
-];
-
-type ClientGroup = {
-  clientName: string;
-  clientId: string;
-  leads: LeadWithDetails[];
-  newCount: number;
-};
-
-export function LeadsList({ leads, isAdmin: _isAdmin, pagination }: LeadsListProps) {
+export function LeadsList({ leads, isAdmin, pagination }: LeadsListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [updating, setUpdating] = useState<string | null>(null);
-  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
   const { t } = useLanguage();
 
   const currentStatus = searchParams.get("status") || "all";
   const currentPage = pagination?.page ?? 1;
 
-  // Client-side search filter (filters within the current page)
   const filteredLeads = search
     ? leads.filter((lead) => {
-        const searchLower = search.toLowerCase();
+        const s = search.toLowerCase();
         return (
-          lead.name?.toLowerCase().includes(searchLower) ||
-          lead.email?.toLowerCase().includes(searchLower) ||
-          lead.phone?.toLowerCase().includes(searchLower) ||
-          lead.client_name.toLowerCase().includes(searchLower)
+          lead.name?.toLowerCase().includes(s) ||
+          lead.email?.toLowerCase().includes(s) ||
+          lead.phone?.toLowerCase().includes(s) ||
+          lead.client_name.toLowerCase().includes(s)
         );
       })
     : leads;
-
-  // Group leads by client
-  const clientGroups = useMemo(() => {
-    const groups = new Map<string, ClientGroup>();
-    for (const lead of filteredLeads) {
-      const key = lead.client_id;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.leads.push(lead);
-        if (lead.status === "new") existing.newCount++;
-      } else {
-        groups.set(key, {
-          clientName: lead.client_name,
-          clientId: lead.client_id,
-          leads: [lead],
-          newCount: lead.status === "new" ? 1 : 0,
-        });
-      }
-    }
-    return Array.from(groups.values());
-  }, [filteredLeads]);
-
-  // Auto-expand if only one client group
-  const effectiveExpanded = useMemo(() => {
-    if (clientGroups.length === 1) {
-      return new Set([clientGroups[0]!.clientId]);
-    }
-    return expandedClients;
-  }, [clientGroups, expandedClients]);
-
-  function toggleClient(clientId: string) {
-    setExpandedClients((prev) => {
-      const next = new Set(prev);
-      if (next.has(clientId)) {
-        next.delete(clientId);
-      } else {
-        next.add(clientId);
-      }
-      return next;
-    });
-  }
-
-  function expandAll() {
-    setExpandedClients(new Set(clientGroups.map((g) => g.clientId)));
-  }
-
-  function collapseAll() {
-    setExpandedClients(new Set());
-  }
 
   function navigateTo(params: Record<string, string | undefined>) {
     const newParams = new URLSearchParams(searchParams.toString());
@@ -139,243 +69,156 @@ export function LeadsList({ leads, isAdmin: _isAdmin, pagination }: LeadsListPro
     setUpdating(leadId);
     await updateLeadStatusAction(leadId, newStatus);
     setUpdating(null);
+    router.refresh();
   }
 
-  const count = pagination ? pagination.total : filteredLeads.length;
-  const allExpanded = clientGroups.length > 1 && clientGroups.every((g) => effectiveExpanded.has(g.clientId));
-
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("leads.title")}</h1>
-        <span className="text-sm text-muted-foreground">
-          {count} {count !== 1 ? t("leads.leads") : t("leads.lead")}
-        </span>
-      </div>
-
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-3">
-        <Input
-          placeholder={t("leads.search_placeholder")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label={t("leads.search_placeholder")}
-          className="w-full sm:w-64"
-        />
+    <div className="overflow-hidden rounded-[24px] bg-white shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]">
+      {/* Header: search + filter */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="w-full sm:w-[384px]">
+          <div className="flex items-center gap-2 rounded-lg border border-[#B5C3BE] bg-[#F9FAFB] px-4 py-3">
+            <svg className="size-4 text-[#6D6A65]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <input
+              type="text"
+              placeholder={t("leads.search_placeholder")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-transparent text-[14px] leading-[1.5] text-[#2E2E2E] placeholder-[#6D6A65] outline-none"
+            />
+          </div>
+        </div>
         <div className="flex gap-2">
-          <Button
-            variant={currentStatus === "all" ? "default" : "outline"}
-            size="sm"
-            aria-pressed={currentStatus === "all"}
-            onClick={() => handleStatusFilter("all")}
-          >
-            {t("leads.all")}
-          </Button>
-          {STATUS_OPTIONS.map((status) => (
+          {["all", "new", "contacted", "done"].map((status) => (
             <button
-              key={status.value}
-              onClick={() => handleStatusFilter(status.value)}
-              aria-pressed={currentStatus === status.value}
-              className={`inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                currentStatus === status.value
-                  ? status.activeColor
-                  : status.color + " bg-background"
+              key={status}
+              onClick={() => handleStatusFilter(status)}
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-[14px] transition-colors ${
+                currentStatus === status
+                  ? "border-[#F2612E] bg-[#F2612E] text-white"
+                  : "border-[#E5E7EB] bg-white text-[#2E2E2E] hover:bg-[#F9FAFB]"
               }`}
             >
-              {t(status.labelKey)}
+              {status === "all" ? t("leads.all") : t(`leads.${status}` as Parameters<typeof t>[0])}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Expand/Collapse all (only when multiple groups) */}
-      {clientGroups.length > 1 && (
-        <div className="mb-4 flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={allExpanded ? collapseAll : expandAll}
-            className="text-xs text-muted-foreground"
-          >
-            {allExpanded ? t("leads.collapse_all") : t("leads.expand_all")}
-          </Button>
-        </div>
-      )}
-
-      {/* Leads grouped by client */}
-      {filteredLeads.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">
-              {leads.length === 0
-                ? t("leads.no_leads_empty")
-                : t("leads.no_match")}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3">
-          {clientGroups.map((group) => {
-            const isExpanded = effectiveExpanded.has(group.clientId);
-            return (
-              <div key={group.clientId} className="rounded-lg border border-border overflow-hidden">
-                {/* Accordion header */}
-                <button
-                  onClick={() => toggleClient(group.clientId)}
-                  className="flex w-full cursor-pointer items-center justify-between bg-muted/50 px-4 py-3 text-left transition-colors hover:bg-muted"
-                >
-                  <div className="flex items-center gap-3">
-                    {/* Chevron */}
-                    <svg
-                      className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                    <span className="text-sm font-semibold">{group.clientName}</span>
-                    <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground border">
-                      {group.leads.length} {group.leads.length !== 1 ? t("leads.leads") : t("leads.lead")}
-                    </span>
-                    {group.newCount > 0 && (
-                      <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-medium text-white">
-                        {group.newCount} {t("leads.new")}
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-[#F1F1F1]">
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Name</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Phone</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Source</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Status</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Date</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredLeads.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-12 text-center text-[14px] text-[#6D6A65]">
+                  {leads.length === 0 ? t("leads.no_leads_empty") : t("leads.no_match")}
+                </td>
+              </tr>
+            ) : (
+              filteredLeads.map((lead) => (
+                <tr key={lead.id} className="border-b border-[#F1F1F1]">
+                  <td className="px-4 py-4 text-center">
+                    <Link href={`/leads/${lead.id}`} className="hover:underline">
+                      <span className="block text-[14px] leading-[1.5] text-[#2E2E2E]">
+                        {lead.name || t("leads.unknown")}
                       </span>
-                    )}
-                  </div>
-                </button>
-
-                {/* Accordion content */}
-                {isExpanded && (
-                  <div className="divide-y divide-border">
-                    {group.leads.map((lead) => (
-                      <div key={lead.id} className="bg-background px-4 py-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <Link
-                                href={`/leads/${lead.id}`}
-                                className="font-semibold hover:underline"
-                              >
-                                {lead.name || lead.email || lead.phone || t("leads.unknown")}
-                              </Link>
-                            </div>
-
-                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                              {lead.email && <span>{lead.email}</span>}
-                              {lead.phone && <span>{lead.phone}</span>}
-                            </div>
-
-                            {lead.message && (
-                              <p className="mt-1.5 line-clamp-1 text-sm text-muted-foreground">
-                                {lead.message}
-                              </p>
-                            )}
-
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span>{timeAgo(lead.created_at)}</span>
-                              <span>&bull;</span>
-                              <span>{lead.website_name}</span>
-                              {lead.form_name && (
-                                <>
-                                  <span>&bull;</span>
-                                  <span>{t("leads.form")}: {lead.form_name}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                            <div className="flex flex-1 rounded-lg border border-border overflow-hidden">
-                              {STATUS_OPTIONS.map((status) => (
-                                <button
-                                  key={status.value}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    handleStatusChange(lead.id, status.value);
-                                  }}
-                                  disabled={updating === lead.id}
-                                  aria-pressed={lead.status === status.value}
-                                  aria-label={t(status.labelKey)}
-                                  className={`flex-1 cursor-pointer px-4 py-2.5 text-sm font-medium border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:py-1.5 sm:text-xs ${
-                                    lead.status === status.value
-                                      ? status.activeColor
-                                      : status.color + " bg-background"
-                                  }`}
-                                >
-                                  {t(status.labelKey)}
-                                </button>
-                              ))}
-                            </div>
-                            <Link
-                              href={`/leads/${lead.id}`}
-                              className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:px-3"
-                            >
-                              {t("leads.view")}
-                            </Link>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                      <span className="block text-[14px] leading-[1.5] text-[#6D6A65]">
+                        {lead.email || ""}
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                    {lead.phone || "—"}
+                  </td>
+                  <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                    {lead.website_name}
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    <button
+                      onClick={() => {
+                        const next: LeadStatus = lead.status === "new" ? "contacted" : lead.status === "contacted" ? "done" : "new";
+                        handleStatusChange(lead.id, next);
+                      }}
+                      disabled={updating === lead.id}
+                      className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-[11px] leading-[1.5] transition-opacity disabled:opacity-50 ${
+                        lead.status === "new"
+                          ? "bg-[#FEEFEA] text-[#F2612E]"
+                          : lead.status === "contacted"
+                            ? "bg-[#DEF7EC] text-[#03543F]"
+                            : "bg-[#DDE9E5] text-[#2A5959]"
+                      }`}
+                    >
+                      {lead.status === "new" ? t("leads.new") : lead.status === "contacted" ? t("leads.contacted") : t("leads.done")}
+                    </button>
+                  </td>
+                  <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                    {formatDate(lead.created_at)}
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    <div className="flex items-center justify-center gap-4">
+                      {lead.phone && (
+                        <a href={`tel:${lead.phone}`} className="text-[#6D6A65] hover:text-[#2A5959]" title="Call">
+                          <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+                          </svg>
+                        </a>
+                      )}
+                      {lead.email && (
+                        <a href={`mailto:${lead.email}`} className="text-[#6D6A65] hover:text-[#2A5959]" title="Email">
+                          <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+                          </svg>
+                        </a>
+                      )}
+                      <Link href={`/leads/${lead.id}`} className="text-[#6D6A65] hover:text-[#2A5959]" title="View">
+                        <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {t("leads.showing")} {(currentPage - 1) * pagination.perPage + 1}–
-            {Math.min(currentPage * pagination.perPage, pagination.total)} {t("leads.of")}{" "}
-            {pagination.total}
+        <div className="flex items-center justify-between p-4">
+          <p className="text-[14px] text-[#6D6A65]">
+            {t("leads.showing")} <span className="font-bold text-[#2E2E2E]">{(currentPage - 1) * pagination.perPage + 1}-{Math.min(currentPage * pagination.perPage, pagination.total)}</span> {t("leads.of")} <span className="font-bold text-[#2E2E2E]">{pagination.total}</span>
           </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => handlePageChange(currentPage - 1)}
-            >
-              {t("leads.previous")}
-            </Button>
-            {/* Page numbers */}
+          <div className="flex overflow-hidden rounded border border-[#F1F1F1]">
+            <button disabled={currentPage <= 1} onClick={() => handlePageChange(1)} className="flex h-8 items-center justify-center bg-white px-3 text-[#6D6A65] hover:bg-[#F9FAFB] disabled:opacity-30">&laquo;</button>
+            <button disabled={currentPage <= 1} onClick={() => handlePageChange(currentPage - 1)} className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] hover:bg-[#F9FAFB] disabled:opacity-30">&lsaquo;</button>
             {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
               let pageNum: number;
-              if (pagination.totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= pagination.totalPages - 2) {
-                pageNum = pagination.totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
+              if (pagination.totalPages <= 5) pageNum = i + 1;
+              else if (currentPage <= 3) pageNum = i + 1;
+              else if (currentPage >= pagination.totalPages - 2) pageNum = pagination.totalPages - 4 + i;
+              else pageNum = currentPage - 2 + i;
               return (
-                <Button
-                  key={pageNum}
-                  variant={pageNum === currentPage ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handlePageChange(pageNum)}
-                  className="min-w-[36px]"
-                >
-                  {pageNum}
-                </Button>
+                <button key={pageNum} onClick={() => handlePageChange(pageNum)} className={`flex h-8 items-center justify-center border-l border-[#F1F1F1] px-3 text-[14px] ${pageNum === currentPage ? "bg-[#F2612E] text-white" : "bg-white text-[#6D6A65] hover:bg-[#F9FAFB]"}`}>{pageNum}</button>
               );
             })}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage >= pagination.totalPages}
-              onClick={() => handlePageChange(currentPage + 1)}
-            >
-              {t("leads.next")}
-            </Button>
+            <button disabled={currentPage >= pagination.totalPages} onClick={() => handlePageChange(currentPage + 1)} className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] hover:bg-[#F9FAFB] disabled:opacity-30">&rsaquo;</button>
+            <button disabled={currentPage >= pagination.totalPages} onClick={() => handlePageChange(pagination.totalPages)} className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] hover:bg-[#F9FAFB] disabled:opacity-30">&raquo;</button>
           </div>
         </div>
       )}

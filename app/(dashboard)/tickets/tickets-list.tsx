@@ -3,12 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { timeAgo } from "@/lib/utils";
-import { useLanguage } from "@/lib/i18n/language-context";
-import type { TicketWithDetails, TicketStatus } from "@/types/database";
+import { formatDate } from "@/lib/utils";
+import type { TicketWithDetails } from "@/types/database";
 
 interface PaginationInfo {
   page: number;
@@ -23,45 +19,21 @@ interface TicketsListProps {
   pagination?: PaginationInfo;
 }
 
-const STATUS_OPTIONS: { value: TicketStatus | "all"; labelKey: string; color: string; activeColor: string }[] = [
-  { value: "all", labelKey: "tickets.all", color: "", activeColor: "" },
-  { value: "open", labelKey: "tickets.open", color: "border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950", activeColor: "bg-red-500 text-white border-red-500" },
-  { value: "in_progress", labelKey: "tickets.in_progress", color: "border-blue-300 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950", activeColor: "bg-blue-500 text-white border-blue-500" },
-  { value: "waiting_on_client", labelKey: "tickets.waiting_on_client", color: "border-yellow-300 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950", activeColor: "bg-yellow-500 text-white border-yellow-500" },
-  { value: "closed", labelKey: "tickets.closed", color: "border-green-300 text-green-600 hover:bg-green-50 dark:hover:bg-green-950", activeColor: "bg-green-500 text-white border-green-500" },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  low: "bg-muted text-muted-foreground",
-  medium: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-  high: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
-  urgent: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  bug: "Bug",
-  feature_request: "Feature Request",
-  support: "Support",
-  billing: "Billing",
-};
-
 export function TicketsList({ tickets, isAdmin, pagination }: TicketsListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
-  const { t } = useLanguage();
 
-  const currentStatus = searchParams.get("status") || "all";
   const currentPage = pagination?.page ?? 1;
 
   const filteredTickets = search
     ? tickets.filter((ticket) => {
-        const searchLower = search.toLowerCase();
+        const s = search.toLowerCase();
         return (
-          ticket.subject.toLowerCase().includes(searchLower) ||
-          ticket.description.toLowerCase().includes(searchLower) ||
-          ticket.client_name.toLowerCase().includes(searchLower)
+          ticket.subject.toLowerCase().includes(s) ||
+          ticket.description.toLowerCase().includes(s) ||
+          ticket.client_name.toLowerCase().includes(s)
         );
       })
     : tickets;
@@ -79,168 +51,132 @@ export function TicketsList({ tickets, isAdmin, pagination }: TicketsListProps) 
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  function handleStatusFilter(status: string) {
-    navigateTo({ status, page: undefined });
-  }
-
   function handlePageChange(page: number) {
     navigateTo({ page: String(page) });
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("tickets.title")}</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {pagination
-              ? `${pagination.total} ${t("tickets.ticket")}${pagination.total !== 1 ? "s" : ""}`
-              : `${filteredTickets.length} ${t("tickets.ticket")}${filteredTickets.length !== 1 ? "s" : ""}`}
-          </span>
-          <Link href="/tickets/new">
-            <Button size="sm">{t("tickets.new_ticket")}</Button>
-          </Link>
+    <div className="overflow-hidden rounded-[24px] bg-white shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]">
+      {/* Header: search + filter */}
+      <div className="flex items-center justify-between p-4">
+        <div className="w-[384px]">
+          <div className="flex items-center gap-2 rounded-lg border border-[#B5C3BE] bg-[#F9FAFB] px-4 py-3">
+            <svg className="size-4 text-[#6D6A65]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Rechercher des prospects"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-transparent text-[14px] leading-[1.5] text-[#2E2E2E] placeholder-[#6D6A65] outline-none"
+            />
+          </div>
         </div>
+        <button className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-[14px] text-[#2E2E2E] transition-colors hover:bg-[#F9FAFB]">
+          <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+          </svg>
+          Filtrer
+        </button>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-3">
-        <Input
-          placeholder={t("tickets.search_placeholder")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label={t("tickets.search_placeholder")}
-          className="w-full sm:w-64"
-        />
-        <div className="flex flex-wrap gap-2">
-          {STATUS_OPTIONS.map((status) => (
-            <button
-              key={status.value}
-              onClick={() => handleStatusFilter(status.value)}
-              aria-pressed={currentStatus === status.value}
-              className={`inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                currentStatus === status.value
-                  ? status.value === "all"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : status.activeColor
-                  : status.value === "all"
-                    ? "border-border text-foreground hover:bg-muted bg-background"
-                    : status.color + " bg-background"
-              }`}
-            >
-              {t(status.labelKey as Parameters<typeof t>[0])}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tickets */}
-      {filteredTickets.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">
-              {tickets.length === 0
-                ? t("tickets.no_tickets")
-                : t("tickets.no_matching")}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {filteredTickets.map((ticket) => (
-            <Card key={ticket.id}>
-              <CardContent className="p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-[#F1F1F1]">
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Name</th>
+              {isAdmin && <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Client</th>}
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Statut</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Priorité</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Date</th>
+              <th className="px-4 py-4 text-center text-[12px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-[#6D6A65]">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTickets.length === 0 ? (
+              <tr>
+                <td colSpan={isAdmin ? 6 : 5} className="px-4 py-12 text-center text-[14px] text-[#6D6A65]">
+                  {tickets.length === 0 ? "Aucun ticket pour le moment." : "Aucun résultat trouvé."}
+                </td>
+              </tr>
+            ) : (
+              filteredTickets.map((ticket) => (
+                <tr key={ticket.id} className="border-b border-[#F1F1F1]">
+                  <td className="px-4 py-4 text-center">
+                    <Link href={`/tickets/${ticket.id}`} className="hover:underline">
+                      <span className="block text-[14px] leading-[1.5] text-[#2E2E2E]">{ticket.subject}</span>
+                      <span className="block text-[14px] leading-[1.5] text-[#6D6A65]">{ticket.created_by_name}</span>
+                    </Link>
+                  </td>
+                  {isAdmin && (
+                    <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                      {ticket.client_name}
+                    </td>
+                  )}
+                  <td className="px-4 py-4 text-center">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] leading-[1.5] ${
+                      ticket.status === "open"
+                        ? "bg-[#FEEFEA] text-[#F2612E]"
+                        : ticket.status === "closed"
+                          ? "bg-[#DEF7EC] text-[#03543F]"
+                          : "bg-[#DEF7EC] text-[#03543F]"
+                    }`}>
+                      {ticket.status === "open" && "Contacter"}
+                      {ticket.status === "in_progress" && "En cours"}
+                      {ticket.status === "waiting_on_client" && "En attente"}
+                      {ticket.status === "closed" && "Contacté"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                    {ticket.priority}
+                  </td>
+                  <td className="px-4 py-4 text-center text-[14px] text-[#6D6A65]">
+                    {formatDate(ticket.created_at)}
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    <div className="flex items-center justify-center gap-4">
                       <Link
                         href={`/tickets/${ticket.id}`}
-                        className="text-lg font-bold hover:underline"
+                        className="text-[#6D6A65] transition-colors hover:text-[#2A5959]"
+                        title="Voir le ticket"
                       >
-                        {ticket.subject}
+                        <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
                       </Link>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_COLORS[ticket.priority] || ""}`}>
-                        {ticket.priority}
-                      </span>
                     </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {ticket.description}
-                    </p>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>{timeAgo(ticket.created_at)}</span>
-                      <span>•</span>
-                      <span>{CATEGORY_LABELS[ticket.category] || ticket.category}</span>
-                      {isAdmin && (
-                        <>
-                          <span>•</span>
-                          <span>{ticket.client_name}</span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span>{t("tickets.by")} {ticket.created_by_name}</span>
-                      {ticket.assigned_to_name && (
-                        <>
-                          <span>•</span>
-                          <span>{t("tickets.assigned_to")}: {ticket.assigned_to_name}</span>
-                        </>
-                      )}
-                      {ticket.reply_count > 0 && (
-                        <>
-                          <span>•</span>
-                          <span>{ticket.reply_count} {ticket.reply_count === 1 ? t("tickets.reply") : t("tickets.replies")}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                      ticket.status === "open"
-                        ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                        : ticket.status === "in_progress"
-                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                          : ticket.status === "waiting_on_client"
-                            ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
-                            : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                    }`}>
-                      {ticket.status === "open" && t("tickets.open")}
-                      {ticket.status === "in_progress" && t("tickets.in_progress")}
-                      {ticket.status === "waiting_on_client" && t("tickets.waiting_on_client")}
-                      {ticket.status === "closed" && t("tickets.closed")}
-                    </span>
-                    <Link
-                      href={`/tickets/${ticket.id}`}
-                      className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted sm:h-9 sm:px-3"
-                    >
-                      {t("tickets.view")}
-                    </Link>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
+      {/* Footer: pagination */}
       {pagination && pagination.totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {t("leads.showing")} {(currentPage - 1) * pagination.perPage + 1}–
-            {Math.min(currentPage * pagination.perPage, pagination.total)} {t("leads.of")}{" "}
-            {pagination.total}
+        <div className="flex items-center justify-between p-4">
+          <p className="text-[14px] text-[#6D6A65]">
+            Showing <span className="font-bold text-[#2E2E2E]">{(currentPage - 1) * pagination.perPage + 1}-{Math.min(currentPage * pagination.perPage, pagination.total)}</span> of <span className="font-bold text-[#2E2E2E]">{pagination.total}</span>
           </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
+          <div className="flex overflow-hidden rounded border border-[#F1F1F1]">
+            <button
+              disabled={currentPage <= 1}
+              onClick={() => handlePageChange(1)}
+              className="flex h-8 items-center justify-center bg-white px-3 text-[#6D6A65] transition-colors hover:bg-[#F9FAFB] disabled:opacity-30"
+            >
+              &laquo;
+            </button>
+            <button
               disabled={currentPage <= 1}
               onClick={() => handlePageChange(currentPage - 1)}
+              className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] transition-colors hover:bg-[#F9FAFB] disabled:opacity-30"
             >
-              {t("leads.previous")}
-            </Button>
+              &lsaquo;
+            </button>
             {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
               let pageNum: number;
               if (pagination.totalPages <= 5) {
@@ -253,25 +189,33 @@ export function TicketsList({ tickets, isAdmin, pagination }: TicketsListProps) 
                 pageNum = currentPage - 2 + i;
               }
               return (
-                <Button
+                <button
                   key={pageNum}
-                  variant={pageNum === currentPage ? "default" : "outline"}
-                  size="sm"
                   onClick={() => handlePageChange(pageNum)}
-                  className="min-w-[36px]"
+                  className={`flex h-8 items-center justify-center border-l border-[#F1F1F1] px-3 text-[14px] transition-colors ${
+                    pageNum === currentPage
+                      ? "bg-[#F2612E] text-white"
+                      : "bg-white text-[#6D6A65] hover:bg-[#F9FAFB]"
+                  }`}
                 >
                   {pageNum}
-                </Button>
+                </button>
               );
             })}
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               disabled={currentPage >= pagination.totalPages}
               onClick={() => handlePageChange(currentPage + 1)}
+              className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] transition-colors hover:bg-[#F9FAFB] disabled:opacity-30"
             >
-              {t("leads.next")}
-            </Button>
+              &rsaquo;
+            </button>
+            <button
+              disabled={currentPage >= pagination.totalPages}
+              onClick={() => handlePageChange(pagination.totalPages)}
+              className="flex h-8 items-center justify-center border-l border-[#F1F1F1] bg-white px-3 text-[#6D6A65] transition-colors hover:bg-[#F9FAFB] disabled:opacity-30"
+            >
+              &raquo;
+            </button>
           </div>
         </div>
       )}

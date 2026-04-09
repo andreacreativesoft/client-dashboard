@@ -1,12 +1,5 @@
-import { M_PLUS_1 } from "next/font/google";
 import { RecaptchaProvider } from "@/components/recaptcha-provider";
 import { LoginDecorativePanel } from "@/components/login-decorative-panel";
-
-const mplus1 = M_PLUS_1({
-  subsets: ["latin"],
-  weight: ["800"],
-  variable: "--font-mplus1",
-});
 
 export default function AuthLayout({
   children,
@@ -15,7 +8,7 @@ export default function AuthLayout({
 }) {
   return (
     <RecaptchaProvider>
-      <div className={`flex h-dvh font-[Helvetica,Arial,sans-serif] ${mplus1.variable}`}>
+      <div className="flex h-dvh font-[Helvetica,Arial,sans-serif]">
         {/* Left side — form */}
         <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto bg-white px-6">
           <div className="flex w-full max-w-[576px] flex-1 flex-col">

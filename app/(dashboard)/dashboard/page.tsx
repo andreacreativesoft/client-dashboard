@@ -1,55 +1,93 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
-import { formatNumber } from "@/lib/utils";
-import { t } from "@/lib/i18n/translations";
-import { RecentLeads } from "./recent-leads";
-import type { AppLanguage } from "@/types/database";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-function getGreeting(lang: AppLanguage): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return t(lang, "dashboard.greeting_morning");
-  if (hour < 18) return t(lang, "dashboard.greeting_afternoon");
-  return t(lang, "dashboard.greeting_evening");
+function MonitorIcon() {
+  return (
+    <svg className="size-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#2A5959">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25A2.25 2.25 0 0 1 5.25 3h13.5A2.25 2.25 0 0 1 21 5.25Z" />
+    </svg>
+  );
 }
 
-function getThirtyDaysAgo(): string {
-  return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+function UsersIcon() {
+  return (
+    <svg className="size-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#2A5959">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+    </svg>
+  );
+}
+
+function StarIcon() {
+  return (
+    <svg className="size-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#2A5959">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="white">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+    </svg>
+  );
+}
+
+function StatCard({
+  icon,
+  value,
+  label,
+  description,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center gap-2 rounded-[24px] bg-white p-5 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
+      <div className="flex size-[48px] items-center justify-center rounded-full bg-[#DDE9E5]">
+        {icon}
+      </div>
+      <div className="flex flex-col items-center text-center">
+        <p
+          className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#F2612E]"
+          style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
+        >
+          {value}
+        </p>
+        <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">
+          {label}
+        </p>
+      </div>
+      <p className="text-[16px] leading-[1.5] text-[#6D6A65]">
+        {description}
+      </p>
+    </div>
+  );
 }
 
 export default async function DashboardPage() {
   const profile = await getProfile();
   const leads = await getLeads();
-  const recentLeads = leads.slice(0, 5);
-  const lang = profile?.language || "en";
-
-  // Calculate stats
-  const thirtyDaysAgo = getThirtyDaysAgo();
-  const newLeads = leads.filter((l) => l.created_at >= thirtyDaysAgo);
-  const newCount = newLeads.filter((l) => l.status === "new").length;
-  const contactedCount = newLeads.filter((l) => l.status === "contacted").length;
-  const doneCount = newLeads.filter((l) => l.status === "done").length;
 
   let firstName = profile?.full_name?.split(" ")[0] || "there";
   const isAdmin = profile?.role === "admin";
 
   // Get websites for this user (or impersonated client)
-  let websites: { id: string; name: string; url: string }[] = [];
   const supabase = await createClient();
 
   if (isAdmin) {
-    // Check if impersonating
     const impersonatedClientId = await getImpersonatedClientId();
     if (impersonatedClientId) {
-      // Show client name in greeting when impersonating
       const { data: client } = await supabase
         .from("clients")
         .select("business_name")
@@ -58,117 +96,78 @@ export default async function DashboardPage() {
       if (client) {
         firstName = client.business_name;
       }
-
-      const { data } = await supabase
-        .from("websites")
-        .select("id, name, url")
-        .eq("client_id", impersonatedClientId)
-        .eq("is_active", true);
-      websites = data || [];
-    }
-  } else if (profile) {
-    // For regular clients, get their websites via client_users
-    const { data: clientUsers } = await supabase
-      .from("client_users")
-      .select("client_id")
-      .eq("user_id", profile.id);
-
-    if (clientUsers && clientUsers.length > 0) {
-      const clientIds = clientUsers.map((cu) => cu.client_id);
-      const { data } = await supabase
-        .from("websites")
-        .select("id, name, url")
-        .in("client_id", clientIds)
-        .eq("is_active", true);
-      websites = data || [];
     }
   }
 
+  // Calculate stats
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const newLeads = leads.filter((l) => l.created_at >= thirtyDaysAgo);
+
   return (
-    <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">
-        {getGreeting(lang)}, {firstName}
-      </h1>
+    <div className="px-8 py-12 font-[Helvetica,Arial,sans-serif]">
+      <div className="flex flex-col gap-16">
+        {/* Section: Heading + Cards */}
+        <div className="flex flex-col gap-8">
+          {/* Heading */}
+          <div className="flex flex-col gap-4 px-4">
+            <h1
+              className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]"
+              style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
+            >
+              Bonjour {firstName} !
+            </h1>
+            <p className="text-[18px] leading-[1.5] text-[#6D6A65]">
+              Voici un aperçu de la performance de votre site web ce mois-ci.
+            </p>
+          </div>
 
-      {/* Stat cards */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-3xl font-bold">{formatNumber(newLeads.length)}</p>
-            <p className="text-sm font-medium">{t(lang, "dashboard.total_leads")}</p>
-            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.last_30_days")}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-3xl font-bold">{formatNumber(newCount)}</p>
-            <p className="text-sm font-medium">{t(lang, "dashboard.new")}</p>
-            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.awaiting_contact")}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-3xl font-bold">{formatNumber(contactedCount)}</p>
-            <p className="text-sm font-medium">{t(lang, "dashboard.contacted")}</p>
-            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.in_progress")}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-3xl font-bold">{formatNumber(doneCount)}</p>
-            <p className="text-sm font-medium">{t(lang, "dashboard.done")}</p>
-            <p className="text-xs text-muted-foreground">{t(lang, "dashboard.completed")}</p>
-          </CardContent>
-        </Card>
+          {/* Stat cards */}
+          <div className="flex flex-col gap-4 md:flex-row">
+            <StatCard
+              icon={<MonitorIcon />}
+              value="Live"
+              label="Statut du site web"
+              description="Votre site web fonctionne bien"
+            />
+            <StatCard
+              icon={<UsersIcon />}
+              value={newLeads.length.toLocaleString()}
+              label="Leads ce mois"
+              description={`${leads.length} leads au total`}
+            />
+            <StatCard
+              icon={<StarIcon />}
+              value={String(newLeads.filter((l) => l.status === "new").length)}
+              label="Nouveaux leads"
+              description="En attente de contact"
+            />
+          </div>
+        </div>
+
+        {/* CTA Banner */}
+        <div className="flex flex-col items-start gap-3 rounded-[24px] bg-[#DDE9E5] p-8 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)] md:flex-row md:items-center">
+          <div className="flex flex-1 flex-col gap-3">
+            <h2
+              className="text-[26px] font-extrabold uppercase leading-[1.3] text-[#2E2E2E]"
+              style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
+            >
+              {"Besoin d'aide ou d'améliorations ?"}
+            </h2>
+            <p className="text-[14px] leading-[1.5] text-[#6D6A65]">
+              Notre équipe est là pour vous accompagner. Vous souhaitez modifier votre site,
+              <br className="max-md:hidden" />
+              {" "}améliorer vos résultats ou avez des questions ?
+            </p>
+          </div>
+          <Link
+            href="/tickets/new"
+            className="flex items-center gap-2 rounded-full bg-[#F2612E] px-5 py-3 text-[18px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-white transition-colors hover:bg-[#E0551F]"
+          >
+            <ChatIcon />
+            Demander des modifs
+          </Link>
+        </div>
       </div>
-
-      {/* Quick Links - Your Websites */}
-      {websites.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>{t(lang, "dashboard.your_websites")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-3">
-              {websites.map((website) => (
-                <a
-                  key={website.id}
-                  href={`${website.url.replace(/\/$/, "")}/wp-admin`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 transition-colors hover:bg-muted"
-                >
-                  <svg className="h-5 w-5 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zM3.443 12c0-.735.097-1.447.277-2.128l3.04 8.327A8.574 8.574 0 0 1 3.443 12zm8.557 8.557c-.725 0-1.426-.09-2.098-.26l2.229-6.478 2.283 6.257a.726.726 0 0 0 .056.103 8.507 8.507 0 0 1-2.47.378zm1.001-12.593c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.73 0-1.958-.095-1.958-.095-.401-.023-.448.591-.047.614 0 0 .378.047.778.071l1.155 3.166-1.622 4.868L7.45 8.036c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.14 0-.305-.004-.478-.01A8.546 8.546 0 0 1 12 3.443c2.096 0 4.008.757 5.492 2.011-.035-.002-.069-.007-.105-.007-.73 0-1.246.636-1.246 1.317 0 .612.354 1.129.73 1.74.283.495.614 1.129.614 2.046 0 .636-.177 1.426-.518 2.39l-.68 2.27-2.459-7.317.002.001zm3.086 10.843l2.25-6.503c.42-1.052.56-1.893.56-2.641 0-.272-.018-.524-.05-.763a8.554 8.554 0 0 1 .711 3.1c0 2.551-1.134 4.835-2.921 6.393l-.55.414z"/>
-                  </svg>
-                  <div className="text-left">
-                    <span className="text-sm font-medium">{website.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{t(lang, "dashboard.wp_admin")}</span>
-                  </div>
-                  <svg className="ml-1 h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                  </svg>
-                </a>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recent leads */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{t(lang, "dashboard.recent_leads")}</CardTitle>
-          {leads.length > 0 && (
-            <Link href="/leads" className="text-sm font-medium hover:underline">
-              {t(lang, "dashboard.view_all")}
-            </Link>
-          )}
-        </CardHeader>
-        <CardContent>
-          <RecentLeads leads={recentLeads} />
-        </CardContent>
-      </Card>
     </div>
   );
 }

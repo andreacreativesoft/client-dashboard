@@ -23,7 +23,7 @@ export default async function SearchConsolePage() {
 
   return (
     <div className="p-4 md:p-6">
-      <h1 className="mb-6 text-2xl font-bold">Google Search Console</h1>
+      <h1 className="mb-6 text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Google Search Console</h1>
 
       <GSCAnalytics
         clientsWithGSC={clientsWithGSC}

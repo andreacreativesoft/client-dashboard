@@ -85,15 +85,19 @@ export function LoginDecorativePanel() {
   return (
     <div className="relative flex-1 items-center justify-center overflow-hidden bg-[#DDE9E5] max-lg:hidden lg:flex">
       {/* Decorative curved lines */}
-      {/* Top: dark teal thick curve — diagonal from top-left to right */}
-      <div
-        className="pointer-events-none absolute -top-[500px] -left-[200px] h-[900px] w-[1100px] rounded-full"
-        style={{ border: "60px solid #2A5959", transform: "rotate(-8deg)" }}
+      {/* Top: teal SVG curve */}
+      <img
+        src="/login/line-top.svg"
+        alt=""
+        className="pointer-events-none absolute -top-[100px] left-0 w-[140%]"
+        style={{ transform: "rotate(-4deg)" }}
       />
-      {/* Bottom: salmon/orange curve — bottom-right area */}
-      <div
-        className="pointer-events-none absolute -bottom-[350px] -right-[200px] h-[900px] w-[900px] rounded-full"
-        style={{ border: "65px solid rgba(242, 97, 46, 0.45)" }}
+      {/* Bottom: salmon/orange SVG curve */}
+      <img
+        src="/login/line-bottom.svg"
+        alt=""
+        className="pointer-events-none absolute -bottom-[50px] -left-[200px] w-[160%]"
+        style={{ transform: "rotate(150deg)" }}
       />
 
       {/* Card 1: Top-left — Profitability with bar chart */}

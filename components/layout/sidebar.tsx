@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { useSidebar } from "@/components/layout/sidebar-context";
 import { useLanguage } from "@/lib/i18n/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -12,6 +13,9 @@ interface SidebarProps {
   isAdmin: boolean;
   badgeCounts?: NavBadgeCounts;
   className?: string;
+  userName?: string;
+  userBusinessName?: string;
+  avatarUrl?: string | null;
 }
 
 const dashboardItems: { href: string; labelKey: TranslationKey; icon: React.ReactNode }[] = [
@@ -134,10 +138,17 @@ const BADGE_MAP: Record<string, keyof NavBadgeCounts> = {
   "/tickets": "openTickets",
 };
 
-export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
+export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusinessName, avatarUrl }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { collapsed, toggle } = useSidebar();
   const { t } = useLanguage();
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href;
@@ -254,6 +265,48 @@ export function Sidebar({ isAdmin, badgeCounts, className }: SidebarProps) {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* User footer */}
+      {userName && (
+        <div className="flex items-center justify-between px-3 py-3">
+          <div className="flex items-center gap-2">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt=""
+                className="size-10 rounded-full border border-[#DBDBDB]/30 object-cover"
+              />
+            ) : (
+              <div className="flex size-10 items-center justify-center rounded-full bg-[#1A4040] text-[14px] font-bold text-white">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {!collapsed && (
+              <div className="flex flex-col">
+                <span className="text-[14px] font-bold leading-[1.5] text-white">
+                  {userName}
+                </span>
+                {userBusinessName && (
+                  <span className="text-[11px] leading-[1.5] text-[#DBDBDB]">
+                    {userBusinessName}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          {!collapsed && (
+            <button
+              onClick={handleSignOut}
+              title="Déconnexion"
+              className="cursor-pointer text-[#DBDBDB] transition-colors hover:text-white"
+            >
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

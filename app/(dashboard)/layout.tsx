@@ -60,7 +60,13 @@ export default async function DashboardLayout({
       <SidebarProvider>
         <div className="flex min-h-dvh bg-[#F9F9F9]">
           {/* Desktop sidebar */}
-          <Sidebar isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="hidden md:flex" />
+          <Sidebar
+            isAdmin={showAsAdmin}
+            badgeCounts={badgeCounts}
+            className="hidden md:flex"
+            userName={impersonation ? impersonation.clientName : (profile.full_name || profile.email || "User")}
+            avatarUrl={impersonation ? null : profile.avatar_url}
+          />
 
           {/* Main content */}
           <div className="flex flex-1 flex-col">

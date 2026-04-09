@@ -97,7 +97,7 @@ export function LoginDecorativePanel() {
       {/* Card 1: Top-left — Profitability with bar chart */}
       <FloatingCard className="left-[60px] top-[120px] w-[222px]">
         <div className="px-6 py-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-[#2E2E2E]">
+          <p className="text-[16px] font-bold uppercase leading-[1.2] text-[#2E2E2E]">
             Profitability
           </p>
           <p className="mt-1 text-[20px] font-bold text-[#2E2E2E]">
@@ -112,15 +112,15 @@ export function LoginDecorativePanel() {
       {/* Card 2: Center-right — Profitability with donut */}
       <FloatingCard className="right-[40px] top-1/2 w-[220px] -translate-y-1/2">
         <div className="px-6 pb-5 pt-6">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-[#2E2E2E]">
+          <p className="text-[16px] font-bold uppercase leading-[1.2] text-[#2E2E2E]">
             Profitability
           </p>
           <div className="mt-3 flex justify-center">
             <MiniDonutChart />
           </div>
           <div className="mt-3 flex items-end gap-2">
-            <span className="text-[16px] font-bold text-[#F2612E]">+5.6%</span>
-            <span className="text-[11px] font-bold uppercase text-black">
+            <span className="text-[20px] font-bold leading-[1.2] text-[#F2612E]">+5.6%</span>
+            <span className="text-[16px] font-bold uppercase leading-[1.2] text-black">
               Average indicator
             </span>
           </div>
@@ -130,13 +130,13 @@ export function LoginDecorativePanel() {
       {/* Card 3: Bottom-left — Marketing Digital */}
       <FloatingCard className="bottom-[80px] left-[100px] w-[240px]">
         <div className="px-6 pb-5 pt-7">
-          <p className="text-[18px] font-bold uppercase tracking-tight text-[#2E2E2E]">
+          <p className="text-[25px] font-bold uppercase leading-[1.2] tracking-[-0.75px] text-[#2E2E2E]">
             marketing digital
           </p>
-          <p className="mt-1 text-[13px] text-[#6D6A65]">With real results</p>
-          <div className="mt-3 flex items-end gap-2">
-            <span className="text-[16px] font-bold text-[#F2612E]">+5.6%</span>
-            <span className="text-[11px] font-bold uppercase text-black">
+          <p className="mt-2 text-[14px] leading-[1.5] text-[#6D6A65]">With real results</p>
+          <div className="mt-4 flex items-end gap-2">
+            <span className="text-[20px] font-bold leading-[1.2] text-[#F2612E]">+5.6%</span>
+            <span className="text-[16px] font-bold uppercase leading-[1.2] text-black">
               Average indicator
             </span>
           </div>

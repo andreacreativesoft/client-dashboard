@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useRecaptcha } from "@/components/recaptcha-provider";
 import { forgotPasswordAction } from "@/lib/actions/auth";
 
@@ -41,57 +39,65 @@ export function ForgotPasswordForm() {
 
   if (success) {
     return (
-      <div className="space-y-4 text-center">
-        <div className="rounded-lg bg-success/10 p-3 text-sm text-success">
-          Check your email for a password reset link.
+      <div className="flex flex-col gap-4 text-center">
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-600">
+          Vérifiez votre e-mail pour un lien de réinitialisation.
         </div>
-        <p className="text-xs text-muted-foreground">
-          Don&apos;t see it? Check your spam or junk folder.
+        <p className="text-[13px] text-[#6D6A65]">
+          Vous ne le voyez pas ? Vérifiez votre dossier spam.
         </p>
         <Link
           href="/login"
-          className="inline-block text-sm text-muted-foreground hover:text-foreground"
+          className="inline-block text-[14px] text-[#F2612E] hover:underline"
         >
-          Back to login
+          Retour à la connexion
         </Link>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {error && (
-        <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="email">
-          Email
+      <div className="flex flex-col gap-2">
+        <label
+          className="text-[14px] leading-[1.5] text-[#111928]"
+          htmlFor="email"
+        >
+          Adresse e-mail
         </label>
-        <Input
+        <input
           id="email"
           type="email"
-          placeholder="you@example.com"
+          placeholder="Adresse e-mail"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
           autoComplete="email"
           disabled={loading}
+          className="w-full rounded-lg border border-[#D1D5DB] bg-[#F9FAFB] px-4 py-3 text-[14px] leading-[1.5] text-[#2E2E2E] placeholder-[#6D6A65] outline-none transition-colors focus:border-[#2A5959] disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Sending..." : "Send reset link"}
-      </Button>
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full cursor-pointer rounded-full bg-[#F2612E] px-5 py-3 text-[18px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-white transition-colors hover:bg-[#E0551F] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading ? "Envoi..." : "Envoyer le lien"}
+      </button>
 
       <p className="text-center">
         <Link
           href="/login"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-[14px] text-[#F2612E] hover:underline"
         >
-          Back to login
+          Retour à la connexion
         </Link>
       </p>
     </form>

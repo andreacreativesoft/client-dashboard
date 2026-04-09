@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useRecaptcha } from "@/components/recaptcha-provider";
 import { loginAction } from "@/lib/actions/auth";
 
@@ -50,60 +48,92 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {error && (
-        <div className={`rounded-lg p-3 text-sm ${
-          blocked
-            ? "border border-destructive/30 bg-destructive/10 text-destructive"
-            : "bg-destructive/10 text-destructive"
-        }`}>
+        <div
+          className={`rounded-lg p-3 text-sm ${
+            blocked
+              ? "border border-red-300 bg-red-50 text-red-600"
+              : "bg-red-50 text-red-600"
+          }`}
+        >
           {error}
         </div>
       )}
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="email">
-          Email
+      {/* Email */}
+      <div className="flex flex-col gap-2">
+        <label
+          className="text-[14px] leading-[1.5] text-[#111928]"
+          htmlFor="email"
+        >
+          Adresse e-mail
         </label>
-        <Input
+        <input
           id="email"
           type="email"
-          placeholder="you@example.com"
+          placeholder="Adresse e-mail"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
           autoComplete="email"
           disabled={loading || blocked}
+          className="w-full rounded-lg border border-[#D1D5DB] bg-[#F9FAFB] px-4 py-3 text-[14px] leading-[1.5] text-[#2E2E2E] placeholder-[#6D6A65] outline-none transition-colors focus:border-[#2A5959] disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium" htmlFor="password">
-            Password
-          </label>
-          <Link
-            href="/forgot-password"
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            Forgot password?
-          </Link>
-        </div>
-        <Input
+      {/* Password */}
+      <div className="flex flex-col gap-2">
+        <label
+          className="text-[14px] leading-[1.5] text-[#111928]"
+          htmlFor="password"
+        >
+          Mot de passe
+        </label>
+        <input
           id="password"
           type="password"
-          placeholder="Your password"
+          placeholder="••••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           autoComplete="current-password"
           disabled={loading || blocked}
+          className="w-full rounded-lg border border-[#D1D5DB] bg-[#F9FAFB] px-4 py-3 text-[14px] leading-[1.5] text-[#2E2E2E] placeholder-[#6D6A65] outline-none transition-colors focus:border-[#2A5959] disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading || blocked}>
-        {loading ? "Signing in..." : blocked ? "Account blocked" : "Sign in"}
-      </Button>
+      {/* Remember me & Forgot password */}
+      <div className="flex items-center justify-between">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4 rounded border-[#B5C3BE] bg-[#F9FAFB] accent-[#2A5959]"
+          />
+          <span className="text-[14px] leading-[1.5] text-[#6B7280]">
+            Remember me
+          </span>
+        </label>
+        <Link
+          href="/forgot-password"
+          className="text-[14px] leading-[1.5] text-[#F2612E] hover:underline"
+        >
+          Mot de passe oublié ?
+        </Link>
+      </div>
+
+      {/* Submit button */}
+      <button
+        type="submit"
+        disabled={loading || blocked}
+        className="w-full cursor-pointer rounded-full bg-[#F2612E] px-5 py-3 text-[18px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-white transition-colors hover:bg-[#E0551F] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading
+          ? "Connexion..."
+          : blocked
+            ? "Compte bloqué"
+            : "Se connecter"}
+      </button>
     </form>
   );
 }

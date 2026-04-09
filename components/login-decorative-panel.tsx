@@ -25,8 +25,8 @@ function FloatingCard({
   return (
     <div className={`absolute ${className}`}>
       {/* Orange logo badge */}
-      <div className="absolute -top-[36px] left-4 z-10 flex size-[56px] items-center justify-center rounded-full border-[6px] border-[#DDE9E5] bg-[#F2612E]">
-        <LogoIcon className="size-5 text-white" />
+      <div className="absolute -top-[53px] left-4 z-10 flex size-[72px] items-center justify-center overflow-hidden rounded-full border-8 border-[#DDE9E5] bg-[#F2612E]">
+        <LogoIcon className="size-8 text-white" />
       </div>
       <div className="overflow-hidden rounded-[20px] bg-white shadow-[0px_25px_50px_0px_rgba(0,0,0,0.08)]">
         {children}

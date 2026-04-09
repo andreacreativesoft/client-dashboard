@@ -8,9 +8,9 @@ export default function AuthLayout({
 }) {
   return (
     <RecaptchaProvider>
-      <div className="flex min-h-dvh">
+      <div className="flex h-dvh">
         {/* Left side — form */}
-        <div className="relative flex flex-1 flex-col items-center justify-center bg-white px-6 py-12">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-white px-6 py-12">
           {/* Logo */}
           <div className="absolute left-8 top-8 flex items-center gap-2 lg:left-[72px] lg:top-[72px]">
             <svg

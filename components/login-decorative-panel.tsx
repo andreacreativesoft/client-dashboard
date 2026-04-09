@@ -83,7 +83,7 @@ function MiniDonutChart() {
 
 export function LoginDecorativePanel() {
   return (
-    <div className="relative hidden h-full w-full flex-1 items-center justify-center overflow-hidden bg-[#DDE9E5] lg:flex">
+    <div className="relative flex-1 items-center justify-center overflow-hidden bg-[#DDE9E5] max-lg:hidden lg:flex">
       {/* Decorative curved lines */}
       <div
         className="pointer-events-none absolute -right-[100px] -top-[200px] h-[800px] w-[800px] rounded-full border-[60px] border-[#F2612E]/15"

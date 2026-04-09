@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getTicketsPaginated } from "@/lib/actions/tickets";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
+import { t } from "@/lib/i18n/translations";
 import { getLeads } from "@/lib/actions/leads";
 import { TicketsList } from "./tickets-list";
 
@@ -23,6 +24,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const profile = await getProfile();
   const impersonatedClientId = profile?.role === "admin" ? await getImpersonatedClientId() : null;
   const isAdmin = profile?.role === "admin" && !impersonatedClientId;
+  const lang = profile?.language || "en";
 
   const page = Math.max(1, parseInt(params.page || "1", 10) || 1);
   const statusFilter = params.status as "open" | "in_progress" | "waiting_on_client" | "closed" | "all" | undefined;
@@ -55,10 +57,10 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
               className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]"
               style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
             >
-              Contacter les prospects
+              {t(lang, "crm.title")}
             </h1>
             <p className="text-[18px] leading-[1.5] text-[#6D6A65]">
-              Gérez et suivez tous les prospects de votre site web
+              {t(lang, "crm.subtitle")}
             </p>
           </div>
           <Link
@@ -68,7 +70,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
             <svg className="size-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
-            Ajouter un prospect
+            {t(lang, "crm.add_prospect")}
           </Link>
         </div>
 
@@ -83,8 +85,8 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
             <p className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#F2612E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>
               {recentLeads.length}
             </p>
-            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">Leads totaux</p>
-            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">Ce mois-ci</p>
+            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">{t(lang, "crm.total_leads")}</p>
+            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">{t(lang, "crm.this_month")}</p>
           </div>
           <div className="flex flex-1 flex-col items-center gap-2 rounded-[24px] bg-white p-5 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
             <div className="flex size-[48px] items-center justify-center rounded-full bg-[#DDE9E5]">
@@ -95,8 +97,8 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
             <p className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#F2612E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>
               {contactedCount}
             </p>
-            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">Contacté</p>
-            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">En cours de suivi</p>
+            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">{t(lang, "crm.contacted")}</p>
+            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">{t(lang, "crm.in_progress")}</p>
           </div>
           <div className="flex flex-1 flex-col items-center gap-2 rounded-[24px] bg-white p-5 shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_0px_rgba(0,0,0,0.1)]">
             <div className="flex size-[48px] items-center justify-center rounded-full bg-[#DDE9E5]">
@@ -107,8 +109,8 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
             <p className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#F2612E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>
               {doneCount}
             </p>
-            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">Devenus clients</p>
-            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">Convertis</p>
+            <p className="text-[16px] font-bold leading-[1.5] text-[#2E2E2E]">{t(lang, "crm.converted")}</p>
+            <p className="text-[16px] leading-[1.5] text-[#6D6A65]">{t(lang, "crm.completed")}</p>
           </div>
         </div>
 

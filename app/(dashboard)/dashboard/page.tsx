@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getLeads } from "@/lib/actions/leads";
 import { getProfile } from "@/lib/actions/profile";
 import { getImpersonatedClientId } from "@/lib/impersonate";
+import { t } from "@/lib/i18n/translations";
+import type { AppLanguage } from "@/types/database";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -99,6 +101,8 @@ export default async function DashboardPage() {
     }
   }
 
+  const lang = profile?.language || "en";
+
   // Calculate stats
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const newLeads = leads.filter((l) => l.created_at >= thirtyDaysAgo);
@@ -114,10 +118,10 @@ export default async function DashboardPage() {
               className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]"
               style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
             >
-              Bonjour {firstName} !
+              {t(lang, "dashboard.hello")} {firstName} !
             </h1>
             <p className="text-[18px] leading-[1.5] text-[#6D6A65]">
-              Voici un aperçu de la performance de votre site web ce mois-ci.
+              {t(lang, "dashboard.overview_subtitle")}
             </p>
           </div>
 
@@ -126,20 +130,20 @@ export default async function DashboardPage() {
             <StatCard
               icon={<MonitorIcon />}
               value="Live"
-              label="Statut du site web"
-              description="Votre site web fonctionne bien"
+              label={t(lang, "dashboard.site_status")}
+              description={t(lang, "dashboard.site_ok")}
             />
             <StatCard
               icon={<UsersIcon />}
               value={newLeads.length.toLocaleString()}
-              label="Leads ce mois"
-              description={`${leads.length} leads au total`}
+              label={t(lang, "dashboard.leads_this_month")}
+              description={`${leads.length} ${t(lang, "dashboard.leads_total_desc")}`}
             />
             <StatCard
               icon={<StarIcon />}
               value={String(newLeads.filter((l) => l.status === "new").length)}
-              label="Nouveaux leads"
-              description="En attente de contact"
+              label={t(lang, "dashboard.new_leads")}
+              description={t(lang, "dashboard.awaiting_contact_desc")}
             />
           </div>
         </div>
@@ -151,12 +155,10 @@ export default async function DashboardPage() {
               className="text-[26px] font-extrabold uppercase leading-[1.3] text-[#2E2E2E]"
               style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
             >
-              {"Besoin d'aide ou d'améliorations ?"}
+              {t(lang, "dashboard.need_help")}
             </h2>
             <p className="text-[14px] leading-[1.5] text-[#6D6A65]">
-              Notre équipe est là pour vous accompagner. Vous souhaitez modifier votre site,
-              <br className="max-md:hidden" />
-              {" "}améliorer vos résultats ou avez des questions ?
+              {t(lang, "dashboard.need_help_desc")}
             </p>
           </div>
           <Link
@@ -164,7 +166,7 @@ export default async function DashboardPage() {
             className="flex items-center gap-2 rounded-full bg-[#F2612E] px-5 py-3 text-[18px] font-bold uppercase leading-[1.5] tracking-[0.72px] text-white transition-colors hover:bg-[#E0551F]"
           >
             <ChatIcon />
-            Demander des modifs
+            {t(lang, "dashboard.request_changes")}
           </Link>
         </div>
       </div>

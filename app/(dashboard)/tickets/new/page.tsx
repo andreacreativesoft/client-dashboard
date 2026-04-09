@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getProfile } from "@/lib/actions/profile";
+import { t } from "@/lib/i18n/translations";
 import { getClientsForTickets, getAdminUsers } from "@/lib/actions/tickets";
 import { getImpersonatedClientId } from "@/lib/impersonate";
 import { TicketForm } from "./ticket-form";
@@ -12,6 +13,7 @@ export default async function NewTicketPage() {
   const profile = await getProfile();
   const impersonatedClientId = profile?.role === "admin" ? await getImpersonatedClientId() : null;
   const isAdmin = profile?.role === "admin" && !impersonatedClientId;
+  const lang = profile?.language || "en";
 
   const clients = await getClientsForTickets();
   const adminUsers = isAdmin ? await getAdminUsers() : [];
@@ -25,12 +27,10 @@ export default async function NewTicketPage() {
             className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]"
             style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
           >
-            Demander des modifications
+            {t(lang, "ticket_form.title")}
           </h1>
           <p className="text-[18px] leading-[1.5] text-[#6D6A65]">
-            Décrivez-nous les changements que vous souhaitez apporter à votre site web.
-            <br />
-            Notre équipe vous répondra rapidement.
+            {t(lang, "ticket_form.subtitle")}
           </p>
         </div>
 

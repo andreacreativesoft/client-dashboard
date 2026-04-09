@@ -85,12 +85,14 @@ export function LoginDecorativePanel() {
   return (
     <div className="relative flex-1 items-center justify-center overflow-hidden bg-[#DDE9E5] max-lg:hidden lg:flex">
       {/* Decorative curved lines */}
+      {/* Top: dark teal thick curve */}
       <div
-        className="pointer-events-none absolute -right-[100px] -top-[200px] h-[800px] w-[800px] rounded-full border-[60px] border-[#F2612E]/15"
-        style={{ transform: "rotate(-15deg)" }}
+        className="pointer-events-none absolute -top-[350px] left-[30px] h-[800px] w-[950px] rounded-full border-[65px] border-[#2A5959]/40"
+        style={{ transform: "rotate(-4deg)" }}
       />
+      {/* Bottom: bold salmon/orange curve */}
       <div
-        className="pointer-events-none absolute -bottom-[300px] -left-[400px] h-[1200px] w-[1200px] rounded-full border-[80px] border-[#F2612E]/10"
+        className="pointer-events-none absolute -bottom-[400px] -left-[500px] h-[1100px] w-[1100px] rounded-full border-[75px] border-[#F2612E]/30"
         style={{ transform: "rotate(150deg)" }}
       />
 

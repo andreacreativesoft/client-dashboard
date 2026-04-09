@@ -87,13 +87,12 @@ export function LoginDecorativePanel() {
       {/* Decorative curved lines */}
       {/* Top: dark teal thick curve */}
       <div
-        className="pointer-events-none absolute -top-[350px] left-[30px] h-[800px] w-[950px] rounded-full border-[65px] border-[#2A5959]/40"
+        className="pointer-events-none absolute -top-[350px] left-[30px] h-[800px] w-[950px] rounded-full border-[65px] border-[#2A5959]"
         style={{ transform: "rotate(-4deg)" }}
       />
       {/* Bottom: bold salmon/orange curve */}
       <div
-        className="pointer-events-none absolute -bottom-[400px] -left-[500px] h-[1100px] w-[1100px] rounded-full border-[75px] border-[#F2612E]/30"
-        style={{ transform: "rotate(150deg)" }}
+        className="pointer-events-none absolute -bottom-[400px] -left-[500px] h-[1100px] w-[1100px] rounded-full border-[75px] border-[#F2612E]/60"
       />
 
       {/* Card 1: Top-left — Profitability with bar chart */}

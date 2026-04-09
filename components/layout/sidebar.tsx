@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { useSidebar } from "@/components/layout/sidebar-context";
+
 import { useLanguage } from "@/lib/i18n/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import type { NavBadgeCounts } from "@/lib/actions/nav-badges";
@@ -141,7 +141,6 @@ const BADGE_MAP: Record<string, keyof NavBadgeCounts> = {
 export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusinessName, avatarUrl }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { collapsed, toggle } = useSidebar();
   const { t } = useLanguage();
 
   async function handleSignOut() {
@@ -159,15 +158,13 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
   return (
     <aside
       className={cn(
-        "flex-col bg-[#2A5959] font-[Helvetica,Arial,sans-serif] transition-all duration-300 ease-in-out",
-        collapsed ? "w-[68px]" : "w-64",
+        "w-64 flex-col bg-[#2A5959] font-[Helvetica,Arial,sans-serif]",
         className
       )}
     >
       {/* Logo */}
       <div className="flex items-center gap-2 px-3 py-4">
-        {!collapsed && (
-          <div className="flex flex-1 items-center gap-2">
+        <div className="flex flex-1 items-center gap-2">
             <svg viewBox="0 0 32 32" fill="none" className="size-6 text-white">
               <circle cx="16" cy="16" r="14" stroke="currentColor" strokeWidth="2" />
               <ellipse cx="16" cy="16" rx="8" ry="14" stroke="currentColor" strokeWidth="2" />
@@ -179,18 +176,6 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
               Votre Site Pro
             </span>
           </div>
-        )}
-        {collapsed && (
-          <button
-            onClick={toggle}
-            className="mx-auto flex size-10 items-center justify-center rounded-lg text-white/70 hover:text-white"
-            title="Expand sidebar"
-          >
-            <svg className="size-5 rotate-180" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-        )}
       </div>
 
       {/* Nav links */}
@@ -203,32 +188,19 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
             <Link
               key={item.href}
               href={item.href}
-              title={collapsed ? label : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors",
-                collapsed && "justify-center px-0",
                 isActive(item.href)
                   ? "bg-[#1A4040] text-white"
                   : "text-[#DBDBDB] hover:bg-[#1A4040]/50 hover:text-white"
               )}
             >
-              <span className="relative">
-                {item.icon}
-                {collapsed && badgeCount > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F2612E] px-1 text-[10px] font-bold text-white">
-                    {badgeCount > 99 ? "99+" : badgeCount}
-                  </span>
-                )}
-              </span>
-              {!collapsed && (
-                <>
-                  <span className="text-[16px] leading-[1.5]">{label}</span>
-                  {badgeCount > 0 && (
-                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#F2612E] px-1.5 text-xs font-bold text-white">
-                      {badgeCount > 99 ? "99+" : badgeCount}
-                    </span>
-                  )}
-                </>
+              {item.icon}
+              <span className="text-[16px] leading-[1.5]">{label}</span>
+              {badgeCount > 0 && (
+                <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#F2612E] px-1.5 text-xs font-bold text-white">
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
               )}
             </Link>
           );
@@ -243,19 +215,15 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
                 <Link
                   key={item.href}
                   href={item.href}
-                  title={collapsed ? label : undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors",
-                    collapsed && "justify-center px-0",
                     isActive(item.href, item.exact)
                       ? "bg-[#1A4040] text-white"
                       : "text-[#DBDBDB] hover:bg-[#1A4040]/50 hover:text-white"
                   )}
                 >
                   {item.icon}
-                  {!collapsed && (
-                    <span className="text-[16px] leading-[1.5]">{label}</span>
-                  )}
+                  <span className="text-[16px] leading-[1.5]">{label}</span>
                 </Link>
               );
             })}
@@ -281,21 +249,18 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
                 {userName.charAt(0).toUpperCase()}
               </div>
             )}
-            {!collapsed && (
-              <div className="flex flex-col">
-                <span className="text-[14px] font-bold leading-[1.5] text-white">
-                  {userName}
+            <div className="flex flex-col">
+              <span className="text-[14px] font-bold leading-[1.5] text-white">
+                {userName}
+              </span>
+              {userBusinessName && (
+                <span className="text-[11px] leading-[1.5] text-[#DBDBDB]">
+                  {userBusinessName}
                 </span>
-                {userBusinessName && (
-                  <span className="text-[11px] leading-[1.5] text-[#DBDBDB]">
-                    {userBusinessName}
-                  </span>
                 )}
               </div>
-            )}
           </div>
-          {!collapsed && (
-            <button
+          <button
               onClick={handleSignOut}
               title="Déconnexion"
               className="cursor-pointer text-[#DBDBDB] transition-colors hover:text-white"
@@ -304,7 +269,6 @@ export function Sidebar({ isAdmin, badgeCounts, className, userName, userBusines
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
               </svg>
             </button>
-          )}
         </div>
       )}
     </aside>

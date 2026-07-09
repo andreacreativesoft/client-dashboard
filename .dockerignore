@@ -1,0 +1,31 @@
+# Dépendances & build (réinstallés/rebuild dans l'image)
+node_modules
+.next
+out
+build
+
+# Secrets & env locaux — JAMAIS dans l'image
+.env
+.env.*
+!.env.example
+
+# Git & CI
+.git
+.gitignore
+.github
+
+# Outillage local / Supabase local (la sandbox vise Supabase Cloud)
+supabase/.branches
+supabase/.temp
+**/*.log
+
+# Docs & assets non nécessaires au runtime
+docs
+README.md
+*.md
+
+# Divers
+.vscode
+.idea
+.DS_Store
+coverage

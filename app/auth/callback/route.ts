@@ -1,20 +1,26 @@
+/**
+ * GET /auth/callback — callback d'authentification Supabase (lien magique,
+ * confirmation d'email, OAuth). Échange le `code` contre une session puis
+ * redirige vers `?next` (défaut /dashboard) ; en cas d'échec → /login.
+ */
 import { NextRequest, NextResponse } from "next/server";
+
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = request.nextUrl;
-  const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+    const { searchParams, origin } = request.nextUrl;
+    const code = searchParams.get("code");
+    const next = searchParams.get("next") ?? "/dashboard";
 
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (code) {
+        const supabase = await createClient();
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+        if (!error) {
+            return NextResponse.redirect(`${origin}${next}`);
+        }
     }
-  }
 
-  // If code exchange failed, redirect to login with error
-  return NextResponse.redirect(`${origin}/login`);
+    // If code exchange failed, redirect to login with error
+    return NextResponse.redirect(`${origin}/login`);
 }

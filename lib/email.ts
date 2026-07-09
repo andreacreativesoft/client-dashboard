@@ -1,41 +1,39 @@
 import { Resend } from "resend";
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 /** Resolve the app URL at call time (not module load time) so env vars set at runtime are picked up */
 function getAppUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 }
 
 export interface NewLeadEmailData {
-  clientName: string;
-  websiteName: string;
-  leadName: string;
-  leadEmail: string;
-  leadPhone?: string | null;
-  formName?: string | null;
-  message?: string | null;
-  submittedAt: string;
-  dashboardUrl: string;
+    clientName: string;
+    websiteName: string;
+    leadName: string;
+    leadEmail: string;
+    leadPhone?: string | null;
+    formName?: string | null;
+    message?: string | null;
+    submittedAt: string;
+    dashboardUrl: string;
 }
 
 export async function sendNewLeadNotification(
-  toEmail: string,
-  data: NewLeadEmailData
+    toEmail: string,
+    data: NewLeadEmailData,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!resend) {
-    console.warn("Resend API key not configured, skipping email notification");
-    return { success: false, error: "Email service not configured" };
-  }
+    if (!resend) {
+        console.warn("Resend API key not configured, skipping email notification");
+        return { success: false, error: "Email service not configured" };
+    }
 
-  try {
-    const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
-      to: toEmail,
-      subject: `New Lead from ${data.websiteName}: ${data.leadName}`,
-      html: `
+    try {
+        const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+            to: toEmail,
+            subject: `New Lead from ${data.websiteName}: ${data.leadName}`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -81,30 +79,42 @@ export async function sendNewLeadNotification(
                                   <a href="mailto:${data.leadEmail}" style="color: #0a0a0a; font-size: 16px; text-decoration: none;">${data.leadEmail}</a>
                                 </td>
                               </tr>
-                              ${data.leadPhone ? `
+                              ${
+                                  data.leadPhone
+                                      ? `
                               <tr>
                                 <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
                                   <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Phone</span><br>
                                   <a href="tel:${data.leadPhone}" style="color: #0a0a0a; font-size: 16px; text-decoration: none;">${data.leadPhone}</a>
                                 </td>
                               </tr>
-                              ` : ""}
-                              ${data.formName ? `
+                              `
+                                      : ""
+                              }
+                              ${
+                                  data.formName
+                                      ? `
                               <tr>
                                 <td style="padding: 8px 0; border-bottom: 1px solid #e5e5e5;">
                                   <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Form</span><br>
                                   <span style="color: #0a0a0a; font-size: 14px;">${data.formName}</span>
                                 </td>
                               </tr>
-                              ` : ""}
-                              ${data.message ? `
+                              `
+                                      : ""
+                              }
+                              ${
+                                  data.message
+                                      ? `
                               <tr>
                                 <td style="padding: 8px 0;">
                                   <span style="color: #737373; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Message</span><br>
                                   <span style="color: #0a0a0a; font-size: 14px; white-space: pre-wrap;">${data.message}</span>
                                 </td>
                               </tr>
-                              ` : ""}
+                              `
+                                      : ""
+                              }
                             </table>
                           </td>
                         </tr>
@@ -139,41 +149,41 @@ export async function sendNewLeadNotification(
         </body>
         </html>
       `,
-    });
+        });
 
-    if (error) {
-      console.error("Failed to send email:", error);
-      return { success: false, error: error.message };
+        if (error) {
+            console.error("Failed to send email:", error);
+            return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("Email send error:", err);
+        return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Email send error:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
 }
 
 export interface WelcomeEmailData {
-  userName: string;
-  email: string;
-  resetUrl: string;
+    userName: string;
+    email: string;
+    resetUrl: string;
 }
 
 export async function sendWelcomeEmail(
-  toEmail: string,
-  data: WelcomeEmailData
+    toEmail: string,
+    data: WelcomeEmailData,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!resend) {
-    console.warn("Resend API key not configured, skipping welcome email");
-    return { success: false, error: "Email service not configured" };
-  }
+    if (!resend) {
+        console.warn("Resend API key not configured, skipping welcome email");
+        return { success: false, error: "Email service not configured" };
+    }
 
-  try {
-    const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
-      to: toEmail,
-      subject: `Your Dashboard Account`,
-      html: `
+    try {
+        const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+            to: toEmail,
+            subject: `Your Dashboard Account`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -247,37 +257,37 @@ export async function sendWelcomeEmail(
         </body>
         </html>
       `,
-    });
+        });
 
-    if (error) {
-      console.error("Failed to send welcome email:", error);
-      return { success: false, error: error.message };
+        if (error) {
+            console.error("Failed to send welcome email:", error);
+            return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("Welcome email send error:", err);
+        return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Welcome email send error:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
 }
 
 export async function sendClientEmail(
-  toEmail: string,
-  subject: string,
-  message: string,
-  senderName: string
+    toEmail: string,
+    subject: string,
+    message: string,
+    senderName: string,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!resend) {
-    console.warn("Resend API key not configured, skipping client email");
-    return { success: false, error: "Email service not configured" };
-  }
+    if (!resend) {
+        console.warn("Resend API key not configured, skipping client email");
+        return { success: false, error: "Email service not configured" };
+    }
 
-  try {
-    const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
-      to: toEmail,
-      subject,
-      html: `
+    try {
+        const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+            to: toEmail,
+            subject,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -313,41 +323,41 @@ export async function sendClientEmail(
         </body>
         </html>
       `,
-    });
+        });
 
-    if (error) {
-      console.error("Failed to send client email:", error);
-      return { success: false, error: error.message };
+        if (error) {
+            console.error("Failed to send client email:", error);
+            return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("Client email send error:", err);
+        return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Client email send error:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
 }
 
 export interface AccountCreatedEmailData {
-  userName: string;
-  email: string;
-  loginUrl: string;
+    userName: string;
+    email: string;
+    loginUrl: string;
 }
 
 export async function sendAccountCreatedEmail(
-  toEmail: string,
-  data: AccountCreatedEmailData
+    toEmail: string,
+    data: AccountCreatedEmailData,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!resend) {
-    console.warn("Resend API key not configured, skipping account created email");
-    return { success: false, error: "Email service not configured" };
-  }
+    if (!resend) {
+        console.warn("Resend API key not configured, skipping account created email");
+        return { success: false, error: "Email service not configured" };
+    }
 
-  try {
-    const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
-      to: toEmail,
-      subject: `Your Dashboard Account is Ready`,
-      html: `
+    try {
+        const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+            to: toEmail,
+            subject: `Your Dashboard Account is Ready`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -421,44 +431,44 @@ export async function sendAccountCreatedEmail(
         </body>
         </html>
       `,
-    });
+        });
 
-    if (error) {
-      console.error("Failed to send account created email:", error);
-      return { success: false, error: error.message };
+        if (error) {
+            console.error("Failed to send account created email:", error);
+            return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("Account created email send error:", err);
+        return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Account created email send error:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
 }
 
 export interface InviteEmailData {
-  inviteeName: string;
-  inviterName: string;
-  token: string;
-  expiresAt: string;
+    inviteeName: string;
+    inviterName: string;
+    token: string;
+    expiresAt: string;
 }
 
 export async function sendInviteEmail(
-  toEmail: string,
-  data: InviteEmailData
+    toEmail: string,
+    data: InviteEmailData,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!resend) {
-    console.warn("Resend API key not configured, skipping invite email");
-    return { success: false, error: "Email service not configured" };
-  }
+    if (!resend) {
+        console.warn("Resend API key not configured, skipping invite email");
+        return { success: false, error: "Email service not configured" };
+    }
 
-  const inviteUrl = `${getAppUrl()}/invite/${data.token}`;
+    const inviteUrl = `${getAppUrl()}/invite/${data.token}`;
 
-  try {
-    const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
-      to: toEmail,
-      subject: `You're invited to join the Dashboard`,
-      html: `
+    try {
+        const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "notifications@resend.dev",
+            to: toEmail,
+            subject: `You're invited to join the Dashboard`,
+            html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -530,16 +540,16 @@ export async function sendInviteEmail(
         </body>
         </html>
       `,
-    });
+        });
 
-    if (error) {
-      console.error("Failed to send invite email:", error);
-      return { success: false, error: error.message };
+        if (error) {
+            console.error("Failed to send invite email:", error);
+            return { success: false, error: error.message };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("Invite email send error:", err);
+        return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Invite email send error:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
 }

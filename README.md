@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VSP — Client Dashboard
 
-## Getting Started
+Tableau de bord SaaS multi-tenant pour l'agence **Votre Site Pro**. Permet à ses
+clients (commerçants, artisans — non-techniques) de suivre, sans jargon, ce que
+leur site web leur rapporte : prospects, fréquentation, visibilité Google, et de
+demander des modifications.
 
-First, run the development server:
+Stack : Next.js 16 (App Router) · React 19 · TypeScript strict · Supabase
+(PostgreSQL + Auth + RLS) · Tailwind v4 + shadcn/ui · déployé sur Vercel.
+
+## Démarrer en local (Supabase CLI + Docker)
+
+Prérequis : **Node ≥ 20**, **pnpm ≥ 11**, **Docker** lancé.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. Dépendances
+pnpm install
+
+# 2. Stack Supabase locale (Postgres + Auth + Studio… dans Docker)
+npx supabase start
+
+# 3. Récupérer les clés locales et renseigner .env.local
+cp .env.example .env.local
+npx supabase status            # copie ANON_KEY + SERVICE_ROLE_KEY (format JWT « eyJ… »)
+#   → NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+#   → NEXT_PUBLIC_SUPABASE_ANON_KEY=<ANON_KEY>
+#   → SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY>
+
+# 4. (Re)construire la base : rejoue les migrations 001→027 + supabase/seed.sql
+npx supabase db reset
+
+# 5. Données de démo (clients, sites, ~90 leads, tickets, 4 comptes)
+pnpm db:seed                   # ou : pnpm db:seed:reset (clear + create)
+
+# 6. Lancer l'app
+pnpm dev                       # http://localhost:8201
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> ⚠️ **Clés d'API** : utilise bien les clés **JWT legacy** (`eyJ…`) renvoyées par
+> `npx supabase status`, **pas** les nouvelles clés `sb_publishable_` /
+> `sb_secret_` — le PostgREST local ne les mappe pas sur `service_role`
+> (→ « permission denied »).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Comptes de démo** (mot de passe `password`) :
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Rôle   | Email                                                   |
+| ------ | ------------------------------------------------------- |
+| admin  | `admin@vsp.local`                                       |
+| client | `marie@vsp.local`, `paul@vsp.local`, `sophie@vsp.local` |
 
-## Learn More
+**URLs locales** : App http://localhost:8201 · Studio http://localhost:54323 ·
+Mailpit (emails interceptés) http://localhost:54324
 
-To learn more about Next.js, take a look at the following resources:
+Avant de committer : `pnpm check` (typecheck + lint + format).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### `supabase/seed.sql` (dev local uniquement)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`db reset` rejoue `supabase/seed.sql` après les migrations. Il y réaccorde le DML
+(`select/insert/update/delete`) aux rôles `anon` / `authenticated` /
+`service_role` : les images Supabase CLI récentes ne le font plus
+automatiquement, alors que le cloud si. Sans ça, l'app **et** le seed échouent en
+« permission denied ». Ce fichier n'est **jamais** exécuté sur le cloud.
 
-## Deploy on Vercel
+## Supabase (production / cloud)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Créer un projet sur https://supabase.com
+2. Exécuter les migrations `supabase/migrations/001 → 027` dans l'ordre (SQL Editor)
+3. Renseigner URL + anon key + service role key dans les variables d'env Vercel
+4. Créer un premier admin : Authentication > Users, puis
+   `UPDATE profiles SET role = 'admin' WHERE email = 'vous@exemple.com';`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Documentation
+
+Toute la doc de travail est dans [`docs/`](docs/). **Commencez par
+[`docs/README.md`](docs/README.md)** (ordre de lecture selon votre besoin).
+La référence technique pour l'IA est [`CLAUDE.md`](CLAUDE.md).

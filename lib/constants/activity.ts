@@ -1,38 +1,37 @@
-// Activity action types for consistency
 export const ActivityTypes = {
-  // Lead actions
-  LEAD_CREATED: "lead_created",
-  LEAD_STATUS_CHANGED: "lead_status_changed",
-  LEAD_NOTE_ADDED: "lead_note_added",
+    SUBMISSION_CREATED: "submission_created",
+    SUBMISSION_STATUS_CHANGED: "submission_status_changed",
+    SUBMISSION_NOTE_ADDED: "submission_note_added",
 
-  // Client actions
-  CLIENT_CREATED: "client_created",
-  CLIENT_UPDATED: "client_updated",
+    CONNECTOR_CREATED: "connector_created",
+    CONNECTOR_UPDATED: "connector_updated",
+    CONNECTOR_DELETED: "connector_deleted",
 
-  // Website actions
-  WEBSITE_ADDED: "website_added",
-  WEBSITE_REMOVED: "website_removed",
+    TICKET_CREATED: "ticket_created",
+    TICKET_REPLIED: "ticket_replied",
+    TICKET_STATUS_CHANGED: "ticket_status_changed",
 
-  // User actions
-  USER_INVITED: "user_invited",
-  USER_JOINED: "user_joined",
-  USER_ASSIGNED: "user_assigned",
-  USER_REMOVED: "user_removed",
+    CLIENT_CREATED: "client_created",
+    CLIENT_UPDATED: "client_updated",
 
-  // Integration actions
-  ANALYTICS_SYNCED: "analytics_synced",
-  INTEGRATION_CONNECTED: "integration_connected",
-  INTEGRATION_DISCONNECTED: "integration_disconnected",
+    WEBSITE_ADDED: "website_added",
+    WEBSITE_UPDATED: "website_updated",
+    WEBSITE_REMOVED: "website_removed",
 
-  // Report actions
-  REPORT_GENERATED: "report_generated",
-  REPORT_SENT: "report_sent",
+    ATTRIBUTE_ADDED: "attribute_added",
+    ATTRIBUTE_UPDATED: "attribute_updated",
+    ATTRIBUTE_REMOVED: "attribute_removed",
 
-  // WordPress actions
-  WORDPRESS_CONNECTED: "wordpress_connected",
-  WORDPRESS_DISCONNECTED: "wordpress_disconnected",
-  WORDPRESS_CONNECTION_TESTED: "wordpress_connection_tested",
-  MU_PLUGIN_DEPLOYED: "mu_plugin_deployed",
+    USER_INVITED: "user_invited",
+    USER_JOINED: "user_joined",
+    USER_ASSIGNED: "user_assigned",
+    USER_REMOVED: "user_removed",
+
+    ANALYTICS_SYNCED: "analytics_synced",
+    INTEGRATION_CONNECTED: "integration_connected",
+    INTEGRATION_DISCONNECTED: "integration_disconnected",
+
+    EMAIL_SENT: "email_sent",
 } as const;
 
 export type ActivityType = (typeof ActivityTypes)[keyof typeof ActivityTypes];

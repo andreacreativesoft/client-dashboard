@@ -7,27 +7,27 @@ import { createClient } from "@/lib/supabase/server";
  * @returns The authenticated admin user's ID, or an error object.
  */
 export async function requireAdmin(): Promise<
-  { success: true; userId: string } | { success: false; error: string }
+    { success: true; userId: string } | { success: false; error: string }
 > {
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user) {
-    return { success: false, error: "Not authenticated" };
-  }
+    if (!user) {
+        return { success: false, error: "Not authenticated" };
+    }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+    const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
 
-  if (profile?.role !== "admin") {
-    return { success: false, error: "Not authorized" };
-  }
+    if (profile?.role !== "admin") {
+        return { success: false, error: "Not authorized" };
+    }
 
-  return { success: true, userId: user.id };
+    return { success: true, userId: user.id };
 }

@@ -1,97 +1,284 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import type { ActivityLogWithUser } from "@/types/database";
+import {
+    BarChart3,
+    Braces,
+    Building2,
+    Clock,
+    Globe,
+    Mail,
+    MessageSquare,
+    RefreshCw,
+    UserPlus,
+} from "lucide-react";
+import { useState } from "react";
+
+import { Modal } from "@/components/ui/modal";
 import { ActivityTypes } from "@/lib/constants/activity";
+import { useLanguage } from "@/lib/i18n/language-context";
+import type { TranslationKey } from "@/lib/i18n/translations";
+import { formatDateTime } from "@/lib/utils";
+import type { ActivityLogWithUser } from "@/types/database";
 
 interface ActivityLogProps {
-  activities: ActivityLogWithUser[];
-  showClient?: boolean;
+    activities: ActivityLogWithUser[];
+    showClient?: boolean;
 }
 
+type Translate = (key: TranslationKey) => string;
+
+const ICON_CLASS = "h-4 w-4";
+
 const actionIcons: Record<string, React.ReactNode> = {
-  [ActivityTypes.LEAD_CREATED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
-    </svg>
-  ),
-  [ActivityTypes.LEAD_STATUS_CHANGED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-    </svg>
-  ),
-  [ActivityTypes.LEAD_NOTE_ADDED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-    </svg>
-  ),
-  [ActivityTypes.CLIENT_CREATED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
-    </svg>
-  ),
-  [ActivityTypes.WEBSITE_ADDED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
-    </svg>
-  ),
-  [ActivityTypes.USER_INVITED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-    </svg>
-  ),
-  [ActivityTypes.ANALYTICS_SYNCED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-    </svg>
-  ),
-  [ActivityTypes.REPORT_GENERATED]: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-    </svg>
-  ),
+    [ActivityTypes.SUBMISSION_CREATED]: <UserPlus className={ICON_CLASS} />,
+    [ActivityTypes.SUBMISSION_STATUS_CHANGED]: <RefreshCw className={ICON_CLASS} />,
+    [ActivityTypes.SUBMISSION_NOTE_ADDED]: <MessageSquare className={ICON_CLASS} />,
+    [ActivityTypes.CONNECTOR_CREATED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.CONNECTOR_UPDATED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.CONNECTOR_DELETED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.TICKET_CREATED]: <MessageSquare className={ICON_CLASS} />,
+    [ActivityTypes.TICKET_REPLIED]: <MessageSquare className={ICON_CLASS} />,
+    [ActivityTypes.TICKET_STATUS_CHANGED]: <RefreshCw className={ICON_CLASS} />,
+    [ActivityTypes.CLIENT_CREATED]: <Building2 className={ICON_CLASS} />,
+    [ActivityTypes.CLIENT_UPDATED]: <Building2 className={ICON_CLASS} />,
+    [ActivityTypes.WEBSITE_ADDED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.WEBSITE_UPDATED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.WEBSITE_REMOVED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.ATTRIBUTE_ADDED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.ATTRIBUTE_UPDATED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.ATTRIBUTE_REMOVED]: <Globe className={ICON_CLASS} />,
+    [ActivityTypes.USER_INVITED]: <UserPlus className={ICON_CLASS} />,
+    [ActivityTypes.USER_JOINED]: <UserPlus className={ICON_CLASS} />,
+    [ActivityTypes.USER_ASSIGNED]: <UserPlus className={ICON_CLASS} />,
+    [ActivityTypes.USER_REMOVED]: <UserPlus className={ICON_CLASS} />,
+    [ActivityTypes.ANALYTICS_SYNCED]: <BarChart3 className={ICON_CLASS} />,
+    [ActivityTypes.INTEGRATION_CONNECTED]: <RefreshCw className={ICON_CLASS} />,
+    [ActivityTypes.INTEGRATION_DISCONNECTED]: <RefreshCw className={ICON_CLASS} />,
+    [ActivityTypes.EMAIL_SENT]: <Mail className={ICON_CLASS} />,
 };
 
-const defaultIcon = (
-  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
+const defaultIcon = <Clock className={ICON_CLASS} />;
 
-export function ActivityLog({ activities }: ActivityLogProps) {
-  if (activities.length === 0) {
+// Status enum value → i18n label key (so descriptions stay translated/relabeled).
+const STATUS_LABEL_KEY: Record<string, TranslationKey> = {
+    new: "leads.new",
+    contacted: "leads.contacted",
+    done: "leads.done",
+    open: "tickets.open",
+    in_progress: "tickets.in_progress",
+    waiting_on_client: "tickets.waiting_on_client",
+    closed: "tickets.closed",
+};
+
+/** Fill {placeholders} in a template with the given values. */
+function fill(template: string, vars: Record<string, string>): string {
+    return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? "");
+}
+
+/**
+ * Build the localized description from action_type + metadata. Falls back to the
+ * stored `description` for legacy/seed rows that predate structured metadata.
+ */
+function describe(t: Translate, activity: ActivityLogWithUser): string {
+    const meta = (activity.metadata ?? {}) as Record<string, unknown>;
+    const get = (key: string) => (meta[key] == null ? "" : String(meta[key]));
+    const statusLabel = () => {
+        const s = get("status");
+        return s && STATUS_LABEL_KEY[s] ? t(STATUS_LABEL_KEY[s]) : s;
+    };
+
+    switch (activity.action_type) {
+        case ActivityTypes.SUBMISSION_CREATED:
+            return fill(t("activity.lead_created"), { name: get("submissionName") });
+        case ActivityTypes.SUBMISSION_STATUS_CHANGED:
+            return fill(t("activity.lead_status_changed"), {
+                name: get("submissionName"),
+                status: statusLabel(),
+            });
+        case ActivityTypes.SUBMISSION_NOTE_ADDED:
+            return fill(t("activity.lead_note_added"), { name: get("submissionName") });
+        case ActivityTypes.TICKET_CREATED:
+            return fill(t("activity.ticket_created"), {
+                number: get("number"),
+                subject: get("subject"),
+            });
+        case ActivityTypes.TICKET_REPLIED:
+            return fill(t("activity.ticket_replied"), { number: get("number") });
+        case ActivityTypes.TICKET_STATUS_CHANGED:
+            return fill(t("activity.ticket_status_changed"), {
+                number: get("number"),
+                status: statusLabel(),
+            });
+        case ActivityTypes.CLIENT_CREATED:
+            return fill(t("activity.client_created"), { name: get("clientName") });
+        case ActivityTypes.CLIENT_UPDATED:
+            return fill(t("activity.client_updated"), { name: get("clientName") });
+        case ActivityTypes.WEBSITE_ADDED:
+            return fill(t("activity.website_added"), { name: get("websiteName") });
+        case ActivityTypes.WEBSITE_REMOVED:
+            return fill(t("activity.website_removed"), { name: get("websiteName") });
+        case ActivityTypes.USER_INVITED:
+            return fill(t("activity.user_invited"), { name: get("userName") });
+        case ActivityTypes.USER_JOINED:
+            return fill(t("activity.user_joined"), { name: get("userName") });
+        case ActivityTypes.USER_ASSIGNED:
+            return fill(t("activity.user_assigned"), { name: get("userName") });
+        case ActivityTypes.USER_REMOVED:
+            return fill(t("activity.user_removed"), { name: get("userName") });
+        case ActivityTypes.INTEGRATION_CONNECTED:
+            return fill(t("activity.integration_connected"), {
+                type: get("integrationType").toUpperCase(),
+            });
+        case ActivityTypes.INTEGRATION_DISCONNECTED:
+            return fill(t("activity.integration_disconnected"), {
+                type: get("integrationType").toUpperCase(),
+            });
+        case ActivityTypes.EMAIL_SENT:
+            return fill(t("activity.email_sent"), { name: get("email") });
+        default:
+            return activity.description;
+    }
+}
+
+const PLATFORM_LABELS: Record<string, string> = { wordpress: "WordPress", custom: "Sur-mesure" };
+
+/**
+ * Type-specific secondary line surfacing the most useful stored metadata that
+ * the main description doesn't already show (URL, access role, email subject…).
+ */
+function extraInfo(t: Translate, activity: ActivityLogWithUser): string | null {
+    const meta = (activity.metadata ?? {}) as Record<string, unknown>;
+    const get = (key: string) => (meta[key] == null ? "" : String(meta[key]));
+
+    switch (activity.action_type) {
+        case ActivityTypes.WEBSITE_ADDED: {
+            const platform = get("platform");
+            return (
+                [get("url"), PLATFORM_LABELS[platform] ?? platform].filter(Boolean).join(" · ") ||
+                null
+            );
+        }
+        case ActivityTypes.WEBSITE_UPDATED:
+            return get("websiteName") || null;
+        case ActivityTypes.CONNECTOR_CREATED:
+            return get("name") || null;
+        case ActivityTypes.ATTRIBUTE_ADDED:
+            return get("title") || null;
+        case ActivityTypes.USER_ASSIGNED: {
+            const role = get("accessRole");
+            if (role === "owner") return t("activity.role_owner");
+            if (role === "viewer") return t("activity.role_viewer");
+            return role || null;
+        }
+        case ActivityTypes.EMAIL_SENT: {
+            const subject = get("subject");
+            return subject ? `${t("activity.subject")} : ${subject}` : null;
+        }
+        case ActivityTypes.TICKET_REPLIED:
+            return meta.isInternal ? t("tickets.internal_note") : t("activity.client_reply");
+        default:
+            return null;
+    }
+}
+
+export function ActivityLog({ activities, showClient = false }: ActivityLogProps) {
+    const { t } = useLanguage();
+    const [detail, setDetail] = useState<ActivityLogWithUser | null>(null);
+
+    if (activities.length === 0) {
+        return (
+            <p className="py-4 text-center text-sm text-muted-foreground">{t("activity.empty")}</p>
+        );
+    }
+
     return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        No activity recorded yet.
-      </p>
-    );
-  }
+        <div className="space-y-3">
+            {activities.map((activity) => (
+                <div
+                    key={activity.id}
+                    className="flex items-start gap-3 rounded-lg border border-border p-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        {actionIcons[activity.action_type] || defaultIcon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm">{describe(t, activity)}</p>
+                        {extraInfo(t, activity) && (
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                                {extraInfo(t, activity)}
+                            </p>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            {showClient && activity.client_name && (
+                                <>
+                                    <span className="font-medium text-foreground">
+                                        {activity.client_name}
+                                    </span>
+                                    <span aria-hidden>·</span>
+                                </>
+                            )}
+                            {activity.user_name && (
+                                <span className="font-medium">{activity.user_name}</span>
+                            )}
+                            <span>
+                                {formatDistanceToNow(new Date(activity.created_at), {
+                                    addSuffix: true,
+                                })}
+                            </span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setDetail(activity)}
+                        aria-label={t("activity.technical_details")}
+                        title={t("activity.technical_details")}
+                        className="shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                        <Braces className="size-4" />
+                    </button>
+                </div>
+            ))}
 
-  return (
-    <div className="space-y-3">
-      {activities.map((activity) => (
-        <div
-          key={activity.id}
-          className="flex items-start gap-3 rounded-lg border border-border p-3"
-        >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            {actionIcons[activity.action_type] || defaultIcon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm">{activity.description}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              {activity.user_name && (
-                <span className="font-medium">{activity.user_name}</span>
-              )}
-              <span>
-                {formatDistanceToNow(new Date(activity.created_at), {
-                  addSuffix: true,
-                })}
-              </span>
-            </div>
-          </div>
+            <Modal
+                open={detail !== null}
+                onClose={() => setDetail(null)}
+                title={t("activity.technical_details")}>
+                {detail && (
+                    <div className="space-y-4">
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                            <dt className="text-muted-foreground">Type</dt>
+                            <dd className="break-all font-mono text-xs">{detail.action_type}</dd>
+                            <dt className="text-muted-foreground">Date</dt>
+                            <dd>{formatDateTime(detail.created_at)}</dd>
+                            {detail.client_name && (
+                                <>
+                                    <dt className="text-muted-foreground">Client</dt>
+                                    <dd>{detail.client_name}</dd>
+                                </>
+                            )}
+                            {detail.user_name && (
+                                <>
+                                    <dt className="text-muted-foreground">Utilisateur</dt>
+                                    <dd>
+                                        {detail.user_name}
+                                        {detail.user_email ? ` · ${detail.user_email}` : ""}
+                                    </dd>
+                                </>
+                            )}
+                            <dt className="text-muted-foreground">ID</dt>
+                            <dd className="break-all font-mono text-xs">{detail.id}</dd>
+                        </dl>
+
+                        <div>
+                            <p className="mb-1.5 text-xs font-medium uppercase text-muted-foreground">
+                                {t("activity.metadata")}
+                            </p>
+                            <pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 text-xs leading-relaxed">
+                                {JSON.stringify(detail.metadata ?? {}, null, 2)}
+                            </pre>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
-      ))}
-    </div>
-  );
+    );
 }

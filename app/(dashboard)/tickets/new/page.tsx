@@ -1,51 +1,46 @@
 import type { Metadata } from "next";
-import { getProfile } from "@/lib/actions/profile";
+
+import { TicketForm } from "@/components/tickets/ticket-form";
+import { PageContainer, PageTitle, PageSubtitle } from "@/components/ui/page";
+import { getClientsForTickets } from "@/lib/actions/tickets";
 import { t } from "@/lib/i18n/translations";
-import { getClientsForTickets, getAdminUsers } from "@/lib/actions/tickets";
-import { getImpersonatedClientId } from "@/lib/impersonate";
-import { TicketForm } from "./ticket-form";
+import { requireClientView } from "@/lib/view-context";
 
 export const metadata: Metadata = {
-  title: "New Ticket",
+    title: "Nouvelle demande",
 };
 
 export default async function NewTicketPage() {
-  const profile = await getProfile();
-  const impersonatedClientId = profile?.role === "admin" ? await getImpersonatedClientId() : null;
-  const isAdmin = profile?.role === "admin" && !impersonatedClientId;
-  const lang = profile?.language || "en";
+    // Client-facing only — a client (or impersonating admin) files their own request.
+    const { profile, impersonatedClientId } = await requireClientView();
+    const lang = profile.language || "fr-BE";
 
-  const clients = await getClientsForTickets();
-  const adminUsers = isAdmin ? await getAdminUsers() : [];
+    const clients = await getClientsForTickets();
 
-  return (
-    <div className="px-8 py-12 font-[Helvetica,Arial,sans-serif]">
-      <div className="flex flex-col gap-8">
-        {/* Heading */}
-        <div className="flex flex-col gap-4 px-4">
-          <h1
-            className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]"
-            style={{ fontFamily: "var(--font-mplus1), sans-serif" }}
-          >
-            {t(lang, "ticket_form.title")}
-          </h1>
-          <p className="text-[18px] leading-[1.5] text-[#6D6A65]">
-            {t(lang, "ticket_form.subtitle")}
-          </p>
-        </div>
+    return (
+        <PageContainer>
+            <div className="flex flex-col gap-8">
+                {/* Heading */}
+                <div className="flex flex-col gap-4 px-4">
+                    <PageTitle>{t(lang, "ticket_form.title")}</PageTitle>
+                    <PageSubtitle>{t(lang, "ticket_form.subtitle")}</PageSubtitle>
+                </div>
 
-        {/* Form card */}
-        <div className="overflow-hidden rounded-[8px] bg-white shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]">
-          <div className="p-8">
-            <TicketForm
-              clients={clients}
-              adminUsers={adminUsers}
-              isAdmin={isAdmin}
-              defaultClientId={impersonatedClientId || (clients.length === 1 ? clients[0]!.id : undefined)}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+                {/* Form card */}
+                <div className="overflow-hidden rounded-[8px] bg-white shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]">
+                    <div className="p-8">
+                        <TicketForm
+                            clients={clients}
+                            adminUsers={[]}
+                            isAdmin={false}
+                            defaultClientId={
+                                impersonatedClientId ||
+                                (clients.length === 1 ? clients[0]!.id : undefined)
+                            }
+                        />
+                    </div>
+                </div>
+            </div>
+        </PageContainer>
+    );
 }

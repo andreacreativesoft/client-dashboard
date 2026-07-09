@@ -1,368 +1,228 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 
-const BAR_COLORS = ["#2A5959", "#B5C3BE", "#F2612E", "#B5C3BE", "#2E2E2E"];
-function barColor(i: number) { return BAR_COLORS[i % BAR_COLORS.length]!; }
-import { Skeleton } from "@/components/ui/skeleton";
+import { SiteBarChart } from "@/components/charts/bar-chart";
+import { SiteLineChart } from "@/components/charts/line-chart";
+import { useSelectedWebsite } from "@/components/layout/selected-website-context";
 import { Badge } from "@/components/ui/badge";
-import { formatNumber } from "@/lib/utils";
-import { useLanguage } from "@/lib/i18n/language-context";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InfoHint } from "@/components/ui/info-hint";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { GSCAnalyticsData } from "@/lib/actions/analytics";
+import { useLanguage } from "@/lib/i18n/language-context";
+import type { TranslationKey } from "@/lib/i18n/translations";
+import { formatNumber } from "@/lib/utils";
 
-type Props = {
-  clientsWithGSC: Array<{
-    clientId: string;
-    clientName: string;
-    siteUrl: string | null;
-  }>;
-  isAdmin: boolean;
-  initialClientId?: string;
-};
+export function GSCAnalytics() {
+    const { websites, selectedWebsiteId } = useSelectedWebsite();
+    const [period, setPeriod] = useState<"7d" | "30d">("30d");
+    const { t } = useLanguage();
 
-export function GSCAnalytics({ clientsWithGSC, isAdmin, initialClientId }: Props) {
-  const [selectedClientId, setSelectedClientId] = useState(
-    initialClientId || clientsWithGSC[0]?.clientId || ""
-  );
-  const [period, setPeriod] = useState<"7d" | "30d">("30d");
-  const { t } = useLanguage();
+    const [data, setData] = useState<GSCAnalyticsData | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [cached, setCached] = useState(false);
 
-  // Sync with header client selector
-  useEffect(() => {
-    if (initialClientId) {
-      setSelectedClientId(initialClientId);
-    }
-  }, [initialClientId]);
-  const [data, setData] = useState<GSCAnalyticsData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [cached, setCached] = useState(false);
+    const fetchData = useCallback(
+        async (forceRefresh = false) => {
+            if (!selectedWebsiteId) return;
+            setLoading(true);
 
-  const fetchData = useCallback(
-    async (forceRefresh = false) => {
-      if (isAdmin && !selectedClientId) return;
-      setLoading(true);
-      setError(null);
-
-      try {
-        const { fetchGSCAnalytics } = await import("@/lib/actions/analytics");
-        const result = await fetchGSCAnalytics(
-          isAdmin ? selectedClientId : undefined,
-          period,
-          forceRefresh
-        );
-
-        if (result.success && result.data) {
-          setData(result.data);
-          setCached(!!result.cached);
-        } else {
-          setError(result.error || "Failed to fetch data");
-          setData(null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch Search Console data");
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [selectedClientId, period, isAdmin]
-  );
-
-  useEffect(() => {
-    if (isAdmin && !selectedClientId) return;
-    fetchData();
-  }, [selectedClientId, period, fetchData, isAdmin]);
-
-  // Only show empty state for admins with no GSC clients
-  if (isAdmin && clientsWithGSC.length === 0) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center">
-            <p className="text-lg font-medium">{t("gsc.no_integrations")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("gsc.no_integrations_desc")}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+            try {
+                const { fetchGSCAnalytics } = await import("@/lib/actions/analytics");
+                const result = await fetchGSCAnalytics(selectedWebsiteId, period, forceRefresh);
+                if (result.success && result.data) {
+                    setData(result.data);
+                    setCached(!!result.cached);
+                } else {
+                    setData(null);
+                }
+            } catch {
+                setData(null);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [selectedWebsiteId, period],
     );
-  }
 
-  return (
-    <div className="space-y-6">
-      {/* Header with controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Google Search Console</h2>
-          {data && (
-            <Badge variant="outline" className="text-xs">
-              {data.siteUrl}
-            </Badge>
-          )}
-          {cached && (
-            <Badge variant="secondary" className="text-xs">
-              {t("ga4.cached")}
-            </Badge>
-          )}
-        </div>
+    useEffect(() => {
+        setData(null);
+        if (selectedWebsiteId) fetchData();
+    }, [selectedWebsiteId, period, fetchData]);
 
-        <div className="flex items-center gap-2">
+    if (websites.length === 0) {
+        return <NotConnected t={t} />;
+    }
 
-          {/* Period selector */}
-          <div className="flex rounded-md border border-input">
-            <button
-              onClick={() => setPeriod("7d")}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                period === "7d"
-                  ? "bg-foreground text-background"
-                  : "hover:bg-muted"
-              }`}
-            >
-              {t("ga4.7_days")}
-            </button>
-            <button
-              onClick={() => setPeriod("30d")}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                period === "30d"
-                  ? "bg-foreground text-background"
-                  : "hover:bg-muted"
-              }`}
-            >
-              {t("ga4.30_days")}
-            </button>
-          </div>
+    const siteLabel = websites.find((w) => w.id === selectedWebsiteId)?.name || "";
+    const resolving = !selectedWebsiteId;
 
-          {/* Refresh button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fetchData(true)}
-            disabled={loading}
-          >
-            {loading ? t("common.loading") : t("ga4.refresh")}
-          </Button>
-        </div>
-      </div>
+    return (
+        <div className="space-y-6">
+            {/* Header with controls */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">{t("gsc.section_title")}</h2>
+                    {data && siteLabel && (
+                        <Badge variant="outline" className="text-xs">
+                            {siteLabel}
+                        </Badge>
+                    )}
+                    {cached && (
+                        <Badge variant="secondary" className="text-xs">
+                            {t("ga4.cached")}
+                        </Badge>
+                    )}
+                </div>
 
-      {/* Error state */}
-      {error && (
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-destructive">{error}</p>
-          </CardContent>
-        </Card>
-      )}
+                <div className="flex items-center gap-2">
+                    {/* Period selector */}
+                    <div className="flex rounded-md border border-input">
+                        <button
+                            onClick={() => setPeriod("7d")}
+                            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                period === "7d" ? "bg-foreground text-background" : "hover:bg-muted"
+                            }`}>
+                            {t("ga4.7_days")}
+                        </button>
+                        <button
+                            onClick={() => setPeriod("30d")}
+                            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                period === "30d"
+                                    ? "bg-foreground text-background"
+                                    : "hover:bg-muted"
+                            }`}>
+                            {t("ga4.30_days")}
+                        </button>
+                    </div>
 
-      {/* Loading state */}
-      {loading && !data && (
-        <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
-          ))}
-        </div>
-      )}
+                    {/* Refresh button */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fetchData(true)}
+                        disabled={loading || resolving}>
+                        {loading ? t("common.loading") : t("ga4.refresh")}
+                    </Button>
+                </div>
+            </div>
 
-      {/* Data display */}
-      {data && (
-        <>
-          {/* Overview metrics */}
-          <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-2xl font-bold">{formatNumber(data.overview.totalClicks)}</p>
-                <p className="text-xs font-medium text-muted-foreground">{t("gsc.total_clicks")}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-2xl font-bold">{formatNumber(data.overview.totalImpressions)}</p>
-                <p className="text-xs font-medium text-muted-foreground">{t("gsc.total_impressions")}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-2xl font-bold">
-                  {(data.overview.averageCTR * 100).toFixed(1)}%
-                </p>
-                <p className="text-xs font-medium text-muted-foreground">{t("gsc.average_ctr")}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-2xl font-bold">
-                  {data.overview.averagePosition.toFixed(1)}
-                </p>
-                <p className="text-xs font-medium text-muted-foreground">{t("gsc.avg_position")}</p>
-              </CardContent>
-            </Card>
-          </div>
+            {/* Loading / resolving state */}
+            {(loading || resolving) && !data && (
+                <div className="grid gap-3 grid-cols-2">
+                    {Array.from({ length: 2 }).map((_, i) => (
+                        <Skeleton key={i} className="h-24 rounded-lg" />
+                    ))}
+                </div>
+            )}
 
-          {/* Clicks chart */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("gsc.organic_clicks")} ({period === "7d" ? t("ga4.7_days") : t("ga4.30_days")})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.daily.length > 0 ? (
+            {/* Not connected for this site */}
+            {!loading && !resolving && !data && <NotConnected t={t} inline />}
+
+            {/* Data display */}
+            {data && (
                 <>
-                  <div className="flex h-32 items-end gap-1">
-                    {data.daily.map((day, index) => {
-                      const maxClicks = Math.max(...data.daily.map((d) => d.clicks), 1);
-                      const height = day.clicks > 0
-                        ? Math.max((day.clicks / maxClicks) * 100, 4)
-                        : 2;
-                      return (
-                        <div
-                          key={day.date}
-                          className="flex-1 rounded-t transition-all"
-                          style={{ height: `${height}%`, backgroundColor: index % 2 === 0 ? "#2A5959" : "#F2612E" }}
-                          title={`${day.date}: ${day.clicks} clicks, ${formatNumber(day.impressions)} impressions, ${(day.ctr * 100).toFixed(1)}% CTR, pos ${day.position.toFixed(1)}`}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                    <span>{data.daily[0]?.date || ""}</span>
-                    <span>{data.daily[data.daily.length - 1]?.date || ""}</span>
-                  </div>
+                    {/* Overview metrics — found you + appeared on Google */}
+                    <div className="grid gap-3 grid-cols-2">
+                        <Card>
+                            <CardContent className="p-4">
+                                <p className="text-2xl font-bold">
+                                    {formatNumber(data.overview.totalClicks)}
+                                </p>
+                                <div className="flex items-center gap-1">
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                        {t("gsc.total_clicks")}
+                                    </p>
+                                    <InfoHint text={t("gsc.hint_clicks")} />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardContent className="p-4">
+                                <p className="text-2xl font-bold">
+                                    {formatNumber(data.overview.totalImpressions)}
+                                </p>
+                                <div className="flex items-center gap-1">
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                        {t("gsc.total_impressions")}
+                                    </p>
+                                    <InfoHint text={t("gsc.hint_impressions")} />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Clicks chart */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>
+                                {t("gsc.organic_clicks")} (
+                                {period === "7d" ? t("ga4.7_days") : t("ga4.30_days")})
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {data.daily.length > 0 ? (
+                                <SiteLineChart
+                                    data={data.daily.map((day) => ({
+                                        label: day.date.slice(5),
+                                        value: day.clicks,
+                                    }))}
+                                    primaryLabel={t("gsc.total_clicks")}
+                                    height={240}
+                                />
+                            ) : (
+                                <p className="text-sm text-muted-foreground">
+                                    {t("gsc.no_search_data")}
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* What people search to find you */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-1.5">
+                                {t("gsc.top_keywords")}
+                                <InfoHint text={t("gsc.hint_keywords")} />
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {data.topQueries.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    {t("gsc.no_keywords")}
+                                </p>
+                            ) : (
+                                <SiteBarChart
+                                    layout="horizontal"
+                                    data={data.topQueries.slice(0, 10).map((q) => ({
+                                        label: q.query,
+                                        value: q.clicks,
+                                    }))}
+                                    height={Math.max(200, data.topQueries.slice(0, 10).length * 36)}
+                                />
+                            )}
+                        </CardContent>
+                    </Card>
                 </>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t("gsc.no_search_data")}</p>
-              )}
+            )}
+        </div>
+    );
+}
+
+/** État « pas encore connecté » (calme, orienté client). */
+function NotConnected({ t, inline }: { t: (k: TranslationKey) => string; inline?: boolean }) {
+    return (
+        <Card>
+            <CardContent className="p-6">
+                <div className={inline ? "" : "text-center"}>
+                    <p className="text-lg font-medium">{t("gsc.no_integrations")}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {t("gsc.no_integrations_desc")}
+                    </p>
+                </div>
             </CardContent>
-          </Card>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Top Queries / Keywords */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("gsc.top_keywords")}
-                  {data.topQueries.length > 0 && (
-                    <span className="ml-2 text-sm font-normal text-muted-foreground">
-                      ({data.topQueries.length})
-                    </span>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.topQueries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
-                ) : (
-                  <div className="space-y-4">
-                    {data.topQueries.slice(0, 10).map((query, i) => {
-                      const maxClicks = Math.max(...data.topQueries.slice(0, 10).map((q) => q.clicks), 1);
-                      const percent = Math.round((query.clicks / maxClicks) * 100);
-                      return (
-                        <div key={query.query} className="flex items-center gap-4">
-                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={query.query}>{query.query}</span>
-                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
-                          </div>
-                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(query.clicks)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Top Pages */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("gsc.top_pages")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.topPages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("gsc.no_pages")}</p>
-                ) : (
-                  <div className="space-y-4">
-                    {data.topPages.slice(0, 8).map((page, i) => {
-                      let displayPath = page.page;
-                      try { displayPath = new URL(page.page).pathname; } catch { /* keep */ }
-                      const maxClicks = Math.max(...data.topPages.slice(0, 8).map((p) => p.clicks), 1);
-                      const percent = Math.round((page.clicks / maxClicks) * 100);
-                      return (
-                        <div key={page.page} className="flex items-center gap-4">
-                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={page.page}>{displayPath}</span>
-                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
-                          </div>
-                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(page.clicks)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Device Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("gsc.device_breakdown")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.deviceBreakdown.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("gsc.no_devices")}</p>
-                ) : (
-                  <div className="space-y-4">
-                    {data.deviceBreakdown.map((device, i) => {
-                      const maxClicks = Math.max(...data.deviceBreakdown.map((d) => d.clicks), 1);
-                      const percent = Math.round((device.clicks / maxClicks) * 100);
-                      const deviceLabel = device.device.charAt(0).toUpperCase() + device.device.slice(1).toLowerCase();
-                      return (
-                        <div key={device.device} className="flex items-center gap-4">
-                          <span className="w-[200px] shrink-0 text-[14px] text-[#2E2E2E]">{deviceLabel}</span>
-                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
-                          </div>
-                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(device.clicks)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Query Performance (detailed) */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("gsc.keyword_performance")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.topQueries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("gsc.no_keywords")}</p>
-                ) : (
-                  <div className="space-y-4">
-                    {data.topQueries.slice(0, 8).map((query, i) => {
-                      const maxClicks = Math.max(...data.topQueries.slice(0, 8).map((q) => q.clicks), 1);
-                      const percent = Math.round((query.clicks / maxClicks) * 100);
-                      return (
-                        <div key={query.query} className="flex items-center gap-4">
-                          <span className="w-[200px] shrink-0 truncate text-[14px] text-[#2E2E2E]" title={query.query}>{query.query}</span>
-                          <div className="h-3 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, backgroundColor: barColor(i) }} />
-                          </div>
-                          <span className="shrink-0 text-[14px] font-bold text-[#2E2E2E]">{formatNumber(query.clicks)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      )}
-    </div>
-  );
+        </Card>
+    );
 }

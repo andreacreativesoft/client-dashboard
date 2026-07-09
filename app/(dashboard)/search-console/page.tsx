@@ -1,35 +1,26 @@
 import type { Metadata } from "next";
-import { getProfile } from "@/lib/actions/profile";
-import { getClientsWithGSC } from "@/lib/actions/analytics";
-import { getImpersonatedClientId } from "@/lib/impersonate";
-import { getSelectedClientId } from "@/lib/selected-client";
+
 import { GSCAnalytics } from "@/components/analytics/gsc-analytics";
+import { PageContainer, PageTitle } from "@/components/ui/page";
+import { getProfile } from "@/lib/actions/profile";
+import { t } from "@/lib/i18n/translations";
+import { requireClientView } from "@/lib/view-context";
 
 export const metadata: Metadata = {
-  title: "Google Search Console",
+    title: "Votre visibilité sur Google",
 };
 
 export default async function SearchConsolePage() {
-  const [profile, clientsWithGSC] = await Promise.all([
-    getProfile(),
-    getClientsWithGSC(),
-  ]);
+    await requireClientView();
 
-  const isAdmin = profile?.role === "admin";
-  const impersonatedClientId = isAdmin ? await getImpersonatedClientId() : null;
-  const selectedClientId = isAdmin ? await getSelectedClientId() : null;
-  // Impersonation takes priority over header dropdown selection
-  const activeClientId = impersonatedClientId || selectedClientId;
+    const profile = await getProfile();
+    const lang = profile?.language || "fr-BE";
 
-  return (
-    <div className="px-8 py-12">
-      <h1 className="mb-6 text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Google Search Console</h1>
+    return (
+        <PageContainer>
+            <PageTitle className="mb-6">{t(lang, "gsc.title")}</PageTitle>
 
-      <GSCAnalytics
-        clientsWithGSC={clientsWithGSC}
-        isAdmin={isAdmin}
-        initialClientId={activeClientId || undefined}
-      />
-    </div>
-  );
+            <GSCAnalytics />
+        </PageContainer>
+    );
 }

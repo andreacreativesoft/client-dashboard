@@ -1,0 +1,21 @@
+{
+    "printWidth": 100,
+    "tabWidth": 4,
+    "useTabs": false,
+    "semi": true,
+    "singleQuote": false,
+    "trailingComma": "all",
+    "bracketSpacing": true,
+    "bracketSameLine": true,
+    "arrowParens": "always",
+    "endOfLine": "lf",
+    "sortImports": {},
+    "ignorePatterns": [
+        "dist/",
+        "node_modules/",
+        ".claude/",
+        ".cursor/",
+        "**/migrations/**",
+        "**/route-map.d.ts"
+    ]
+}

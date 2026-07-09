@@ -1,300 +1,174 @@
-# Client Dashboard Platform
+# VSP — Client Dashboard
 
-## Overview
-Standalone SaaS PWA for agency clients to view leads and business analytics.
-Multi-tenant: Admin (agency owner) and Client (business owner) roles.
-Source-agnostic — receives data from any website via webhooks and API keys.
+> Référence technique du dépôt, chargée à chaque session. Tenue à jour avec le code réel.
+> Cadrage produit & avancement : voir `docs/` (commencer par `docs/README.md`).
 
-## Tech Stack
-- **Frontend:** Next.js 16 (App Router), React 19, TypeScript (strict)
-- **Styling:** Tailwind CSS v4 (monochrome black/white/grey palette)
-- **Backend/DB:** Supabase Cloud (PostgreSQL + Auth + RLS)
-- **Email:** Resend
-- **PDF:** PDFKit
-- **Push:** web-push (VAPID)
-- **Google APIs:** googleapis (GA4, GBP)
-- **Hosting:** Vercel
-- **PWA:** Installable, mobile-first (375px base)
+## Produit
 
-## Commands
-- `npm run dev` — Start dev server on localhost:3000
-- `npm run build` — Production build
-- `npm run start` — Start production server
-- `npm run lint` — ESLint check
+SaaS multi-tenant pour l'agence **Votre Site Pro** (Pedro). Permet à ses clients
+commerçants/artisans (**non-techniques**) de voir, sans jargon, ce que leur site
+leur rapporte : prospects, fréquentation, visibilité Google, et de demander des
+modifications. Deux rôles : **admin** (agence) et **client** (commerçant).
 
-No test framework is configured yet.
+Mission en cours = transformer un prototype trop large en **MVP livrable** :
+resserrer le périmètre, simplifier le langage, stabiliser. Pas d'ajout de
+fonctionnalités. Détails : `docs/Mission.md`.
 
-## Project Structure
+## Stack
+
+- **Front** : Next.js 16 (App Router), React 19, TypeScript strict (`noUncheckedIndexedAccess`)
+- **UI** : Tailwind CSS v4, shadcn/ui (Radix), lucide-react, recharts, sonner
+- **Forms** : react-hook-form + zod (schémas dans `lib/schemas/`)
+- **Backend/DB** : Supabase Cloud (PostgreSQL + Auth + RLS)
+- **Google APIs** : googleapis (GA4, GBP, GSC) via OAuth2
+- **Email** : Resend · **Rate limit** : Upstash Redis (+ fallback mémoire)
+- **Hébergement** : Vercel
+- **Outillage** : pnpm, oxlint, oxfmt, tsc
+
+## Commandes
+
+```
+pnpm dev            # dev server localhost:3000
+pnpm build          # build production
+pnpm check          # typecheck + lint + format:check (à lancer avant commit)
+pnpm typecheck      # tsc --noEmit
+pnpm lint           # oxlint
+pnpm format         # oxfmt .
+pnpm db:seed        # seed la base (scripts/seed.ts)
+```
+
+Gestionnaire de paquets : **pnpm** (champ `packageManager`). Pas de framework de test configuré.
+
+## Structure
+
 ```
 app/
-  (auth)/                → Login, forgot password (no sidebar layout)
-  (dashboard)/           → Protected routes (sidebar + header layout)
-    admin/               → Admin-only pages (role-guarded layout)
-      clients/           → Client list & creation
-      clients/[id]/      → Client detail (websites, integrations, notes, activity)
-      users/             → User management
-      websites/          → Website overview
-      tools/             → Admin tools (broken links, SEO audit, uptime)
-    leads/               → Lead list (paginated, filterable)
-    leads/[id]/          → Lead detail with notes
-    analytics/           → Lead analytics + GA4 website analytics (CTA events, traffic)
-    reports/             → PDF report generation & downloads
-    settings/            → User profile settings
-    dashboard/           → Overview page (stats, recent leads)
+  (auth)/                  → login, forgot-password (hors layout sidebar)
+  (dashboard)/             → routes protégées (sidebar + header)
+    admin/                 → pages admin (layout guard rôle admin)
+      clients/ [id]/       → clients : liste + détail (sites, intégrations, notes, activité)
+      users/               → gestion utilisateurs + invitations
+      websites/ [id]/      → vue des sites
+    dashboard/             → accueil (overview client / vue agence admin)
+    leads/ [id]/           → prospects : liste paginée + détail (notes, raw_data)
+    tickets/ new/ [id]/    → demandes côté client (table + route = tickets ; mot affiché = "demande")
+    analytics/             → GA4 (fréquentation, événements CTA, top pages, sources)
+    search-console/        → GSC (clics, impressions, requêtes, position)
+    business-profile/      → GBP (appels, itinéraires, vues, mots-clés)
+    settings/              → profil utilisateur
   api/
-    webhooks/lead/       → Inbound lead webhook (POST + GET test)
-    auth/google/         → OAuth initiation + callback
-    health/              → Health check endpoint
-    push/subscribe/      → Push notification subscription
-    reports/generate/    → PDF generation
-    reports/[id]/        → Report download
-    tools/broken-links/  → Broken link checker API
-    tools/seo-audit/     → SEO audit API
-    tools/uptime/        → Uptime monitor API
-  auth/callback/         → Supabase auth callback
-  invite/[token]/        → Invite acceptance
+    webhooks/lead/         → réception leads (POST) — dispatcher de connecteurs
+    auth/google/           → OAuth Google (initiation + callback)
+    cron/cleanup-cache/    → purge analytics_cache (auth CRON_SECRET)
+    health/                → health check
+  invite/[token]/          → acceptation d'invitation
+  auth/callback/           → callback Supabase
 
 components/
-  ui/                    → Button, Card, Input, Badge, Skeleton, Modal, Label, Textarea
-  analytics/
-    ga4-analytics.tsx    → GA4 dashboard (sessions, events, CTA tracking, top pages, traffic sources)
-  layout/                → Sidebar (collapsible), Header, MobileNav, SidebarContext
-  activity-log.tsx       → Activity timeline display
-  client-alerts.tsx      → Push/email alert notifications
-  client-switcher.tsx    → Admin client selection dropdown
-  impersonate-banner.tsx → Admin impersonation indicator
-  push-notification-toggle.tsx
-  theme-provider.tsx     → Dark/light mode context
-  theme-toggle.tsx       → Theme switcher button
+  ui/                      → primitives shadcn (button, card, input, dialog, select, pagination…)
+  charts/                  → wrappers recharts (line, bar, donut)
+  analytics/ admin/ layout/→ blocs métier, pages admin, sidebar/header/mobile-nav
+  support-chat, client-switcher, impersonate-banner, …
 
 lib/
-  supabase/
-    client.ts            → Browser client (anon key)
-    server.ts            → Server client (SSR, cookie-based)
-    admin.ts             → Admin client (service_role, bypasses RLS)
-    middleware.ts         → Auth session refresh + route protection
-  actions/               → Server actions ("use server")
-    profile.ts           → getProfile(), updateProfileAction(), changePasswordAction()
-    clients.ts           → CRUD + getClientDetail()
-    websites.ts          → CRUD + regenerateApiKeyAction()
-    leads.ts             → getLeadsPaginated(), updateLeadStatusAction()
-    lead-notes.ts        → Note CRUD
-    users.ts             → User CRUD + invite
-    integrations.ts      → GA4/GBP/Facebook integration management
-    analytics.ts         → fetchGA4Analytics(), getClientsWithGA4() — on-demand GA4 data with caching
-    invites.ts           → sendInviteAction(), acceptInviteAction()
-    activity.ts          → logActivityAction(), getActivityLogs()
-    alerts.ts            → updateLastLogin()
-    impersonate.ts       → startImpersonation(), endImpersonation()
-  constants/
-    constants.ts         → LEAD_STATUSES, USER_ROLES, NAV_ITEMS
-    activity.ts          → Activity type constants
-  reports/
-    gather-data.ts       → Data aggregation for reports
-    generate.ts          → PDF generation with PDFKit
-    pdf-template.ts      → PDF layout & styling
-    types.ts             → Report data types
-  auth.ts                → requireAdmin() utility
-  utils.ts               → cn(), formatDate(), timeAgo(), slugify(), formatNumber()
-  rate-limit.ts          → Sliding window rate limiter (in-memory)
-  email.ts               → Resend templates (new lead, welcome, invite)
-  google.ts              → OAuth2, token encrypt/decrypt, GA4 (data, events, pages, sources), GBP API
-  facebook.ts            → Conversion tracking (SHA256 hashed data)
-  push.ts                → Web push send (single + batch)
-  impersonate.ts         → Impersonation helpers
+  supabase/                → client (browser) · server (SSR cookie) · admin (service_role) · middleware
+  actions/                 → server actions ("use server") — 1 fichier par domaine
+  leads/connectors/        → architecture pluggable des connecteurs de leads (E4)
+  schemas/                 → schémas zod (auth, invites, profile, requests)
+  notifications/           → lead-notifications.ts (email Resend post-lead)
+  i18n/                    → traductions maison (en / fr-BE / ro)
+  constants.ts, auth.ts, google.ts, email.ts, rate-limit.ts, login-security.ts,
+  impersonate.ts, utils.ts
 
-types/
-  index.ts               → Re-exports all types
-  database.ts            → All DB table types + Supabase Database generic type
-  auth.ts                → AuthUser, SessionContext, isAdmin()
-  api.ts                 → ApiResponse<T>, PaginatedResponse<T>, WebhookLeadPayload
-
-supabase/
-  migrations/            → 8 SQL files (run in order)
-    001_initial_schema.sql      → 8 core tables + RLS + triggers
-    002_push_subscriptions.sql  → Push notification subscriptions
-    003_reports.sql             → PDF reports table + storage bucket
-    004_invites.sql             → Invite system with tokens
-    005_activity_logs.sql       → Immutable activity log
-    006_client_alerts.sql       → last_login_at column on profiles
-    007_performance_indexes.sql → 8 indexes on hot columns
-    008_site_checks.sql         → Admin tools (broken links, SEO, uptime) table
-
-public/
-  sw.js                  → Service worker (network-first, cache fallback)
-  offline.html           → Offline fallback page
+types/                     → index, database (tables + Database générique), auth, api
+supabase/migrations/       → 29 migrations SQL (001 → 029), à exécuter dans l'ordre
+docs/                      → cadrage, suivi, modèle de données, UX (voir docs/README.md)
+scripts/seed.ts            → seed de données de dev
 ```
+
+## Base de données (13 tables)
+
+`profiles`, `clients`, `client_users`, `websites`, `website_info`, `leads`,
+`lead_notes`, `tickets`, `ticket_replies`, `integrations`, `analytics_cache`,
+`invites`, `activity_logs`.
+
+Modèle métier détaillé (clusters, flux, FK dénormalisées) : `docs/Domain-model.md`.
+
+### Enums clés
+
+- `UserRole` : `admin | client` · `AccessRole` (client_users) : `owner | viewer`
+- `LeadStatus` : `new | contacted | done` (cycle CRM)
+- `LeadSource` : `webhook | manual | api` — **audit système** (comment la ligne a été créée)
+- `leads.connector` : slug texte (registry TS) — **système d'origine** du lead (`wordpress-form`, `generic-webhook`, …). Ne pas confondre avec `source`.
+- `IntegrationType` : `ga4 | gbp | gsc`
+- `TicketStatus` : `open | in_progress | waiting_on_client | closed`
+- `AppLanguage` : `en | fr-BE | ro`
+
+### Migrations
+
+29 fichiers, exécutés dans l'ordre dans le SQL Editor Supabase. Pas d'outil de
+migration (Prisma/Drizzle). On n'altère jamais une migration historique — on en
+ajoute une nouvelle. `024` a droppé les modules gelés ; `026` a ajouté `leads.connector` ; `027` durcit la RLS CRM ; `028` ajoute les numéros de demandes ; `029` durcit la RLS `activity_logs`.
 
 ## Conventions
 
-### Code Style
-- Server Components by default; `'use client'` only when interactivity is needed
-- TypeScript strict with `noUncheckedIndexedAccess` enabled
-- Path alias: `@/*` maps to project root
-- Use `cn()` from `lib/utils.ts` for conditional Tailwind classes (clsx + tailwind-merge)
+- **Server Components par défaut** ; `'use client'` seulement si interactivité.
+- **Toutes les mutations** passent par des server actions dans `lib/actions/` (`"use server"`).
+- **`requireAdmin()`** (`lib/auth.ts`) en tête de chaque action admin.
+- **RLS sur chaque table**, jamais contournée depuis le front. `is_admin()` débloque l'admin.
+- **`getProfile()`** utilise `React.cache()` (dédup par requête).
+- Classes Tailwind conditionnelles via **`cn()`** (`lib/utils.ts`). Alias `@/*` = racine.
+- Mobile-first (base 375px, breakpoint `md:` = 768px), cibles tactiles ≥ 44px.
+- Palette monochrome (noir/blanc/gris) + sémantiques (success/warning/destructive). Le design final suit les maquettes (vert sapin / orange / blanc cassé).
+- États de chargement via `loading.tsx` + `Skeleton`.
+- Confirmations destructives via `useConfirm()` ; toasts via `sonner` (pas d'`alert()`/`confirm()` natifs).
 
-### Supabase Patterns
-- SSR via `@supabase/ssr` — server client uses cookie-based auth
-- Browser client (`lib/supabase/client.ts`) for client components
-- Server client (`lib/supabase/server.ts`) for server components and server actions
-- Admin client (`lib/supabase/admin.ts`) for service_role operations (webhooks, admin tasks)
-- RLS on every table — never bypass from frontend code
-- `getProfile()` uses `React.cache()` for per-request deduplication
+## Webhook leads
 
-### Styling
-- Mobile-first Tailwind (min-width breakpoints: `md:` = 768px)
-- Monochrome palette: black/white/grey with semantic colors (success/warning/destructive)
-- 44px minimum tap targets on all interactive elements
-- Loading states via `loading.tsx` files using Skeleton components
+`POST /api/webhooks/lead` — auth par clé API (`x-api-key` ou `?key=`). JSON ou
+form-urlencoded. Rate limit 30/min par clé, 60/min par IP. CORS ouvert.
 
-### Data Flow
-- Server actions in `lib/actions/` handle all mutations (marked `"use server"`)
-- Admin actions call `requireAdmin()` from `lib/auth.ts` before proceeding
-- Leads table has denormalized `client_id` to avoid 3-table joins
-- Pagination: 25 items per page
+La route est un **dispatcher mince** : auth + rate limit → sélection du connecteur
+via `websites.connector` → `connector.receive(payload)` → insertion. La
+normalisation des champs (mapping explicite, multi-langue EN/RO/FR/NL/ES/DE/RU,
+auto-détection par pattern) vit dans les connecteurs (`lib/leads/connectors/`).
+Effet de bord à l'insertion : email Resend aux utilisateurs du client.
+Ajouter une source = 1 fichier + 1 ligne de registry — voir `docs/Connecteurs.md`.
 
-### Routing
-- Route groups: `(auth)` for public pages, `(dashboard)` for protected pages
-- Admin routes have their own `layout.tsx` that enforces admin role
-- Middleware (`middleware.ts`) refreshes sessions and handles redirects
-- Public routes (no auth required): `/login`, `/forgot-password`, `/invite/[token]`, `/auth/callback`, `/api/webhooks/*`, `/api/health`
+## Sécurité
 
-## Database
+- RLS partout (audit complet planifié, voir `docs/Suivi.md`).
+- Sanitization du payload webhook (control chars, validation email/phone, troncature, 50 KB max).
+- Tokens Google chiffrés AES (`TOKEN_ENCRYPTION_KEY`) ; refresh auto dans `lib/google.ts`.
+- Rate limiting login (brute-force → blocage, déblocage admin) et OAuth.
+- Security headers dans `next.config.ts` (nosniff, X-Frame-Options DENY, Referrer-Policy). Middleware = `proxy.ts` (Next 16) → `lib/supabase/middleware.ts` (refresh session + garde de routes).
 
-### Tables (14 total)
-**Core (8):** profiles, clients, client_users, websites, leads, lead_notes, integrations, analytics_cache
-**System (6):** push_subscriptions, reports, invites, activity_logs, site_checks (+ last_login_at on profiles)
+## Variables d'environnement
 
-### Key Types
-- `UserRole`: `"admin" | "client"`
-- `AccessRole`: `"owner" | "viewer"` (client_users)
-- Lead status: `"new" | "contacted" | "done"`
-- Integration type: `"ga4" | "gbp" | "facebook"`
-- Lead source: `"webhook" | "manual" | "api"`
-- Check type: `"broken_links" | "seo_audit" | "uptime"`
-- Check status: `"running" | "completed" | "failed"`
+Requises : `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_APP_URL`.
+Optionnelles : Resend, Google OAuth (`GOOGLE_*`, `TOKEN_ENCRYPTION_KEY`), Upstash,
+`CRON_SECRET`, reCAPTCHA. Template complet : `.env.example`.
 
-### RLS Rules
-- `is_admin()` function checks profile role — admins can access all rows
-- Clients see only their assigned clients via client_users join
-- Users can read/update their own profile
-- activity_logs is insert-only (immutable)
+## Modules retirés (ne pas re-coder par accident)
 
-### Migrations
-Run all 8 migrations in order (001 through 008) in Supabase SQL Editor. See `supabase/migrations/`.
+Supprimés du périmètre MVP en E1 — code et tables **droppés** : rapports PDF
+(PDFKit), notifications push (web-push/VAPID), PWA (service worker, manifest,
+offline), Facebook Conversion API, outils admin (broken-links / SEO audit /
+uptime / security checks), module WordPress IA (SSH, mu-plugin, 40 outils).
+Si une référence à `reports` / `push_subscriptions` / `site_checks` / `wordpress_*`
+subsiste, c'est de la dette à nettoyer. Traçabilité : `docs/Backlog.md` §F20.
 
-## Environment Variables
+## Où trouver quoi
 
-### Required
-```
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_APP_NAME=Client Dashboard
-```
-
-### Optional — Email (Resend)
-```
-RESEND_API_KEY=re_xxxxxxxxx
-RESEND_FROM_EMAIL=notifications@yourdomain.com
-```
-
-### Optional — Push Notifications
-```
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=mailto:admin@yourdomain.com
-```
-
-### Optional — Google OAuth (GA4/GBP)
-```
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
-TOKEN_ENCRYPTION_KEY=...   # Min 32 bytes, for AES token encryption
-```
-
-See `.env.example` for the full template.
-
-## Webhook API
-
-**Endpoint:** `POST /api/webhooks/lead`
-**Auth:** API key via `x-api-key` header OR `?key=` query param
-**Rate limits:** 30 req/min per API key, 60 req/min per IP
-**CORS:** Enabled (Access-Control-Allow-Origin: *)
-**Content types:** `application/json` and `application/x-www-form-urlencoded`
-
-**Request Body (JSON):**
-```json
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "phone": "+1234567890",
-  "message": "Contact message",
-  "form_name": "contact-form"
-}
-```
-
-**Multi-language field detection:** Supports English, Romanian, French, Dutch, Spanish, German, Russian field names (e.g. `Nume`, `Telefon`, `Mesaj`, `nom`, `nombre`). Auto-detects email by `@` pattern, phone by digit count, name/message by length. Compatible with Elementor, Contact Form 7, WPForms, Gravity Forms.
-
-**Response:** `{ "success": true, "lead_id": "uuid" }` (status 200)
-**Test:** `GET /api/webhooks/lead?key=<api_key>` returns webhook status.
-
-**Side effects on lead creation:**
-- Email notification to all users linked to the client
-- Push notification to subscribed users
-- Facebook Conversion API event (if Facebook Pixel integration is active)
-
-## Security & Performance
-- **RLS everywhere** — enforced at database level, never bypassed from frontend
-- **Webhook rate limiting** — sliding window in-memory (30/min per key, 60/min per IP)
-- **Input sanitization** — control char stripping, email/phone validation, field truncation, 50KB raw_data limit
-- **Admin role checks** — `requireAdmin()` on all admin server actions
-- **Token encryption** — AES for Google/Facebook tokens via `TOKEN_ENCRYPTION_KEY`
-- **Security headers** — X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: strict-origin-when-cross-origin
-- **DB indexes** — 8 performance indexes on hot columns (migrations/007)
-- **Profile caching** — `React.cache()` dedupes per-request
-- **API key generation** — `crypto.randomUUID()` for websites, `gen_random_bytes(32)` in DB
-
-## PWA Configuration
-- **Manifest:** `app/manifest.ts` — standalone display, portrait orientation
-- **Service Worker:** `public/sw.js` — network-first strategy, precaches `/`, `/dashboard`, `/leads`
-- **Offline:** `public/offline.html` — fallback page with retry button
-- **Push:** Listens for push events in service worker, subscription via `/api/push/subscribe`
-- **Cache:** `client-dashboard-v1`, auto-cleanup of old caches on activation
-
-## Supabase Setup
-1. Create project at https://supabase.com
-2. Run ALL migrations in order in SQL Editor (001 through 008)
-3. Copy project URL + anon key + service role key into `.env.local`
-4. Create first admin: Authentication > Users > Add User (email+password)
-5. Promote to admin: `UPDATE profiles SET role = 'admin' WHERE email = 'your@email.com';`
-
-## Google OAuth Setup (Optional)
-1. Google Cloud Console > APIs & Services > Credentials > Create OAuth 2.0 Client ID
-2. Redirect URI: `https://yourdomain.com/api/auth/google/callback`
-3. Enable APIs: Analytics Data API, Analytics Admin API, My Business Account Management, My Business Business Information
-4. Add credentials to `.env.local`
-
-## Current Status
-- Phase 1: Foundation ✅
-- Phase 2: Authentication ✅
-- Phase 3: Admin Panel ✅ (client/website/user CRUD)
-- Phase 4: Leads ✅ (list, detail, status, notes, filters, pagination)
-- Phase 5: Analytics ✅ (lead stats + GA4 website analytics with CTA event tracking)
-- Phase 6: Integrations ✅ (GA4, GBP, Facebook Pixel — per-website in client detail)
-- Phase 7: Optimization ✅ (rate limiting, input sanitization, DB indexes, code deduplication)
-- Phase 8: Reports ✅ (PDF generation, per-client, date range)
-- Phase 9: Notifications ✅ (push notifications, email alerts, activity logs)
-- Phase 10: Invites & Impersonation ✅ (token-based invites, admin impersonation)
-- Phase 11: Admin Tools ✅ (broken link checker, SEO auditor, uptime monitor)
-- Phase 12: GA4 Analytics ✅ (sessions, users, pageviews, bounce rate, CTA events, top pages, traffic sources, 30-min caching, auto token refresh)
-- Phase 13: Webhook Enhancements ✅ (CORS, form-urlencoded, multi-language field detection, auto-detect by value pattern)
-
-## WordPress AI Dashboard
-
-The AI command system lets admins manage WordPress sites via natural language.
-Full capabilities reference: **`lib/wordpress/AI_CAPABILITIES.md`**
-
-**Rule:** When adding, removing, or changing any AI tool, endpoint, or capability, always update `lib/wordpress/AI_CAPABILITIES.md` to match. This file is the single source of truth for what the dashboard AI can and cannot do.
+| Besoin                                        | Doc                    |
+| --------------------------------------------- | ---------------------- |
+| Par où commencer, ordre de lecture            | `docs/README.md`       |
+| Périmètre, objectifs, ce qui est in/out       | `docs/Mission.md`      |
+| Où on en est, prochaines étapes, heures       | `docs/Suivi.md`        |
+| Catalogue des fonctionnalités (existe ? où ?) | `docs/Backlog.md`      |
+| Modèle de données, flux métier                | `docs/Domain-model.md` |
+| Vocabulaire client (anti-jargon)              | `docs/UX-glossaire.md` |
+| Parcours utilisateurs                         | `docs/UX-parcours.md`  |
+| Ajouter un connecteur de leads                | `docs/Connecteurs.md`  |
+| Roadmap contractuelle (figée)                 | `docs/Roadmap.md`      |

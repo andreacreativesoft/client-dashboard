@@ -1,102 +1,97 @@
 import { redirect } from "next/navigation";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
-import { MobileNav } from "@/components/layout/mobile-nav";
-import { SidebarProvider } from "@/components/layout/sidebar-context";
+
 import { ImpersonateBanner } from "@/components/impersonate-banner";
-import { LanguageProvider } from "@/lib/i18n/language-context";
-import { getImpersonationStatus } from "@/lib/actions/impersonate";
-import { getSelectedClientId } from "@/lib/selected-client";
-import { getProfile } from "@/lib/actions/profile";
-import { updateLastLogin } from "@/lib/actions/alerts";
-import { getNavBadgeCounts } from "@/lib/actions/nav-badges";
+import { MobileNav } from "@/components/layout/mobile-nav";
+import { SelectedWebsiteProvider } from "@/components/layout/selected-website-context";
+import { Sidebar } from "@/components/layout/sidebar";
+import { SidebarProvider } from "@/components/layout/sidebar-context";
+import { SiteSwitcher } from "@/components/layout/site-switcher";
 import { SupportChat } from "@/components/support-chat";
+import { updateLastLogin } from "@/lib/actions/alerts";
+import { getClientWebsites } from "@/lib/actions/analytics";
+import { getImpersonationStatus } from "@/lib/actions/impersonate";
+import { getNavBadgeCounts } from "@/lib/actions/nav-badges";
+import { getProfile } from "@/lib/actions/profile";
+import { LanguageProvider } from "@/lib/i18n/language-context";
+import { getActiveClientId } from "@/lib/view-context";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const profile = await getProfile();
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+    const profile = await getProfile();
 
-  if (!profile) {
-    redirect("/login");
-  }
+    if (!profile) {
+        redirect("/login");
+    }
 
-  // Update last login timestamp (fire and forget)
-  updateLastLogin().catch(() => {});
+    // Update last login timestamp (fire and forget)
+    updateLastLogin().catch(() => {});
 
-  const isAdmin = profile.role === "admin";
-  const language = profile.language || "en";
+    const isAdmin = profile.role === "admin";
+    const language = profile.language || "fr-BE";
 
-  // Check if admin is impersonating a client
-  const impersonation = isAdmin ? await getImpersonationStatus() : null;
+    // Check if admin is impersonating a client
+    const impersonation = isAdmin ? await getImpersonationStatus() : null;
 
-  // Get selected client for data viewing (separate from impersonation)
-  const selectedClientId = isAdmin ? await getSelectedClientId() : null;
+    // Agency mode = admin browsing their own agency space (not impersonating).
+    // Anything else (real client, or admin who entered a client) is the client view.
+    const agencyView = isAdmin && !impersonation;
+    const view = agencyView ? "agency" : "client";
 
-  // Fetch badge counts for navigation
-  const badgeCounts = await getNavBadgeCounts();
+    // Fetch badge counts for navigation
+    const badgeCounts = await getNavBadgeCounts();
 
-  // Get user's first client_id for the chat widget (clients only)
-  let userClientId: string | null = null;
-  if (!isAdmin) {
-    const { createClient: createServerClient } = await import("@/lib/supabase/server");
-    const supabase = await createServerClient();
-    const { data: clientUser } = await supabase
-      .from("client_users")
-      .select("client_id")
-      .eq("user_id", profile.id)
-      .limit(1)
-      .single();
-    userClientId = clientUser?.client_id ?? null;
-  }
+    // Client of the current user for the chat widget (clients only).
+    // One account = one business → resolved by the single shared helper.
+    const userClientId = isAdmin ? null : await getActiveClientId();
 
-  // When impersonating, hide admin features
-  const showAsAdmin = isAdmin && !impersonation;
+    // Global site switcher: the active client's websites + the client id used as
+    // the localStorage scope. Empty in agency mode (no active client).
+    const activeClientId = await getActiveClientId();
+    const websites = await getClientWebsites();
 
-  return (
-    <LanguageProvider language={language}>
-      <SidebarProvider>
-        <div className="flex min-h-dvh bg-[#F9F9F9]">
-          {/* Desktop sidebar */}
-          <Sidebar
-            isAdmin={showAsAdmin}
-            badgeCounts={badgeCounts}
-            className="hidden md:flex"
-            userName={impersonation ? impersonation.clientName : (profile.full_name || profile.email || "User")}
-            avatarUrl={impersonation ? null : profile.avatar_url}
-          />
+    return (
+        <LanguageProvider language={language}>
+            <SidebarProvider>
+                <SelectedWebsiteProvider websites={websites} clientId={activeClientId}>
+                    <div className="flex min-h-dvh bg-page">
+                        {/* Desktop sidebar */}
+                        <Sidebar
+                            view={view}
+                            badgeCounts={badgeCounts}
+                            className="hidden md:flex"
+                            userName={
+                                impersonation
+                                    ? impersonation.clientName
+                                    : profile.full_name || profile.email || "User"
+                            }
+                            avatarUrl={impersonation ? null : profile.avatar_url}
+                        />
 
-          {/* Main content */}
-          <div className="flex flex-1 flex-col">
-            <Header
-              userName={impersonation ? impersonation.clientName : (profile.full_name || profile.email || "User")}
-              isAdmin={isAdmin && !impersonation}
-              avatarUrl={impersonation ? null : profile.avatar_url}
-              showClientSwitcher={isAdmin && !impersonation}
-              selectedClientId={selectedClientId}
-            />
-            <main className="flex-1 pb-20 md:pb-0">{children}</main>
-          </div>
+                        {/* Main content */}
+                        <main className="min-w-0 flex-1 pb-20 md:pb-0">
+                            <SiteSwitcher variant="bar" />
+                            {children}
+                        </main>
 
-          {/* Mobile bottom nav */}
-          <MobileNav isAdmin={showAsAdmin} badgeCounts={badgeCounts} className="md:hidden" />
+                        {/* Mobile bottom nav */}
+                        <MobileNav view={view} badgeCounts={badgeCounts} className="md:hidden" />
 
-          {/* Support chat widget */}
-          <SupportChat
-            userId={profile.id}
-            userRole={profile.role}
-            clientId={userClientId}
-            openTicketCount={badgeCounts.openTickets}
-          />
+                        {/* Support chat widget — real clients only (admins handle support in the agency space) */}
+                        {!isAdmin && (
+                            <SupportChat
+                                userId={profile.id}
+                                userRole={profile.role}
+                                clientId={userClientId}
+                                openTicketCount={badgeCounts.openTickets}
+                            />
+                        )}
 
-          {/* Impersonation banner */}
-          {impersonation && (
-            <ImpersonateBanner clientName={impersonation.clientName} />
-          )}
-        </div>
-      </SidebarProvider>
-    </LanguageProvider>
-  );
+                        {/* Impersonation banner */}
+                        {impersonation && (
+                            <ImpersonateBanner clientName={impersonation.clientName} />
+                        )}
+                    </div>
+                </SelectedWebsiteProvider>
+            </SidebarProvider>
+        </LanguageProvider>
+    );
 }

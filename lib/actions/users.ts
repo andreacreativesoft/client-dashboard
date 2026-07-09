@@ -1,335 +1,413 @@
 "use server";
 
 import { randomBytes } from "crypto";
+
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+
+import { logActivity } from "@/lib/actions/activity";
 import { requireAdmin } from "@/lib/auth";
+import { ActivityTypes } from "@/lib/constants/activity";
 import { sendWelcomeEmail, sendAccountCreatedEmail } from "@/lib/email";
 import { unblockAccount } from "@/lib/login-security";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/database";
 
 export type UserWithClients = Profile & {
-  clients: { id: string; business_name: string; access_role: string }[];
+    clients: { id: string; business_name: string; access_role: string }[];
 };
 
+export type ClientUser = {
+    id: string;
+    full_name: string | null;
+    email: string;
+    role: "admin" | "client";
+    access_role: string;
+};
+
+/** Users assigned to a given client (for the client detail page). */
+export async function getUsersForClient(clientId: string): Promise<ClientUser[]> {
+    const auth = await requireAdmin();
+    if (!auth.success) return [];
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+        .from("client_users")
+        .select("access_role, profiles(id, full_name, email, role)")
+        .eq("client_id", clientId)
+        .overrideTypes<
+            {
+                access_role: string;
+                profiles: {
+                    id: string;
+                    full_name: string | null;
+                    email: string;
+                    role: "admin" | "client";
+                } | null;
+            }[],
+            { merge: false }
+        >();
+
+    if (error || !data) {
+        console.error("Error fetching client users:", error);
+        return [];
+    }
+
+    return data
+        .filter((row): row is typeof row & { profiles: NonNullable<typeof row.profiles> } =>
+            Boolean(row.profiles),
+        )
+        .map((row) => ({
+            id: row.profiles.id,
+            full_name: row.profiles.full_name,
+            email: row.profiles.email,
+            role: row.profiles.role,
+            access_role: row.access_role,
+        }));
+}
+
 export type UserFormData = {
-  email: string;
-  full_name: string;
-  phone: string;
-  role: "admin" | "client";
-  client_ids: string[];
-  password?: string;
-  sendEmail?: boolean;
+    email: string;
+    full_name: string;
+    phone: string;
+    role: "admin" | "client";
+    client_ids: string[];
+    password?: string;
+    sendEmail?: boolean;
 };
 
 export async function getUsers(): Promise<UserWithClients[]> {
-  const auth = await requireAdmin();
-  if (!auth.success) return [];
+    const auth = await requireAdmin();
+    if (!auth.success) return [];
 
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  // Single query: fetch all profiles with their client assignments joined
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .returns<Profile[]>();
+    // Single query: fetch all profiles with their client assignments joined
+    const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .overrideTypes<Profile[], { merge: false }>();
 
-  if (profilesError || !profiles) {
-    console.error("Error fetching profiles:", profilesError);
-    return [];
-  }
-
-  // Batch fetch all client_users with client details in one query
-  const profileIds = profiles.map((p) => p.id);
-
-  type ClientUserJoined = {
-    user_id: string;
-    access_role: string;
-    clients: { id: string; business_name: string };
-  };
-
-  const { data: allClientUsers } = await supabase
-    .from("client_users")
-    .select("user_id, access_role, clients(id, business_name)")
-    .in("user_id", profileIds)
-    .returns<ClientUserJoined[]>();
-
-  // Group client assignments by user_id
-  const clientsByUser: Record<
-    string,
-    { id: string; business_name: string; access_role: string }[]
-  > = {};
-
-  if (allClientUsers) {
-    for (const cu of allClientUsers) {
-      if (!clientsByUser[cu.user_id]) {
-        clientsByUser[cu.user_id] = [];
-      }
-      clientsByUser[cu.user_id]!.push({
-        id: cu.clients.id,
-        business_name: cu.clients.business_name,
-        access_role: cu.access_role,
-      });
+    if (profilesError || !profiles) {
+        console.error("Error fetching profiles:", profilesError);
+        return [];
     }
-  }
 
-  // Combine profiles with their client assignments
-  return profiles.map((profile) => ({
-    ...profile,
-    clients: clientsByUser[profile.id] || [],
-  }));
+    // Batch fetch all client_users with client details in one query
+    const profileIds = profiles.map((p) => p.id);
+
+    type ClientUserJoined = {
+        user_id: string;
+        access_role: string;
+        clients: { id: string; business_name: string };
+    };
+
+    const { data: allClientUsers } = await supabase
+        .from("client_users")
+        .select("user_id, access_role, clients(id, business_name)")
+        .in("user_id", profileIds)
+        .overrideTypes<ClientUserJoined[], { merge: false }>();
+
+    // Group client assignments by user_id
+    const clientsByUser: Record<
+        string,
+        { id: string; business_name: string; access_role: string }[]
+    > = {};
+
+    if (allClientUsers) {
+        for (const cu of allClientUsers) {
+            if (!clientsByUser[cu.user_id]) {
+                clientsByUser[cu.user_id] = [];
+            }
+            clientsByUser[cu.user_id]!.push({
+                id: cu.clients.id,
+                business_name: cu.clients.business_name,
+                access_role: cu.access_role,
+            });
+        }
+    }
+
+    // Combine profiles with their client assignments
+    return profiles.map((profile) => ({
+        ...profile,
+        clients: clientsByUser[profile.id] || [],
+    }));
 }
 
 export async function createUserAction(
-  formData: UserFormData
+    formData: UserFormData,
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const adminClient = createAdminClient();
+    const adminClient = createAdminClient();
 
-  // Use provided password or generate a random one
-  const hasPassword = !!formData.password && formData.password.length >= 6;
-  const password = hasPassword
-    ? formData.password!
-    : randomBytes(32).toString("base64url");
+    // Use provided password or generate a random one
+    const hasPassword = !!formData.password && formData.password.length >= 6;
+    const password = hasPassword ? formData.password! : randomBytes(32).toString("base64url");
 
-  // Create auth user
-  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-    email: formData.email,
-    password,
-    email_confirm: true,
-    user_metadata: {
-      full_name: formData.full_name,
-    },
-  });
-
-  if (authError || !authData.user) {
-    console.error("Error creating auth user:", authError);
-    return { success: false, error: authError?.message || "Failed to create user" };
-  }
-
-  // Update profile with role and phone
-  const { error: profileError } = await adminClient
-    .from("profiles")
-    .update({
-      role: formData.role,
-      full_name: formData.full_name,
-      phone: formData.phone || null,
-    })
-    .eq("id", authData.user.id);
-
-  if (profileError) {
-    console.error("Error updating profile:", profileError);
-    await adminClient.auth.admin.deleteUser(authData.user.id);
-    return { success: false, error: "Failed to set up user profile. Please try again." };
-  }
-
-  // Assign to clients
-  if (formData.client_ids.length > 0 && formData.role === "client") {
-    for (const clientId of formData.client_ids) {
-      await adminClient.from("client_users").insert({
-        user_id: authData.user.id,
-        client_id: clientId,
-        access_role: "owner",
-      });
-    }
-  }
-
-  // Send email if requested
-  if (formData.sendEmail !== false) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    if (hasPassword) {
-      // Password was set by admin — send account info email (login URL, no password in email)
-      await sendAccountCreatedEmail(formData.email, {
-        userName: formData.full_name,
+    // Create auth user
+    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
         email: formData.email,
-        loginUrl: `${appUrl}/login`,
-      });
-    } else {
-      // No password — send "set your password" link
-      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-        type: "recovery",
-        email: formData.email,
-        options: {
-          redirectTo: `${appUrl}/auth/callback?next=/settings`,
+        password,
+        email_confirm: true,
+        user_metadata: {
+            full_name: formData.full_name,
         },
-      });
+    });
 
-      let resetUrl = `${appUrl}/settings`;
-      if (!linkError && linkData?.properties?.hashed_token) {
-        resetUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${linkData.properties.hashed_token}&type=recovery&redirect_to=${encodeURIComponent(`${appUrl}/auth/callback?next=/settings`)}`;
-      }
-
-      await sendWelcomeEmail(formData.email, {
-        userName: formData.full_name,
-        email: formData.email,
-        resetUrl,
-      });
+    if (authError || !authData.user) {
+        console.error("Error creating auth user:", authError);
+        return { success: false, error: authError?.message || "Failed to create user" };
     }
-  }
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    // Update profile with role and phone
+    const { error: profileError } = await adminClient
+        .from("profiles")
+        .update({
+            role: formData.role,
+            full_name: formData.full_name,
+            phone: formData.phone || null,
+        })
+        .eq("id", authData.user.id);
+
+    if (profileError) {
+        console.error("Error updating profile:", profileError);
+        await adminClient.auth.admin.deleteUser(authData.user.id);
+        return { success: false, error: "Failed to set up user profile. Please try again." };
+    }
+
+    // Assign to clients
+    if (formData.client_ids.length > 0 && formData.role === "client") {
+        for (const clientId of formData.client_ids) {
+            await adminClient.from("client_users").insert({
+                user_id: authData.user.id,
+                client_id: clientId,
+                access_role: "owner",
+            });
+        }
+    }
+
+    // Send email if requested
+    if (formData.sendEmail !== false) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+        if (hasPassword) {
+            // Password was set by admin — send account info email (login URL, no password in email)
+            await sendAccountCreatedEmail(formData.email, {
+                userName: formData.full_name,
+                email: formData.email,
+                loginUrl: `${appUrl}/login`,
+            });
+        } else {
+            // No password — send "set your password" link
+            const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+                type: "recovery",
+                email: formData.email,
+                options: {
+                    redirectTo: `${appUrl}/auth/callback?next=/settings`,
+                },
+            });
+
+            let resetUrl = `${appUrl}/settings`;
+            if (!linkError && linkData?.properties?.hashed_token) {
+                resetUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${linkData.properties.hashed_token}&type=recovery&redirect_to=${encodeURIComponent(`${appUrl}/auth/callback?next=/settings`)}`;
+            }
+
+            await sendWelcomeEmail(formData.email, {
+                userName: formData.full_name,
+                email: formData.email,
+                resetUrl,
+            });
+        }
+    }
+
+    revalidatePath("/admin/users");
+    return { success: true };
 }
 
 export async function updateUserRoleAction(
-  userId: string,
-  role: "admin" | "client"
+    userId: string,
+    role: "admin" | "client",
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ role })
-    .eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
 
-  if (error) {
-    console.error("Error updating user role:", error);
-    return { success: false, error: error.message };
-  }
+    if (error) {
+        console.error("Error updating user role:", error);
+        return { success: false, error: error.message };
+    }
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    revalidatePath("/admin/users");
+    return { success: true };
 }
 
 export async function assignUserToClientAction(
-  userId: string,
-  clientId: string,
-  accessRole: "owner" | "viewer" = "owner"
+    userId: string,
+    clientId: string,
+    accessRole: "owner" | "viewer" = "owner",
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  // Check if already assigned
-  const { data: existing } = await supabase
-    .from("client_users")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("client_id", clientId)
-    .maybeSingle();
+    // Modèle produit : 1 utilisateur = 1 client (contrainte `unique (user_id)`).
+    // On bloque proprement toute 2e association au lieu de laisser fuiter la
+    // violation d'unicité brute vers l'UI.
+    const { data: existing } = await supabase
+        .from("client_users")
+        .select("client_id")
+        .eq("user_id", userId)
+        .maybeSingle();
 
-  if (existing) {
-    return { success: false, error: "User already assigned to this client" };
-  }
+    if (existing) {
+        return {
+            success: false,
+            error:
+                existing.client_id === clientId
+                    ? "Cet utilisateur est déjà rattaché à ce client."
+                    : "Cet utilisateur est déjà rattaché à un client. Retirez le rattachement actuel avant d'en associer un autre.",
+        };
+    }
 
-  const { error } = await supabase.from("client_users").insert({
-    user_id: userId,
-    client_id: clientId,
-    access_role: accessRole,
-  });
+    const { error } = await supabase.from("client_users").insert({
+        user_id: userId,
+        client_id: clientId,
+        access_role: accessRole,
+    });
 
-  if (error) {
-    console.error("Error assigning user to client:", error);
-    return { success: false, error: error.message };
-  }
+    if (error) {
+        console.error("Error assigning user to client:", error);
+        return { success: false, error: error.message };
+    }
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    const { data: assigned } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userId)
+        .single();
+    await logActivity({
+        clientId,
+        actionType: ActivityTypes.USER_ASSIGNED,
+        metadata: { userId, clientId, userName: assigned?.full_name ?? "", accessRole },
+    });
+
+    revalidatePath("/admin/users");
+    return { success: true };
 }
 
 export async function removeUserFromClientAction(
-  userId: string,
-  clientId: string
+    userId: string,
+    clientId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("client_users")
-    .delete()
-    .eq("user_id", userId)
-    .eq("client_id", clientId);
+    const { data: removed } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userId)
+        .single();
 
-  if (error) {
-    console.error("Error removing user from client:", error);
-    return { success: false, error: error.message };
-  }
+    const { error } = await supabase
+        .from("client_users")
+        .delete()
+        .eq("user_id", userId)
+        .eq("client_id", clientId);
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    if (error) {
+        console.error("Error removing user from client:", error);
+        return { success: false, error: error.message };
+    }
+
+    await logActivity({
+        clientId,
+        actionType: ActivityTypes.USER_REMOVED,
+        metadata: { userId, clientId, userName: removed?.full_name ?? "" },
+    });
+
+    revalidatePath("/admin/users");
+    return { success: true };
 }
 
 export async function adminChangePasswordAction(
-  userId: string,
-  newPassword: string
+    userId: string,
+    newPassword: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  if (newPassword.length < 6) {
-    return { success: false, error: "Password must be at least 6 characters" };
-  }
+    if (newPassword.length < 6) {
+        return { success: false, error: "Password must be at least 6 characters" };
+    }
 
-  const adminClient = createAdminClient();
+    const adminClient = createAdminClient();
 
-  const { error } = await adminClient.auth.admin.updateUserById(userId, {
-    password: newPassword,
-  });
+    const { error } = await adminClient.auth.admin.updateUserById(userId, {
+        password: newPassword,
+    });
 
-  if (error) {
-    console.error("Error changing user password:", error);
-    return { success: false, error: error.message };
-  }
+    if (error) {
+        console.error("Error changing user password:", error);
+        return { success: false, error: error.message };
+    }
 
-  return { success: true };
+    return { success: true };
 }
 
 export async function unblockUserAction(
-  userId: string
+    userId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const adminClient = createAdminClient();
+    const adminClient = createAdminClient();
 
-  // Get user email
-  const { data: profile } = await adminClient
-    .from("profiles")
-    .select("email")
-    .eq("id", userId)
-    .single();
+    // Get user email
+    const { data: profile } = await adminClient
+        .from("profiles")
+        .select("email")
+        .eq("id", userId)
+        .single();
 
-  if (!profile) {
-    return { success: false, error: "User not found" };
-  }
+    if (!profile) {
+        return { success: false, error: "User not found" };
+    }
 
-  // Unblock account and clear login attempts
-  const result = await unblockAccount(profile.email);
-  if (!result.success) {
-    return { success: false, error: result.error };
-  }
+    // Unblock account and clear login attempts
+    const result = await unblockAccount(profile.email);
+    if (!result.success) {
+        return { success: false, error: result.error };
+    }
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    revalidatePath("/admin/users");
+    return { success: true };
 }
 
 export async function deleteUserAction(
-  userId: string
+    userId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const auth = await requireAdmin();
-  if (!auth.success) return { success: false, error: auth.error };
+    const auth = await requireAdmin();
+    if (!auth.success) return { success: false, error: auth.error };
 
-  const adminClient = createAdminClient();
+    const adminClient = createAdminClient();
 
-  // Delete from auth (this will cascade to profiles via trigger or we delete manually)
-  const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
+    // Delete from auth (this will cascade to profiles via trigger or we delete manually)
+    const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
 
-  if (authError) {
-    console.error("Error deleting user:", authError);
-    return { success: false, error: authError.message };
-  }
+    if (authError) {
+        console.error("Error deleting user:", authError);
+        return { success: false, error: authError.message };
+    }
 
-  revalidatePath("/admin/users");
-  return { success: true };
+    revalidatePath("/admin/users");
+    return { success: true };
 }

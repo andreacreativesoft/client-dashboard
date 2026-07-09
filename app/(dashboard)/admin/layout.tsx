@@ -1,20 +1,8 @@
-import { redirect } from "next/navigation";
-import { getProfile } from "@/lib/actions/profile";
+import { requireAgencyView } from "@/lib/view-context";
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const profile = await getProfile();
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+    // Admin-only space. Redirects clients and admins currently impersonating a client.
+    await requireAgencyView();
 
-  if (!profile) {
-    redirect("/login");
-  }
-
-  if (profile.role !== "admin") {
-    redirect("/dashboard");
-  }
-
-  return <>{children}</>;
+    return <>{children}</>;
 }

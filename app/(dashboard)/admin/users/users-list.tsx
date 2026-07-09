@@ -1,299 +1,427 @@
 "use client";
 
-import { useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { LockOpen, MoreVertical, Pencil, Trash2, UserCog } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+
+import { FilterSelect, ListToolbar } from "@/components/admin/list-toolbar";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { UserForm } from "./user-form";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
-  deleteUserAction,
-  updateUserRoleAction,
-  unblockUserAction,
-  type UserWithClients,
-} from "@/lib/actions/users";
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PageTitle } from "@/components/ui/page";
+import { Pagination } from "@/components/ui/pagination";
 import { resendInviteAction, deleteInviteAction } from "@/lib/actions/invites";
-import { EditUserModal } from "./edit-user-modal";
+import {
+    deleteUserAction,
+    updateUserRoleAction,
+    unblockUserAction,
+    type UserWithClients,
+} from "@/lib/actions/users";
+import { formatDate } from "@/lib/utils";
 import type { Client, Invite } from "@/types/database";
-import { formatDistanceToNow } from "date-fns";
+
+import { EditUserModal } from "./edit-user-modal";
+import { UserForm } from "./user-form";
+
+const PER_PAGE = 10;
+
+/** Human-friendly role label — never expose the raw enum value in the UI. */
+const roleLabel = (role: string) => (role === "admin" ? "Administrateur" : "Client");
+
+type RoleFilter = "all" | "admin" | "client";
+type StatusFilter = "all" | "active" | "blocked";
 
 interface UsersListProps {
-  users: UserWithClients[];
-  clients: Client[];
-  pendingInvites: Invite[];
-  currentUserId: string;
+    users: UserWithClients[];
+    clients: Client[];
+    pendingInvites: Invite[];
+    currentUserId: string;
 }
 
 export function UsersList({ users, clients, pendingInvites, currentUserId }: UsersListProps) {
-  const router = useRouter();
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<UserWithClients | null>(null);
-  const [loading, setLoading] = useState<string | null>(null);
+    const router = useRouter();
+    const confirm = useConfirm();
+    const [formOpen, setFormOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<UserWithClients | null>(null);
+    const [loading, setLoading] = useState<string | null>(null);
+    const [search, setSearch] = useState("");
+    const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const [page, setPage] = useState(1);
 
-  async function handleToggleRole(user: UserWithClients) {
-    const newRole = user.role === "admin" ? "client" : "admin";
-    if (
-      !confirm(
-        `Change ${user.full_name || user.email}'s role to ${newRole}?`
-      )
-    ) {
-      return;
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return users.filter((u) => {
+            if (roleFilter !== "all" && u.role !== roleFilter) return false;
+            if (statusFilter === "active" && u.is_blocked) return false;
+            if (statusFilter === "blocked" && !u.is_blocked) return false;
+            if (!q) return true;
+            return [u.full_name, u.email, u.phone, ...u.clients.map((c) => c.business_name)]
+                .filter(Boolean)
+                .some((field) => field!.toLowerCase().includes(q));
+        });
+    }, [users, search, roleFilter, statusFilter]);
+
+    const total = filtered.length;
+    const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+    function handleSearchChange(v: string) {
+        setSearch(v);
+        setPage(1);
     }
 
-    setLoading(user.id);
-    const result = await updateUserRoleAction(user.id, newRole);
-    setLoading(null);
+    async function handleToggleRole(user: UserWithClients) {
+        const newRole = user.role === "admin" ? "client" : "admin";
+        const ok = await confirm({
+            title: `Passer le rôle à ${newRole} ?`,
+            description: `${user.full_name || user.email} sera défini comme ${newRole}.`,
+            confirmLabel: "Changer le rôle",
+        });
+        if (!ok) return;
 
-    if (!result.success) {
-      alert(result.error || "Failed to update role");
-    }
-  }
+        setLoading(user.id);
+        const result = await updateUserRoleAction(user.id, newRole);
+        setLoading(null);
 
-  async function handleUnblock(user: UserWithClients) {
-    if (
-      !confirm(
-        `Unblock user "${user.full_name || user.email}"? They will be able to log in again.`
-      )
-    ) {
-      return;
-    }
-
-    setLoading(user.id);
-    const result = await unblockUserAction(user.id);
-    setLoading(null);
-    router.refresh();
-
-    if (!result.success) {
-      alert(result.error || "Failed to unblock user");
-    }
-  }
-
-  async function handleDelete(user: UserWithClients) {
-    if (user.id === currentUserId) {
-      alert("You cannot delete your own account");
-      return;
+        if (!result.success) {
+            toast.error(result.error || "Échec de la mise à jour du rôle");
+        } else {
+            toast.success(`${user.full_name || user.email} est maintenant ${newRole}`);
+        }
     }
 
-    if (
-      !confirm(
-        `Delete user "${user.full_name || user.email}"? This cannot be undone.`
-      )
-    ) {
-      return;
+    async function handleUnblock(user: UserWithClients) {
+        const ok = await confirm({
+            title: "Débloquer cet utilisateur ?",
+            description: `${user.full_name || user.email} pourra de nouveau se connecter.`,
+            confirmLabel: "Débloquer",
+        });
+        if (!ok) return;
+
+        setLoading(user.id);
+        const result = await unblockUserAction(user.id);
+        setLoading(null);
+        router.refresh();
+
+        if (!result.success) {
+            toast.error(result.error || "Échec du déblocage");
+        } else {
+            toast.success("Utilisateur débloqué");
+        }
     }
 
-    setLoading(user.id);
-    const result = await deleteUserAction(user.id);
-    setLoading(null);
+    async function handleDelete(user: UserWithClients) {
+        if (user.id === currentUserId) {
+            toast.error("Vous ne pouvez pas supprimer votre propre compte");
+            return;
+        }
 
-    if (!result.success) {
-      alert(result.error || "Failed to delete user");
+        const ok = await confirm({
+            title: "Supprimer cet utilisateur ?",
+            description: `${user.full_name || user.email} sera retiré. Cette action est irréversible.`,
+            confirmLabel: "Supprimer",
+            destructive: true,
+        });
+        if (!ok) return;
+
+        setLoading(user.id);
+        const result = await deleteUserAction(user.id);
+        setLoading(null);
+
+        if (!result.success) {
+            toast.error(result.error || "Échec de la suppression");
+        } else {
+            toast.success("Utilisateur supprimé");
+        }
     }
-  }
 
-  async function handleResendInvite(inviteId: string) {
-    setLoading(inviteId);
-    const result = await resendInviteAction(inviteId);
-    setLoading(null);
-    router.refresh();
+    async function handleResendInvite(inviteId: string) {
+        setLoading(inviteId);
+        const result = await resendInviteAction(inviteId);
+        setLoading(null);
+        router.refresh();
 
-    if (!result.success) {
-      alert(result.error || "Failed to resend invitation");
-    }
-  }
-
-  async function handleDeleteInvite(inviteId: string) {
-    if (!confirm("Cancel this invitation?")) {
-      return;
+        if (!result.success) {
+            toast.error(result.error || "Échec du renvoi de l'invitation");
+        } else {
+            toast.success("Invitation renvoyée");
+        }
     }
 
-    setLoading(inviteId);
-    const result = await deleteInviteAction(inviteId);
-    setLoading(null);
-    router.refresh();
+    async function handleDeleteInvite(inviteId: string) {
+        const ok = await confirm({
+            title: "Annuler cette invitation ?",
+            confirmLabel: "Annuler l'invitation",
+            cancelLabel: "Conserver",
+            destructive: true,
+        });
+        if (!ok) return;
 
-    if (!result.success) {
-      alert(result.error || "Failed to cancel invitation");
+        setLoading(inviteId);
+        const result = await deleteInviteAction(inviteId);
+        setLoading(null);
+        router.refresh();
+
+        if (!result.success) {
+            toast.error(result.error || "Échec de l'annulation");
+        } else {
+            toast.success("Invitation annulée");
+        }
     }
-  }
 
-  const isExpired = (expiresAt: string) => new Date(expiresAt) < new Date();
+    const isExpired = (expiresAt: string) => new Date(expiresAt) < new Date();
 
-  return (
-    <>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-[30px] font-extrabold uppercase leading-[1.3] tracking-[-0.9px] text-[#2E2E2E]" style={{ fontFamily: "var(--font-mplus1), sans-serif" }}>Users</h1>
-        <Button onClick={() => setFormOpen(true)}>
-          <svg
-            className="mr-2 h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+    return (
+        <>
+            <div className="mb-6">
+                <PageTitle>Utilisateurs</PageTitle>
+            </div>
+
+            <ListToolbar
+                count={total}
+                countLabel={total === 1 ? "utilisateur" : "utilisateurs"}
+                search={search}
+                onSearchChange={handleSearchChange}
+                searchPlaceholder="Rechercher par nom, email, téléphone, client…"
+                actionLabel="Ajouter un utilisateur"
+                onAction={() => setFormOpen(true)}
+                filters={
+                    <>
+                        <FilterSelect
+                            value={roleFilter}
+                            onChange={(v) => {
+                                setRoleFilter(v as RoleFilter);
+                                setPage(1);
+                            }}
+                            options={[
+                                { value: "all", label: "Tous les rôles" },
+                                { value: "admin", label: "Administrateur" },
+                                { value: "client", label: "Client" },
+                            ]}
+                        />
+                        <FilterSelect
+                            value={statusFilter}
+                            onChange={(v) => {
+                                setStatusFilter(v as StatusFilter);
+                                setPage(1);
+                            }}
+                            options={[
+                                { value: "all", label: "Tous les statuts" },
+                                { value: "active", label: "Actifs" },
+                                { value: "blocked", label: "Bloqués" },
+                            ]}
+                        />
+                    </>
+                }
             />
-          </svg>
-          Add User
-        </Button>
-      </div>
 
-      {/* Pending Invites */}
-      {pendingInvites.length > 0 && (
-        <div className="mb-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Pending Invitations</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {pendingInvites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{invite.full_name}</span>
-                      <Badge variant="secondary">{invite.role}</Badge>
-                      {isExpired(invite.expires_at) && (
-                        <Badge variant="destructive">Expired</Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">{invite.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Sent {formatDistanceToNow(new Date(invite.created_at), { addSuffix: true })}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleResendInvite(invite.id)}
-                      disabled={loading === invite.id}
-                    >
-                      Resend
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteInvite(invite.id)}
-                      disabled={loading === invite.id}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
+            {/* Pending Invites */}
+            {pendingInvites.length > 0 && (
+                <div className="mb-6">
+                    <Card>
+                        <CardHeader className="pb-3">
+                            <CardTitle>Invitations en attente</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            {pendingInvites.map((invite) => (
+                                <div
+                                    key={invite.id}
+                                    className="flex items-center justify-between rounded-lg border p-3">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-medium">{invite.full_name}</span>
+                                            <Badge variant="secondary">
+                                                {roleLabel(invite.role)}
+                                            </Badge>
+                                            {isExpired(invite.expires_at) && (
+                                                <Badge variant="destructive">Expirée</Badge>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            {invite.email}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Envoyée{" "}
+                                            {formatDistanceToNow(new Date(invite.created_at), {
+                                                addSuffix: true,
+                                            })}
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleResendInvite(invite.id)}
+                                            disabled={loading === invite.id}>
+                                            Renvoyer
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleDeleteInvite(invite.id)}
+                                            disabled={loading === invite.id}>
+                                            Annuler
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            )}
 
-      {/* Existing Users */}
-      {users.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">
-              No users yet. Click &quot;Invite User&quot; to send an invitation.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {users.map((user) => (
-            <Card key={user.id}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">
-                        {user.full_name || "No name"}
-                      </span>
-                      <Badge variant={user.role === "admin" ? "default" : "secondary"}>
-                        {user.role}
-                      </Badge>
-                      {user.id === currentUserId && (
-                        <Badge variant="outline">You</Badge>
-                      )}
-                      {user.is_blocked && (
-                        <Badge variant="destructive">Blocked</Badge>
-                      )}
+            {/* Users list */}
+            {total === 0 ? (
+                <Card>
+                    <CardContent className="py-12 text-center">
+                        <p className="text-muted-foreground">
+                            {search || roleFilter !== "all" || statusFilter !== "all"
+                                ? "Aucun utilisateur ne correspond aux filtres."
+                                : "Aucun utilisateur pour le moment."}
+                        </p>
+                    </CardContent>
+                </Card>
+            ) : (
+                <>
+                    <div className="grid gap-4">
+                        {paged.map((user) => {
+                            const isSelf = user.id === currentUserId;
+                            return (
+                                <Card key={user.id}>
+                                    <CardContent className="flex items-start justify-between gap-3 p-4 md:p-5">
+                                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                                            <Avatar
+                                                name={user.full_name || user.email}
+                                                src={user.avatar_url}
+                                                size="lg"
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditingUser(user)}
+                                                        className="text-base font-semibold text-foreground hover:underline">
+                                                        {user.full_name || "Sans nom"}
+                                                    </button>
+                                                    <Badge
+                                                        variant={
+                                                            user.role === "admin"
+                                                                ? "default"
+                                                                : "secondary"
+                                                        }>
+                                                        {roleLabel(user.role)}
+                                                    </Badge>
+                                                    {isSelf && (
+                                                        <Badge variant="outline">Vous</Badge>
+                                                    )}
+                                                    {user.is_blocked && (
+                                                        <Badge variant="destructive">Bloqué</Badge>
+                                                    )}
+                                                </div>
+                                                {(user.email || user.phone) && (
+                                                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                                        {user.email && <span>{user.email}</span>}
+                                                        {user.phone && <span>{user.phone}</span>}
+                                                    </div>
+                                                )}
+                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                    Dernière connexion :{" "}
+                                                    {user.last_login_at
+                                                        ? formatDate(user.last_login_at)
+                                                        : "jamais"}
+                                                </p>
+                                                {user.clients.length > 0 && (
+                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                        {user.clients.map((client) => (
+                                                            <Link
+                                                                key={client.id}
+                                                                href={`/admin/clients/${client.id}`}
+                                                                className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
+                                                                {client.business_name}
+                                                            </Link>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon-sm"
+                                                    aria-label="Actions utilisateur"
+                                                    disabled={loading === user.id}>
+                                                    <MoreVertical className="size-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem
+                                                    onClick={() => setEditingUser(user)}>
+                                                    <Pencil className="size-4" />
+                                                    Détails
+                                                </DropdownMenuItem>
+                                                {!isSelf && (
+                                                    <>
+                                                        <DropdownMenuItem
+                                                            onClick={() => handleToggleRole(user)}>
+                                                            <UserCog className="size-4" />
+                                                            {user.role === "admin"
+                                                                ? "Passer client"
+                                                                : "Passer admin"}
+                                                        </DropdownMenuItem>
+                                                        {user.is_blocked && (
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleUnblock(user)}>
+                                                                <LockOpen className="size-4" />
+                                                                Débloquer
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem
+                                                            variant="destructive"
+                                                            onClick={() => handleDelete(user)}>
+                                                            <Trash2 className="size-4" />
+                                                            Supprimer
+                                                        </DropdownMenuItem>
+                                                    </>
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
                     </div>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
-                    {user.phone && (
-                      <p className="text-sm text-muted-foreground">{user.phone}</p>
-                    )}
 
-                    {user.clients.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {user.clients.map((client) => (
-                          <span
-                            key={client.id}
-                            className="rounded-full bg-muted px-2 py-1 text-xs"
-                          >
-                            {client.business_name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                    <Pagination
+                        page={page}
+                        perPage={PER_PAGE}
+                        total={total}
+                        onPageChange={setPage}
+                    />
+                </>
+            )}
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditingUser(user)}
-                    >
-                      Edit
-                    </Button>
-                    {user.id !== currentUserId && (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleToggleRole(user)}
-                          disabled={loading === user.id}
-                        >
-                          {user.role === "admin" ? "Make Client" : "Make Admin"}
-                        </Button>
-                        {user.is_blocked && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleUnblock(user)}
-                            disabled={loading === user.id}
-                          >
-                            Unblock
-                          </Button>
-                        )}
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDelete(user)}
-                          disabled={loading === user.id}
-                        >
-                          Delete
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+            <UserForm open={formOpen} onClose={() => setFormOpen(false)} clients={clients} />
 
-      <UserForm open={formOpen} onClose={() => setFormOpen(false)} clients={clients} />
-
-      <EditUserModal
-        user={editingUser}
-        clients={clients}
-        onClose={() => setEditingUser(null)}
-      />
-    </>
-  );
+            <EditUserModal
+                user={editingUser}
+                clients={clients}
+                onClose={() => setEditingUser(null)}
+            />
+        </>
+    );
 }

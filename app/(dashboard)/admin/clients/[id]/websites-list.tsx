@@ -1,801 +1,338 @@
 "use client";
 
+import {
+    Activity,
+    BarChart3,
+    ExternalLink,
+    Globe,
+    Inbox,
+    KeyRound,
+    Lock,
+    Pencil,
+    Plus,
+    Trash2,
+} from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { WebsiteForm } from "./website-form";
-import { InfoBoard } from "./info-board";
-import { Modal } from "@/components/ui/modal";
-import { WPConnectForm } from "@/components/wordpress/wp-connect-form";
-import { deleteWebsiteAction, regenerateApiKeyAction, updateProjectLinkAction } from "@/lib/actions/websites";
-import { addFacebookIntegration, deleteIntegration, selectIntegrationAccount } from "@/lib/actions/integrations";
+import { toast } from "sonner";
 
-import type { Website, Integration } from "@/types/database";
+import { IntegrationsBoard } from "@/components/integrations/integrations-board";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { deleteWebsiteAction } from "@/lib/actions/websites";
+import { cn, formatDate } from "@/lib/utils";
+import type { Website } from "@/types/database";
+
+import { AttributesBoard } from "./attributes-board";
+import { ConnectorsBoard } from "./connectors-board";
+import { WebsiteForm } from "./website-form";
 
 interface WebsitesListProps {
-  clientId: string;
-  websites: Website[];
-  integrations: Integration[];
-  googleConfigured: boolean;
-  appUrl: string;
+    clientId: string;
+    websites: Website[];
+    googleConfigured: boolean;
 }
 
-function AccountSelectionModal({
-  integration,
-  clientId,
-  onClose,
-}: {
-  integration: Integration;
-  clientId: string;
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [manualLocationId, setManualLocationId] = useState("");
-  const [manualLocationName, setManualLocationName] = useState("");
+// Raw platform enum → human label (never surface the enum value in the UI).
+const PLATFORM_LABELS: Record<string, string> = {
+    wordpress: "WordPress",
+    custom: "Sur-mesure",
+};
 
-  const metadata = integration.metadata as Record<string, unknown> | null;
-  const isGA4 = integration.type === "ga4";
-  const isGSC = integration.type === "gsc";
+// In-page sub-navigation: one area visible at a time (no stacked dividers).
+type SectionId = "collect" | "analytics" | "uptime" | "info";
+const SECTIONS: { id: SectionId; label: string; icon: typeof Inbox; hint: string }[] = [
+    {
+        id: "analytics",
+        label: "Analytics",
+        icon: BarChart3,
+        hint: "Connexions Google Analytics, Business Profile et Search Console.",
+    },
+    {
+        id: "collect",
+        label: "Collecte",
+        icon: Inbox,
+        hint: "Portes de réception des prospects et formulaires.",
+    },
+    {
+        id: "uptime",
+        label: "Uptime",
+        icon: Activity,
+        hint: "Disponibilité, temps de réponse et incidents du site.",
+    },
+    {
+        id: "info",
+        label: "Infos & accès",
+        icon: KeyRound,
+        hint: "Identifiants, liens et notes techniques du site.",
+    },
+];
 
-  // GA4 properties from metadata
-  const properties = (metadata?.properties as Array<{
-    account?: string;
-    displayName?: string;
-    propertySummaries?: Array<{
-      property?: string;
-      displayName?: string;
-    }>;
-  }>) || [];
-
-  // GBP locations from metadata
-  const locations = (metadata?.locations as Array<{
-    accountId: string;
-    accountName: string;
-    locationId: string;
-    locationName: string;
-  }>) || [];
-
-  // GSC sites from metadata
-  const sites = (metadata?.sites as Array<{
-    siteUrl: string;
-    permissionLevel: string;
-  }>) || [];
-
-  async function handleSelect(accountId: string, accountName: string) {
-    setSaving(true);
-    setError(null);
-    const result = await selectIntegrationAccount(
-      integration.id,
-      accountId,
-      accountName,
-      clientId
-    );
-    setSaving(false);
-
-    if (result.success) {
-      router.refresh();
-      onClose();
-    } else {
-      setError(result.error || "Failed to save selection");
+/** Bare hostname for the address bar (no protocol / www / trailing slash). */
+function hostOf(url: string): string {
+    try {
+        return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+        return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
     }
-  }
+}
 
-  async function handleManualSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!manualLocationId.trim()) {
-      setError("Location ID is required");
-      return;
+/** HTTPS drives the padlock vs globe in the address bar. */
+function isSecure(url: string): boolean {
+    try {
+        return new URL(url).protocol === "https:";
+    } catch {
+        return false;
     }
-    await handleSelect(
-      manualLocationId.trim(),
-      manualLocationName.trim() || `Location ${manualLocationId.trim()}`
-    );
-  }
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      title={isGA4 ? "Select GA4 Property" : isGSC ? "Select Search Console Site" : "Select Business Location"}
-    >
-      <div className="space-y-2">
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        {isGA4 ? (
-          properties.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No GA4 properties found for this Google account. Make sure the account has access to Google Analytics.
-            </p>
-          ) : (
-            properties.map((account) => (
-              <div key={account.account || account.displayName} className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {account.displayName || account.account}
-                </p>
-                {(account.propertySummaries || []).map((prop) => {
-                  const propertyId = prop.property?.replace("properties/", "") || "";
-                  return (
-                    <button
-                      key={prop.property}
-                      onClick={() => handleSelect(propertyId, prop.displayName || propertyId)}
-                      disabled={saving}
-                      className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
-                    >
-                      <span className="font-medium">{prop.displayName}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{propertyId}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))
-          )
-        ) : isGSC ? (
-          sites.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No verified sites found in Search Console. Make sure the Google account has verified sites in Google Search Console.
-            </p>
-          ) : (
-            sites.map((site) => (
-              <button
-                key={site.siteUrl}
-                onClick={() => handleSelect(site.siteUrl, site.siteUrl)}
-                disabled={saving}
-                className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
-              >
-                <span className="font-medium">{site.siteUrl}</span>
-                <span className="ml-2 text-xs text-muted-foreground">{site.permissionLevel}</span>
-              </button>
-            ))
-          )
-        ) : locations.length > 0 ? (
-          locations.map((loc) => (
-            <button
-              key={`${loc.accountId}-${loc.locationId}`}
-              onClick={() => handleSelect(loc.locationId, loc.locationName)}
-              disabled={saving}
-              className="w-full rounded border border-border p-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
-            >
-              <span className="font-medium">{loc.locationName}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{loc.accountName}</span>
-            </button>
-          ))
-        ) : !showManualInput ? (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Could not auto-discover locations. This happens when the Google Business Profile API access is pending approval.
-            </p>
-            <Button
-              size="sm"
-              onClick={() => setShowManualInput(true)}
-              className="w-full"
-            >
-              Enter Location ID Manually
-            </Button>
-          </div>
-        ) : null}
-
-        {/* Manual location ID input for GBP */}
-        {!isGA4 && (showManualInput || locations.length > 0) && (
-          <form onSubmit={handleManualSubmit} className="space-y-2 rounded border border-border p-3">
-            {locations.length > 0 && (
-              <p className="text-xs font-medium text-muted-foreground">Or enter manually:</p>
-            )}
-            <div className="space-y-1">
-              <Label htmlFor="manual_location_id" className="text-xs">Location ID</Label>
-              <Input
-                id="manual_location_id"
-                value={manualLocationId}
-                onChange={(e) => setManualLocationId(e.target.value)}
-                required
-                placeholder="e.g. 12345678901234567"
-                className="h-8 text-xs"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                Find it at business.google.com → select your business → the number in the URL
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="manual_location_name" className="text-xs">Business Name</Label>
-              <Input
-                id="manual_location_name"
-                value={manualLocationName}
-                onChange={(e) => setManualLocationName(e.target.value)}
-                placeholder="e.g. Healing Therapy București"
-                className="h-8 text-xs"
-              />
-            </div>
-            <Button type="submit" size="sm" disabled={saving} className="h-7 w-full text-xs">
-              {saving ? "Saving..." : "Save Location"}
-            </Button>
-          </form>
-        )}
-
-        <div className="flex justify-end pt-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
 }
 
-function IntegrationItem({
-  integration,
-  clientId,
-}: {
-  integration: Integration;
-  clientId: string;
-}) {
-  const router = useRouter();
-  const [deleting, setDeleting] = useState(false);
-  const [showSelection, setShowSelection] = useState(false);
+export function WebsitesList({ clientId, websites, googleConfigured }: WebsitesListProps) {
+    const searchParams = useSearchParams();
+    const confirm = useConfirm();
+    const [formOpen, setFormOpen] = useState(false);
+    const [editingWebsite, setEditingWebsite] = useState<Website | null>(null);
+    const [activeWebsiteId, setActiveWebsiteId] = useState<string | null>(null);
+    const [section, setSection] = useState<SectionId>("analytics");
 
-  const needsSelection =
-    integration.metadata?.needsPropertySelection ||
-    integration.metadata?.needsLocationSelection ||
-    integration.metadata?.needsSiteSelection;
+    // Active tab: user click wins, else the ?site= deep-link, else the first site.
+    const siteParam = searchParams.get("site");
+    const exists = (id: string | null) => !!id && websites.some((w) => w.id === id);
+    const activeId = exists(activeWebsiteId)
+        ? activeWebsiteId
+        : exists(siteParam)
+          ? siteParam
+          : (websites[0]?.id ?? null);
+    const active = websites.find((w) => w.id === activeId) ?? null;
 
-  const typeLabel =
-    integration.type === "facebook"
-      ? "Facebook Pixel"
-      : integration.type === "ga4"
-        ? "GA4"
-        : integration.type === "gsc"
-          ? "GSC"
-          : integration.type === "wordpress"
-            ? "WordPress"
-            : "GBP";
+    function handleEdit(website: Website) {
+        setEditingWebsite(website);
+        setFormOpen(true);
+    }
 
-  async function handleDelete() {
-    if (!confirm(`Remove this ${typeLabel} integration?`)) return;
-    setDeleting(true);
-    await deleteIntegration(integration.id, clientId);
-    router.refresh();
-  }
+    function handleClose() {
+        setFormOpen(false);
+        setEditingWebsite(null);
+    }
 
-  return (
-    <>
-      <div className="flex items-center justify-between rounded border p-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">
-            {typeLabel}:{" "}
-            {needsSelection
-              ? "Setup required"
-              : integration.account_name || integration.account_id}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {needsSelection ? (
-            <button
-              onClick={() => setShowSelection(true)}
-              className="cursor-pointer"
-            >
-              <Badge variant="secondary" className="cursor-pointer text-[10px] hover:bg-muted-foreground/20">Setup</Badge>
-            </button>
-          ) : integration.is_active ? (
-            <Badge variant="default" className="text-[10px]">Active</Badge>
-          ) : (
-            <Badge variant="secondary" className="text-[10px]">Inactive</Badge>
-          )}
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
-            title="Remove"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
+    async function handleDelete(website: Website) {
+        const ok = await confirm({
+            title: `Supprimer « ${website.name} » ?`,
+            description: "Cela supprimera aussi les connecteurs et soumissions de ce site.",
+            confirmLabel: "Supprimer",
+            destructive: true,
+        });
+        if (!ok) return;
 
-      {showSelection && (
-        <AccountSelectionModal
-          integration={integration}
-          clientId={clientId}
-          onClose={() => setShowSelection(false)}
-        />
-      )}
-    </>
-  );
-}
+        const result = await deleteWebsiteAction(website.id);
+        if (!result.success) toast.error(result.error || "Échec de la suppression du site");
+        else toast.success("Site supprimé");
+    }
 
-function ProjectLinkItem({
-  websiteId,
-  field,
-  label,
-  value,
-  placeholder,
-  icon,
-}: {
-  websiteId: string;
-  field: "git_repo_url" | "asana_project_url" | "figma_url";
-  label: string;
-  value: string | null | undefined;
-  placeholder: string;
-  icon: React.ReactNode;
-}) {
-  const router = useRouter();
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState(value || "");
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    await updateProjectLinkAction(websiteId, field, inputValue);
-    setSaving(false);
-    setEditing(false);
-    router.refresh();
-  }
-
-  if (editing) {
     return (
-      <div className="flex items-center gap-1.5 rounded border p-2">
-        {icon}
-        <Input
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder={placeholder}
-          className="h-7 flex-1 text-xs"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-            if (e.key === "Escape") { setEditing(false); setInputValue(value || ""); }
-          }}
-        />
-        <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={handleSave}>
-          {saving ? "..." : "Save"}
-        </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditing(false); setInputValue(value || ""); }}>
-          Cancel
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="flex cursor-pointer items-center justify-between rounded border p-2 transition-colors hover:bg-muted/50"
-      onClick={() => setEditing(true)}
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {icon}
-        <p className="truncate text-xs font-medium">
-          {label}:{" "}
-          {value ? (
-            <a
-              href={value}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-normal text-muted-foreground hover:text-foreground hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {value.replace(/^https?:\/\//, "")}
-            </a>
-          ) : (
-            <span className="font-normal text-muted-foreground">Not set</span>
-          )}
-        </p>
-      </div>
-      {value ? (
-        <Badge variant="default" className="ml-2 text-[10px]">Linked</Badge>
-      ) : (
-        <span className="text-[10px] text-muted-foreground">Click to set</span>
-      )}
-    </div>
-  );
-}
-
-function FacebookPixelForm({
-  clientId,
-  onDone,
-}: {
-  clientId: string;
-  onDone: () => void;
-}) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    const form = e.currentTarget;
-    const pixelId = (form.elements.namedItem("pixel_id") as HTMLInputElement).value;
-    const accessToken = (form.elements.namedItem("access_token") as HTMLInputElement).value;
-    const testEventCode = (form.elements.namedItem("test_event_code") as HTMLInputElement).value;
-
-    const result = await addFacebookIntegration(
-      clientId,
-      pixelId,
-      accessToken,
-      testEventCode || undefined
-    );
-
-    setLoading(false);
-
-    if (result.success) {
-      onDone();
-      router.refresh();
-    } else {
-      setError(result.error || "Failed to add integration");
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-2 space-y-2 rounded border border-border p-3">
-      <p className="text-xs font-medium">Add Facebook Pixel</p>
-      <div className="space-y-1">
-        <Label htmlFor="pixel_id" className="text-xs">Pixel ID</Label>
-        <Input id="pixel_id" name="pixel_id" required placeholder="123456789012345" className="h-8 text-xs" />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="access_token" className="text-xs">Access Token</Label>
-        <Input id="access_token" name="access_token" type="password" required placeholder="EAAxxxxxxx..." className="h-8 text-xs" />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="test_event_code" className="text-xs">Test Event Code (optional)</Label>
-        <Input id="test_event_code" name="test_event_code" placeholder="TEST12345" className="h-8 text-xs" />
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={loading} className="h-7 text-xs">
-          {loading ? "Saving..." : "Save"}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onDone} className="h-7 text-xs">
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function WebsiteIntegrations({
-  websiteId,
-  clientId,
-  siteUrl,
-  integrations,
-  googleConfigured,
-  appUrl,
-}: {
-  websiteId: string;
-  clientId: string;
-  siteUrl: string;
-  integrations: Integration[];
-  googleConfigured: boolean;
-  appUrl: string;
-}) {
-  const [showFbForm, setShowFbForm] = useState(false);
-  const [showWpForm, setShowWpForm] = useState(false);
-
-  const ga4 = integrations.filter((i) => i.type === "ga4");
-  const gbp = integrations.filter((i) => i.type === "gbp");
-  const gsc = integrations.filter((i) => i.type === "gsc");
-  const fb = integrations.filter((i) => i.type === "facebook");
-  const wp = integrations.filter((i) => i.type === "wordpress");
-
-  return (
-    <div className="mt-4 border-t border-border pt-3">
-      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-        Integrations
-      </p>
-
-      <div className="space-y-1.5">
-        {/* Existing integrations */}
-        {[...wp, ...ga4, ...gbp, ...gsc, ...fb].map((i) => (
-          <IntegrationItem key={i.id} integration={i} clientId={clientId} />
-        ))}
-
-        {/* Connect buttons */}
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {ga4.length === 0 && googleConfigured && (
-            <a
-              href={`/api/auth/google?client_id=${clientId}&type=ga4`}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M22.84 2.998c-.648-.644-1.712-.644-2.36 0L4.22 19.26c-.648.644-.648 1.692 0 2.336.324.324.756.504 1.18.504.424 0 .856-.18 1.18-.504L22.84 5.334c.648-.644.648-1.692 0-2.336z" />
-                <path d="M3.54 7.152a3.54 3.54 0 1 0 0-7.08 3.54 3.54 0 0 0 0 7.08zM20.46 24a3.54 3.54 0 1 0 0-7.08 3.54 3.54 0 0 0 0 7.08z" />
-              </svg>
-              Connect GA4
-            </a>
-          )}
-          {gbp.length === 0 && googleConfigured && (
-            <a
-              href={`/api/auth/google?client_id=${clientId}&type=gbp`}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-              </svg>
-              Connect GBP
-            </a>
-          )}
-          {gsc.length === 0 && googleConfigured && (
-            <a
-              href={`/api/auth/google?client_id=${clientId}&type=gsc`}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 0 0 1.48-5.34c-.47-2.78-2.79-5-5.59-5.34a6.505 6.505 0 0 0-7.27 7.27c.34 2.8 2.56 5.12 5.34 5.59a6.5 6.5 0 0 0 5.34-1.48l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0 .41-.41.41-1.08 0-1.49L15.5 14zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-              </svg>
-              Connect GSC
-            </a>
-          )}
-          {wp.length === 0 && !showWpForm && (
-            <button
-              onClick={() => setShowWpForm(true)}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zM3.443 12c0-.735.097-1.447.277-2.128l3.04 8.327A8.574 8.574 0 0 1 3.443 12zm8.557 8.557c-.725 0-1.426-.09-2.098-.26l2.229-6.478 2.283 6.257a.726.726 0 0 0 .056.103 8.507 8.507 0 0 1-2.47.378zm1.001-12.593c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.73 0-1.958-.095-1.958-.095-.401-.023-.448.591-.047.614 0 0 .378.047.778.071l1.155 3.166-1.622 4.868L7.45 8.036c.447-.024.85-.071.85-.071.401-.047.354-.637-.047-.614 0 0-1.205.095-1.982.095-.14 0-.305-.004-.478-.01A8.546 8.546 0 0 1 12 3.443c2.096 0 4.008.757 5.492 2.011-.035-.002-.069-.007-.105-.007-.73 0-1.246.636-1.246 1.317 0 .612.354 1.129.73 1.74.283.495.614 1.129.614 2.046 0 .636-.177 1.426-.518 2.39l-.68 2.27-2.459-7.317.002.001zm3.086 10.843l2.25-6.503c.42-1.052.56-1.893.56-2.641 0-.272-.018-.524-.05-.763a8.554 8.554 0 0 1 .711 3.1c0 2.551-1.134 4.835-2.921 6.393l-.55.414z"/>
-              </svg>
-              Connect WordPress
-            </button>
-          )}
-          {!showFbForm && (
-            <button
-              onClick={() => setShowFbForm(true)}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-              </svg>
-              {fb.length > 0 ? "Add Pixel" : "Add Facebook Pixel"}
-            </button>
-          )}
-        </div>
-
-        {showWpForm && (
-          <WPConnectForm
-            websiteId={websiteId}
-            siteUrl={siteUrl}
-            onDone={() => setShowWpForm(false)}
-          />
-        )}
-
-        {showFbForm && (
-          <FacebookPixelForm
-            clientId={clientId}
-            onDone={() => setShowFbForm(false)}
-          />
-        )}
-
-        {/* Show setup guidance when Google OAuth is not configured */}
-        {!googleConfigured && ga4.length === 0 && gbp.length === 0 && gsc.length === 0 && (
-          <div className="mt-2 rounded border border-dashed border-border bg-muted/50 p-3">
-            <p className="mb-1 text-xs font-medium">Google Integrations Unavailable</p>
-            <p className="text-xs text-muted-foreground">
-              GA4 and Google Business Profile require Google OAuth to be configured.
-              Add these environment variables in your <span className="font-medium text-foreground">Vercel project settings</span> (Settings &rarr; Environment Variables) and redeploy:
-            </p>
-            <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
-              <li>1. Go to <span className="font-medium text-foreground">Google Cloud Console</span> &rarr; APIs &amp; Services &rarr; Credentials</li>
-              <li>2. Create an <span className="font-medium text-foreground">OAuth 2.0 Client ID</span> (Web application)</li>
-              <li>3. Set redirect URI to <code className="rounded bg-background px-1 py-0.5 text-[10px]">{`${appUrl}/api/auth/google/callback`}</code></li>
-              <li>4. Enable APIs: <span className="font-medium text-foreground">Analytics Data API</span>, <span className="font-medium text-foreground">Analytics Admin API</span>, <span className="font-medium text-foreground">Search Console API</span>, <span className="font-medium text-foreground">My Business Account Management</span>, <span className="font-medium text-foreground">My Business Business Information</span></li>
-              <li>5. Add these environment variables:</li>
-            </ol>
-            <pre className="mt-1.5 overflow-x-auto rounded bg-background p-2 text-[10px] leading-relaxed">
-{`GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=${appUrl}/api/auth/google/callback
-TOKEN_ENCRYPTION_KEY=any-32-char-random-string`}
-            </pre>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function WebsitesList({ clientId, websites, integrations, googleConfigured, appUrl }: WebsitesListProps) {
-  const router = useRouter();
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingWebsite, setEditingWebsite] = useState<Website | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-
-  function handleEdit(website: Website) {
-    setEditingWebsite(website);
-    setFormOpen(true);
-  }
-
-  function handleClose() {
-    setFormOpen(false);
-    setEditingWebsite(null);
-  }
-
-  async function handleDelete(website: Website) {
-    if (!confirm(`Delete "${website.name}"? This will also delete all leads from this website.`)) {
-      return;
-    }
-
-    const result = await deleteWebsiteAction(website.id);
-    if (!result.success) {
-      alert(result.error || "Failed to delete website");
-    }
-  }
-
-  async function handleCopyApiKey(website: Website) {
-    await navigator.clipboard.writeText(website.api_key);
-    setCopiedId(website.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  }
-
-  async function handleRegenerateKey(website: Website) {
-    if (!confirm("Regenerate API key? The old key will stop working immediately.")) {
-      return;
-    }
-
-    const result = await regenerateApiKeyAction(website.id);
-    if (!result.success) {
-      alert(result.error || "Failed to regenerate key");
-    } else if (result.apiKey) {
-      await navigator.clipboard.writeText(result.apiKey);
-      alert("New API key copied to clipboard!");
-    }
-  }
-
-
-  return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Websites</CardTitle>
-          <Button size="sm" onClick={() => setFormOpen(true)}>
-            Add Website
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {websites.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No websites yet. Add a website to start receiving leads.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {websites.map((website) => (
-                <div
-                  key={website.id}
-                  className="rounded-lg border border-border p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="font-medium">{website.name}</h4>
-                        <Badge variant={website.is_active ? "default" : "secondary"}>
-                          {website.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                      <a
-                        href={website.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block truncate text-sm text-muted-foreground hover:underline"
-                      >
-                        {website.url}
-                      </a>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Source: {website.source_type}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(website)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDelete(website)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-lg bg-muted p-3">
-                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-                      API Key (for webhook)
-                    </p>
-                    <code className="mb-2 block truncate rounded bg-background px-2 py-1 text-xs">
-                      {website.api_key}
-                    </code>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 flex-1 sm:h-8 sm:flex-none"
-                        onClick={() => handleCopyApiKey(website)}
-                      >
-                        {copiedId === website.id ? "Copied!" : "Copy Key"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 flex-1 sm:h-8 sm:flex-none"
-                        onClick={() => handleRegenerateKey(website)}
-                      >
-                        Regenerate
-                      </Button>
-                    </div>
-                    <p className="mt-2 break-all text-xs text-muted-foreground">
-                      Webhook: {process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/lead?key={website.api_key}
-                    </p>
-                  </div>
-
-                  {/* Integrations for this website/client */}
-                  <WebsiteIntegrations
-                    websiteId={website.id}
-                    clientId={clientId}
-                    siteUrl={website.url}
-                    integrations={integrations}
-                    googleConfigured={googleConfigured}
-                    appUrl={appUrl}
-                  />
-
-                  {/* Project Links */}
-                  <div className="mt-4 border-t border-border pt-3">
-                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-                      Project Links
-                    </p>
-                    <div className="space-y-1.5">
-                      <ProjectLinkItem
-                        websiteId={website.id}
-                        field="git_repo_url"
-                        label="Git"
-                        value={website.git_repo_url}
-                        placeholder="https://github.com/user/repo"
-                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>}
-                      />
-                      <ProjectLinkItem
-                        websiteId={website.id}
-                        field="asana_project_url"
-                        label="Asana"
-                        value={website.asana_project_url}
-                        placeholder="https://app.asana.com/0/1234567890/board"
-                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M18.78 12.653c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zm-13.56 0c-2.768 0-5.013 2.245-5.013 5.013s2.245 5.013 5.013 5.013 5.013-2.245 5.013-5.013-2.245-5.013-5.013-5.013zM12 1.321c-2.768 0-5.013 2.245-5.013 5.013S9.232 11.347 12 11.347s5.013-2.245 5.013-5.013S14.768 1.321 12 1.321z" /></svg>}
-                      />
-                      <ProjectLinkItem
-                        websiteId={website.id}
-                        field="figma_url"
-                        label="Figma"
-                        value={website.figma_url}
-                        placeholder="https://www.figma.com/file/..."
-                        icon={<svg className="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm0-20C5.792 4 4 5.792 4 8s1.792 4 4 4h4V4H8zM8 0C5.792 0 4 1.792 4 4s1.792 4 4 4h4V0H8zm8 0h-4v8h4c2.208 0 4-1.792 4-4s-1.792-4-4-4zm0 12c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z" /></svg>}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Info Board */}
-                  <InfoBoard websiteId={website.id} />
-                </div>
-              ))}
+        <section className="space-y-3">
+            <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold">Sites web</h2>
+                <span className="text-xs text-muted-foreground">
+                    {websites.length} {websites.length === 1 ? "site" : "sites"}
+                </span>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      <WebsiteForm
-        open={formOpen}
-        onClose={handleClose}
-        clientId={clientId}
-        website={editingWebsite}
-      />
-    </>
-  );
+            {websites.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+                    <Globe className="size-8 text-muted-foreground" />
+                    <p className="max-w-xs text-sm text-muted-foreground">
+                        Aucun site pour le moment. Ajoutez-en un pour commencer à recevoir des
+                        soumissions.
+                    </p>
+                    <Button size="sm" onClick={() => setFormOpen(true)} className="gap-1.5">
+                        <Plus className="size-4" />
+                        Ajouter un site
+                    </Button>
+                </div>
+            ) : (
+                <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+                    {/* ── Browser tab strip: one tab per website ── */}
+                    <div className="flex items-end gap-1 overflow-x-auto overflow-y-hidden border-b border-border bg-muted/40 px-2 pt-2">
+                        {websites.map((w) => {
+                            const isActive = w.id === activeId;
+                            return (
+                                <button
+                                    key={w.id}
+                                    type="button"
+                                    onClick={() => setActiveWebsiteId(w.id)}
+                                    title={w.name}
+                                    className={cn(
+                                        "-mb-px flex max-w-[180px] shrink-0 items-center gap-2 rounded-t-lg border px-3 py-2 text-sm transition-colors",
+                                        isActive
+                                            ? "border-border border-b-background bg-background font-medium text-foreground"
+                                            : "border-transparent text-muted-foreground hover:bg-muted/70",
+                                    )}>
+                                    <span
+                                        className={cn(
+                                            "size-2 shrink-0 rounded-full",
+                                            w.is_active ? "bg-success" : "bg-muted-foreground/40",
+                                        )}
+                                    />
+                                    <span className="truncate">{w.name}</span>
+                                </button>
+                            );
+                        })}
+                        <button
+                            type="button"
+                            onClick={() => setFormOpen(true)}
+                            title="Ajouter un site"
+                            aria-label="Ajouter un site"
+                            className="mb-1.5 ml-0.5 shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                            <Plus className="size-4" />
+                        </button>
+                    </div>
+
+                    {active && (
+                        <>
+                            {/* ── Address bar: macOS dots + URL pill + actions ── */}
+                            <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-3 py-2">
+                                <span className="flex shrink-0 gap-1.5" aria-hidden>
+                                    <span className="size-2.5 rounded-full bg-[#ff5f57]" />
+                                    <span className="size-2.5 rounded-full bg-[#febc2e]" />
+                                    <span className="size-2.5 rounded-full bg-[#28c840]" />
+                                </span>
+                                <a
+                                    href={active.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={active.url}
+                                    className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs transition-colors hover:bg-muted">
+                                    {isSecure(active.url) ? (
+                                        <Lock className="size-3 shrink-0 text-success" />
+                                    ) : (
+                                        <Globe className="size-3 shrink-0 text-muted-foreground" />
+                                    )}
+                                    <span className="truncate text-foreground">
+                                        {hostOf(active.url)}
+                                    </span>
+                                    <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                                </a>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="shrink-0 gap-1.5">
+                                            <Pencil className="size-3.5" />
+                                            Gérer
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => handleEdit(active)}>
+                                            <Pencil className="size-4" />
+                                            Modifier le site
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            variant="destructive"
+                                            onClick={() => handleDelete(active)}>
+                                            <Trash2 className="size-4" />
+                                            Supprimer le site
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+
+                            {/* ── Page content for the active site ── */}
+                            <div className="space-y-6 p-5">
+                                <div className="space-y-1.5">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <h3 className="text-lg font-semibold">{active.name}</h3>
+                                        <Badge variant={active.is_active ? "default" : "secondary"}>
+                                            {active.is_active ? "Actif" : "Inactif"}
+                                        </Badge>
+                                        <Badge variant="outline">
+                                            {PLATFORM_LABELS[active.platform] ?? active.platform}
+                                        </Badge>
+                                        {active.uptime_enabled && (
+                                            <Badge variant="outline" className="gap-1">
+                                                <Activity className="size-3" />
+                                                Surveillance
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Ajouté le {formatDate(active.created_at)}
+                                    </p>
+                                </div>
+
+                                {/* In-page sub-navigation — one area at a time. */}
+                                <div className="space-y-3">
+                                    <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
+                                        {SECTIONS.map((s) => {
+                                            const Icon = s.icon;
+                                            const selected = section === s.id;
+                                            return (
+                                                <button
+                                                    key={s.id}
+                                                    type="button"
+                                                    onClick={() => setSection(s.id)}
+                                                    className={cn(
+                                                        "flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                                                        selected
+                                                            ? "bg-background font-medium text-foreground shadow-sm"
+                                                            : "text-muted-foreground hover:text-foreground",
+                                                    )}>
+                                                    <Icon className="size-3.5" />
+                                                    {s.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        {SECTIONS.find((s) => s.id === section)?.hint}
+                                    </p>
+
+                                    {section === "collect" && (
+                                        <ConnectorsBoard
+                                            websiteId={active.id}
+                                            clientId={clientId}
+                                        />
+                                    )}
+                                    {section === "analytics" && (
+                                        <IntegrationsBoard
+                                            websiteId={active.id}
+                                            googleConfigured={googleConfigured}
+                                        />
+                                    )}
+                                    {section === "uptime" && (
+                                        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-6 py-10 text-center">
+                                            <Activity className="size-6 text-muted-foreground" />
+                                            <p className="text-sm font-medium">
+                                                Surveillance uptime
+                                            </p>
+                                            <p className="max-w-xs text-xs text-muted-foreground">
+                                                Fonctionnalité en cours de développement.
+                                            </p>
+                                        </div>
+                                    )}
+                                    {section === "info" && (
+                                        <AttributesBoard websiteId={active.id} />
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            <WebsiteForm
+                open={formOpen}
+                onClose={handleClose}
+                clientId={clientId}
+                website={editingWebsite}
+            />
+        </section>
+    );
 }

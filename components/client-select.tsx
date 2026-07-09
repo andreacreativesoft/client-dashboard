@@ -1,49 +1,57 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 interface Client {
-  id: string;
-  business_name: string;
+    id: string;
+    business_name: string;
 }
 
 interface ClientSelectProps {
-  clients: Client[];
-  selectedClientId?: string | null;
+    clients: Client[];
+    value: string;
+    onValueChange: (value: string) => void;
+    placeholder?: string;
+    /** When set, prepends an "all clients" option using the "all" sentinel value. */
+    allLabel?: string;
+    triggerClassName?: string;
 }
 
-export function ClientSelect({ clients, selectedClientId }: ClientSelectProps) {
-  const router = useRouter();
-  const [switching, setSwitching] = useState(false);
+/**
+ * Reusable client picker: a shadcn Select listing every client alphabetically.
+ * Used by the "open a client space" dialog and the admin tickets client filter.
+ */
+export function ClientSelect({
+    clients,
+    value,
+    onValueChange,
+    placeholder = "Sélectionner un client…",
+    allLabel,
+    triggerClassName = "w-full",
+}: ClientSelectProps) {
+    const sorted = [...clients].sort((a, b) =>
+        a.business_name.localeCompare(b.business_name, undefined, { sensitivity: "base" }),
+    );
 
-  async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const clientId = e.target.value || null;
-    setSwitching(true);
-    try {
-      const { selectClientAction } = await import("@/lib/actions/clients");
-      await selectClientAction(clientId);
-      router.refresh();
-    } finally {
-      setSwitching(false);
-    }
-  }
-
-  if (clients.length === 0) return null;
-
-  return (
-    <select
-      value={selectedClientId || ""}
-      onChange={handleChange}
-      disabled={switching}
-      className="h-9 max-w-[180px] truncate rounded-lg border border-border bg-card px-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
-    >
-      <option value="">All Clients</option>
-      {clients.map((client) => (
-        <option key={client.id} value={client.id}>
-          {client.business_name}
-        </option>
-      ))}
-    </select>
-  );
+    return (
+        <Select value={value} onValueChange={onValueChange}>
+            <SelectTrigger className={triggerClassName}>
+                <SelectValue placeholder={placeholder} />
+            </SelectTrigger>
+            <SelectContent>
+                {allLabel && <SelectItem value="all">{allLabel}</SelectItem>}
+                {sorted.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                        {client.business_name}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
 }

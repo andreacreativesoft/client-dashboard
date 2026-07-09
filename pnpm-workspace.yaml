@@ -1,0 +1,9 @@
+allowBuilds:
+    esbuild: true
+    sharp: true
+onlyBuiltDependencies:
+    - esbuild
+    - sharp
+overrides:
+    # next embarque postcss 8.4.31 (vuln) — force une version patchée (compat v8).
+    postcss: "^8.5.10"
